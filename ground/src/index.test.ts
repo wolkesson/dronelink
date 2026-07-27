@@ -120,11 +120,19 @@ function validateAgainstPairingSchema(schema: Record<string, unknown>, value: Re
         return false;
       }
 
-      if (typeof propertySchema.minimum === "number" && propertyValue < propertySchema.minimum) {
+      const numericPropertyValue = propertyValue as number;
+
+      if (
+        typeof propertySchema.minimum === "number" &&
+        numericPropertyValue < propertySchema.minimum
+      ) {
         return false;
       }
 
-      if (typeof propertySchema.maximum === "number" && propertyValue > propertySchema.maximum) {
+      if (
+        typeof propertySchema.maximum === "number" &&
+        numericPropertyValue > propertySchema.maximum
+      ) {
         return false;
       }
     }
@@ -197,7 +205,9 @@ describe("signaling server", () => {
       ),
     ) as Record<string, unknown>;
 
-    expect(validateAgainstPairingSchema(schema, bundle as Record<string, unknown>)).toBe(true);
+    expect(validateAgainstPairingSchema(schema, bundle as unknown as Record<string, unknown>)).toBe(
+      true,
+    );
   });
 
   it("reuses the persisted TLS certificate across restarts", async () => {
