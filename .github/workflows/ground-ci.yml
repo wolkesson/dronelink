@@ -1,0 +1,60 @@
+name: ground CI
+
+on:
+  push:
+    paths:
+      - "ground/**"
+      - ".github/workflows/ground-ci.yml"
+  pull_request:
+    paths:
+      - "ground/**"
+      - ".github/workflows/ground-ci.yml"
+
+jobs:
+  build-lint-test:
+    name: Build, lint, and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ground
+
+    # TODO (Phase 0/1 SITL integration): add an INAV SITL service container here.
+    # Example stub (do not enable until the SITL image is available and the integration
+    # tests in src/index.test.ts are implemented):
+    #
+    # services:
+    #   inav-sitl:
+    #     image: ghcr.io/<org>/inav-sitl:latest
+    #     ports:
+    #       - 5761:5761   # SITL TCP serial bridge port
+    #     options: >-
+    #       --health-cmd "nc -z localhost 5761"
+    #       --health-interval 5s
+    #       --health-timeout 3s
+    #       --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: ground/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (type-check)
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true  # lint is advisory until ESLint config is finalized
+
+      - name: Test
+        run: npm test
+        # TODO: once SITL service container is enabled above, pass SITL_PORT env var:
+        # env:
+        #   SITL_PORT: 5761
