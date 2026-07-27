@@ -1,15 +1,23 @@
-/**
- * Ground software entry point.
- * Starts the embedded WebSocket signaling server and prepares the WebRTC peer.
- *
- * TODO: implement pairing bundle generation (session ID, token, self-signed cert fingerprint),
- *       QR code display, and WebRTC peer setup (Phase 0 spike).
- */
 import { createSignalingServer } from "./signaling.js";
 
 const PORT = Number(process.env.SIGNAL_PORT ?? 8443);
+const HOST = process.env.SIGNAL_HOST ?? "localhost";
 
-const server = createSignalingServer(PORT);
-server.on("listening", () => {
-  console.log(`Signaling server listening on port ${PORT}`);
+const signalingServer = createSignalingServer({
+  port: PORT,
+  host: HOST,
 });
+
+void signalingServer
+  .start()
+  .then((bundle) => {
+    console.log(`Signaling server listening on wss://${bundle.host}:${bundle.port}`);
+    console.log(`TLS certificate fingerprint (SHA-256): ${bundle.certFingerprint}`);
+    console.log("Pairing bundle JSON:");
+    console.log(JSON.stringify(bundle, null, 2));
+  })
+  .catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to start signaling server: ${message}`);
+    process.exitCode = 1;
+  });
