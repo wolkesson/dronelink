@@ -161,7 +161,7 @@ export class PairingSession {
       };
 
       timeout = setTimeout(() => {
-        socket.close(1000, "pairing timeout");
+        socket.close(1008, "pairing timeout");
         fail("Pairing failed: timed out waiting for the ground station.");
       }, this.handshakeTimeoutMs);
 

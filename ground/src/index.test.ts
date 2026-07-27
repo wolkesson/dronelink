@@ -200,7 +200,7 @@ describe("signaling server", () => {
     const bundle = await runtime.start();
     const schema = JSON.parse(
       readFileSync(
-        resolve("/home/runner/work/dronelink/dronelink/protocol/schemas/pairing-bundle.schema.json"),
+        new URL("../../protocol/schemas/pairing-bundle.schema.json", import.meta.url),
         "utf8",
       ),
     ) as Record<string, unknown>;
