@@ -1,0 +1,27 @@
+{
+  "name": "dronelink-ground",
+  "version": "0.1.0",
+  "description": "Ground control software: signaling server, WebRTC peer, byte-stream/TCP bridge, video sink",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "start": "node --loader ts-node/esm src/index.ts"
+  },
+  "dependencies": {
+    "werift": "^0.24.1",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.14",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
+  }
+}

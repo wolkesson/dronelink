@@ -1,0 +1,66 @@
+# ─── Node / npm ───────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.yarn/
+.pnp.*
+package-lock.json.bak
+
+# ─── TypeScript / Vite build output ──────────────────────────────────────────
+dist/
+build/
+.tsbuildinfo
+*.tsbuildinfo
+
+# ─── Vite ────────────────────────────────────────────────────────────────────
+.vite/
+
+# ─── Test / coverage ─────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ─── Kotlin / Gradle (for /android-shell — Phase 2.5) ────────────────────────
+.gradle/
+*.gradle
+gradle/
+gradlew
+gradlew.bat
+local.properties
+*.iml
+*.apk
+*.aab
+*.class
+*.dex
+*.keystore
+app/build/
+build/
+
+# ─── Android Studio ──────────────────────────────────────────────────────────
+.idea/
+*.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ─── OS / editor artifacts ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.vscode/settings.json
+.vscode/*.code-snippets
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# ─── Environment / secrets ───────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Misc ────────────────────────────────────────────────────────────────────
+*.log
+*.pid
+.cache/
