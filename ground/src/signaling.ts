@@ -1,4 +1,5 @@
-import { createServer, type Server as HttpsServer } from "node:https";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";
@@ -24,7 +25,7 @@ export interface SignalingServerOptions {
 }
 
 export interface SignalingServerRuntime {
-  httpsServer: HttpsServer;
+  httpsServer: HttpServer | HttpsServer;
   wss: WebSocketServer;
   certFingerprint: string;
   start(): Promise<PairingBundle>;
@@ -32,7 +33,9 @@ export interface SignalingServerRuntime {
   close(): Promise<void>;
 }
 
-function getListeningPort(server: HttpsServer): number {
+type SignalingServer = HttpServer | HttpsServer;
+
+function getListeningPort(server: SignalingServer): number {
   const address = server.address();
   if (!address || typeof address === "string") {
     throw new Error("Signaling server is not listening on a TCP port.");
@@ -48,22 +51,32 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   const stateDir = options.stateDir ?? join(homedir(), ".dronelink-ground");
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   const logger = options.logger ?? console;
-  const tlsMaterial = ensureTlsMaterial(stateDir, tlsTarget);
   const sessionId = generateSessionId();
   const token = generateToken();
+  let tlsFingerprint = "";
+  let server: SignalingServer;
 
-  const httpsServer = createServer(
-    {
-      key: tlsMaterial.key,
-      cert: tlsMaterial.cert,
-    },
-    (_req, res) => {
-      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-      res.end("DroneLink signaling endpoint\n");
-    },
-  );
+  if (skipPairingAuth) {
+   server = createHttpServer((_req, res) => {
+     res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+     res.end("DroneLink signaling endpoint\n");
+   });
+  } else {
+   const tlsMaterial = ensureTlsMaterial(stateDir, tlsTarget);
+   tlsFingerprint = tlsMaterial.certFingerprint;
+   server = createHttpsServer(
+     {
+       key: tlsMaterial.key,
+       cert: tlsMaterial.cert,
+     },
+     (_req, res) => {
+       res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+       res.end("DroneLink signaling endpoint\n");
+     },
+   );
+  }
 
-  const wss = new WebSocketServer({ server: httpsServer });
+  const wss = new WebSocketServer({ server });
   let bundle: PairingBundle | undefined;
   let startPromise: Promise<PairingBundle> | undefined;
 
@@ -146,32 +159,32 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   });
 
   return {
-    httpsServer,
+    httpsServer: server,
     wss,
-    certFingerprint: skipPairingAuth ? "" : tlsMaterial.certFingerprint,
+    certFingerprint: tlsFingerprint,
     async start(): Promise<PairingBundle> {
       if (!startPromise) {
         startPromise = new Promise<PairingBundle>((resolve, reject) => {
           const onError = (error: Error) => {
-            httpsServer.off("listening", onListening);
+            server.off("listening", onListening);
             reject(error);
           };
 
           const onListening = () => {
-            httpsServer.off("error", onError);
+            server.off("error", onError);
             bundle = createPairingBundle({
               sessionId,
               token,
               host,
-              port: getListeningPort(httpsServer),
-              certFingerprint: skipPairingAuth ? "" : tlsMaterial.certFingerprint,
+              port: getListeningPort(server),
+              certFingerprint: tlsFingerprint,
             });
             resolve(bundle);
           };
 
-          httpsServer.once("error", onError);
-          httpsServer.once("listening", onListening);
-          httpsServer.listen(options.port, host);
+          server.once("error", onError);
+          server.once("listening", onListening);
+          server.listen(options.port, host);
         });
       }
 
@@ -192,7 +205,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
             return;
           }
 
-          httpsServer.close((serverError) => {
+          server.close((serverError) => {
             if (serverError) {
               reject(serverError);
               return;

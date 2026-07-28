@@ -57,12 +57,16 @@ function isPairingBundle(value: unknown): value is PairingBundle {
   );
 }
 
-function toErrorMessage(error: unknown): string {
+function toErrorMessage(error: unknown, useTls: boolean): string {
   if (error instanceof Error && error.message.length > 0) {
     return error.message;
   }
 
-  return "Browser TLS connection failed. Trust the ground certificate in this browser and retry.";
+  if (useTls) {
+    return "Browser TLS connection failed. Trust the ground certificate in this browser and retry.";
+  }
+
+  return "Browser connection failed. Check that the ground server is running and reachable.";
 }
 
 function createBrowserSocket(url: string): PairingSocket {
@@ -131,12 +135,13 @@ export class PairingSession {
 
   async pair(input: string | PairingBundle): Promise<void> {
     const bundle = this.parseBundle(input);
+    const useTls = bundle.certFingerprint.length > 0;
     this._state = "AUTHENTICATING";
     this._error = null;
     this._bundle = bundle;
 
     await new Promise<void>((resolve, reject) => {
-      const socket = this.socketFactory(`wss://${bundle.host}:${String(bundle.port)}`);
+      const socket = this.socketFactory(`${useTls ? "wss" : "ws"}://${bundle.host}:${String(bundle.port)}`);
       this._socket = socket;
       let settled = false;
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -207,7 +212,7 @@ export class PairingSession {
       });
 
       socket.onError((error) => {
-        fail(toErrorMessage(error));
+        fail(toErrorMessage(error, useTls));
       });
 
       socket.onClose((event) => {

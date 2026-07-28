@@ -107,17 +107,26 @@ describe("PairingSession", () => {
     const bundle = createBundle({
       certFingerprint: "",
     });
+    let socketUrl = "";
     const session = new PairingSession({
-      socketFactory: createSocketFactory((firstMessage, socket) => {
-        const parsed = JSON.parse(firstMessage) as { sessionId: string; token: string; type: string };
-        expect(parsed.type).toBe("pair");
-        expect(parsed.sessionId).toBe(bundle.sessionId);
-        expect(parsed.token).toBe(bundle.token);
-        socket.accept(bundle.sessionId);
-      }),
+      socketFactory: (url) => {
+        socketUrl = url;
+        return new FakePairingSocket((firstMessage, socket) => {
+          const parsed = JSON.parse(firstMessage) as {
+            sessionId: string;
+            token: string;
+            type: string;
+          };
+          expect(parsed.type).toBe("pair");
+          expect(parsed.sessionId).toBe(bundle.sessionId);
+          expect(parsed.token).toBe(bundle.token);
+          socket.accept(bundle.sessionId);
+        });
+      },
     });
 
     await expect(session.pair(JSON.stringify(bundle))).resolves.toBeUndefined();
+    expect(socketUrl.startsWith("ws://")).toBe(true);
     expect(session.bundle?.certFingerprint).toBe("");
     expect(session.state).toBe("PAIRED");
     expect(session.error).toBeNull();

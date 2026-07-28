@@ -72,11 +72,9 @@ function toPem(label: string, data: Buffer): string {
   return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`;
 }
 
-function openClient(url: string): Promise<WebSocket> {
+function openClient(url: string, secure = true): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url, {
-      rejectUnauthorized: false,
-    });
+    const socket = secure ? new WebSocket(url, { rejectUnauthorized: false }) : new WebSocket(url);
 
     socket.once("open", () => resolve(socket));
     socket.once("error", reject);
@@ -209,7 +207,7 @@ describe("signaling server", () => {
     const bundle = await runtime.start();
     expect(bundle.certFingerprint).toBe("");
 
-    const socket = await openClient(`wss://${bundle.host}:${bundle.port}`);
+    const socket = await openClient(`ws://${bundle.host}:${bundle.port}`, false);
 
     socket.send(
       JSON.stringify({

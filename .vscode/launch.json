@@ -8,6 +8,25 @@
             "url": "http://localhost:5173",
             "webRoot": "${workspaceFolder}/webapp",
             "preLaunchTask": "webapp: dev"
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Debug TS with ts-node ESM",
+            "runtimeArgs": [
+                "--loader",
+                "ts-node/esm"
+            ],
+            "program": "${workspaceFolder}/ground/src/index.ts",
+            "env": {
+                "SIGNAL_SKIP_PAIRING_AUTH": "1",
+                // "SIGNAL_HOST": "100.97.195.111",
+                "SIGNAL_TLS_TARGET": "henrikszenbook.tail70570b.ts.net"
+            },
+            "cwd": "${workspaceFolder}/ground",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
         }
     ]
 }

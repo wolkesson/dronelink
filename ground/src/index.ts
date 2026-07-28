@@ -26,11 +26,12 @@ const signalingServer = createSignalingServer({
 void signalingServer
   .start()
   .then((bundle) => {
-    console.log(`Signaling server listening on wss://${bundle.host}:${bundle.port}`);
+    const scheme = SKIP_PAIRING_AUTH ? "ws" : "wss";
+    console.log(`Signaling server listening on ${scheme}://${bundle.host}:${bundle.port}`);
     if (bundle.certFingerprint.length > 0) {
       console.log(`TLS certificate fingerprint (SHA-256): ${bundle.certFingerprint}`);
     } else {
-      console.log("Pairing auth disabled: certFingerprint omitted.");
+      console.log("Pairing auth disabled: certFingerprint omitted and plain ws:// enabled.");
     }
     console.log("Pairing bundle JSON:");
     console.log(JSON.stringify(bundle, null, 2));
