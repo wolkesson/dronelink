@@ -1,6 +1,7 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSignalingServer } from "./signaling.js";
@@ -16,6 +17,7 @@ afterEach(async () => {
 function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignalingServer> {
   const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
   tempDirs.push(stateDir);
+  seedTlsMaterial(stateDir);
 
   const runtime = createSignalingServer({
     port: 0,
@@ -31,6 +33,41 @@ function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignal
 
   runtimes.push(runtime);
   return runtime;
+}
+
+function seedTlsMaterial(stateDir: string): void {
+  const keyPath = join(stateDir, "pairing-key.pem");
+  const certPath = join(stateDir, "pairing-cert.pem");
+  const result = spawnSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-sha256",
+      "-nodes",
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+      "-days",
+      "1",
+      "-subj",
+      "/CN=localhost",
+      "-addext",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
+    ],
+    {
+      encoding: "utf8",
+      stdio: "pipe",
+    },
+  );
+
+  if (result.status !== 0) {
+    const details = result.stderr.trim() || result.stdout.trim() || "unknown openssl failure";
+    throw new Error(`Failed to seed TLS certificate for tests: ${details}`);
+  }
 }
 
 function openClient(url: string): Promise<WebSocket> {
@@ -213,6 +250,7 @@ describe("signaling server", () => {
   it("reuses the persisted TLS certificate across restarts", async () => {
     const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
     tempDirs.push(stateDir);
+    seedTlsMaterial(stateDir);
 
     const first = createSignalingServer({
       port: 0,

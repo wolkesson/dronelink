@@ -20,6 +20,7 @@
     "eslint": "^9.0.0",
     "typescript": "^5.9.2",
     "vite": "^8.1.5",
+    "vite-plugin-mkcert": "^2.1.0",
     "vitest": "^4.1.10"
   }
 }

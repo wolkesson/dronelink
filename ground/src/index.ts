@@ -2,10 +2,12 @@ import { createSignalingServer } from "./signaling.js";
 
 const PORT = Number(process.env.SIGNAL_PORT ?? 8443);
 const HOST = process.env.SIGNAL_HOST ?? "localhost";
+const TLS_TARGET = process.env.SIGNAL_TLS_TARGET ?? "localhost";
 
 const signalingServer = createSignalingServer({
   port: PORT,
   host: HOST,
+  tlsTarget: TLS_TARGET,
 });
 
 void signalingServer

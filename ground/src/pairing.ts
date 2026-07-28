@@ -1,7 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes, randomUUID, X509Certificate } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { isIP } from "node:net";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const TOKEN_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
@@ -92,55 +91,51 @@ export function createPairingAcceptedMessage(sessionId: string): PairingAccepted
   };
 }
 
-function buildSubjectAltName(host: string): string {
-  const entries = new Set<string>(["DNS:localhost", "IP:127.0.0.1"]);
-
-  if (host.length > 0) {
-    if (isIP(host) === 0) {
-      entries.add(`DNS:${host}`);
-    } else {
-      entries.add(`IP:${host}`);
-    }
-  }
-
-  return Array.from(entries).join(",");
+function normalizeTlsTarget(value: string): string {
+  const target = value.trim();
+  return target.length > 0 ? target : "localhost";
 }
 
-export function ensureTlsMaterial(stateDir: string, host: string): TlsMaterial {
+function getMkcertHosts(tlsTarget: string): string[] {
+  const hosts = new Set<string>(["localhost", "127.0.0.1"]);
+  hosts.add(tlsTarget);
+  return Array.from(hosts);
+}
+
+export function ensureTlsMaterial(stateDir: string, tlsTarget: string): TlsMaterial {
   mkdirSync(stateDir, { recursive: true });
 
   const keyPath = join(stateDir, "pairing-key.pem");
   const certPath = join(stateDir, "pairing-cert.pem");
+  const tlsTargetPath = join(stateDir, "pairing-cert-target.txt");
+  const normalizedTlsTarget = normalizeTlsTarget(tlsTarget);
 
-  if (!existsSync(keyPath) || !existsSync(certPath)) {
-    const args = [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-sha256",
-      "-nodes",
-      "-keyout",
-      keyPath,
-      "-out",
-      certPath,
-      "-days",
-      "3650",
-      "-subj",
-      "/CN=localhost",
-      "-addext",
-      `subjectAltName=${buildSubjectAltName(host)}`,
-    ];
+  const previousTlsTarget = existsSync(tlsTargetPath) ? readFileSync(tlsTargetPath, "utf8").trim() : "";
+  const shouldIssueCert =
+    !existsSync(keyPath) || !existsSync(certPath) || previousTlsTarget !== normalizedTlsTarget;
 
-    const result = spawnSync("openssl", args, {
-      encoding: "utf8",
-      stdio: "pipe",
-    });
+  if (shouldIssueCert) {
+    const result = spawnSync(
+      "mkcert",
+      ["-cert-file", certPath, "-key-file", keyPath, ...getMkcertHosts(normalizedTlsTarget)],
+      {
+        encoding: "utf8",
+        stdio: "pipe",
+      },
+    );
+
+    if (result.error) {
+      throw new Error(
+        `Failed to generate TLS certificate with mkcert: ${result.error.message}. Ensure mkcert is installed and run 'mkcert -install' once.`,
+      );
+    }
 
     if (result.status !== 0) {
-      const details = result.stderr.trim() || result.stdout.trim() || "unknown openssl failure";
-      throw new Error(`Failed to generate TLS certificate: ${details}`);
+      const details = result.stderr.trim() || result.stdout.trim() || "unknown mkcert failure";
+      throw new Error(`Failed to generate TLS certificate with mkcert: ${details}`);
     }
+
+    writeFileSync(tlsTargetPath, `${normalizedTlsTarget}\n`, "utf8");
   }
 
   const cert = readFileSync(certPath, "utf8");

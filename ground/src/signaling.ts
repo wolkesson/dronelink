@@ -15,6 +15,7 @@ import {
 export interface SignalingServerOptions {
   port: number;
   host?: string;
+  tlsTarget?: string;
   stateDir?: string;
   handshakeTimeoutMs?: number;
   logger?: Pick<Console, "log" | "warn" | "error">;
@@ -40,10 +41,11 @@ function getListeningPort(server: HttpsServer): number {
 
 export function createSignalingServer(options: SignalingServerOptions): SignalingServerRuntime {
   const host = options.host ?? "localhost";
+  const tlsTarget = options.tlsTarget ?? "localhost";
   const stateDir = options.stateDir ?? join(homedir(), ".dronelink-ground");
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   const logger = options.logger ?? console;
-  const tlsMaterial = ensureTlsMaterial(stateDir, host);
+  const tlsMaterial = ensureTlsMaterial(stateDir, tlsTarget);
   const sessionId = generateSessionId();
   const token = generateToken();
 

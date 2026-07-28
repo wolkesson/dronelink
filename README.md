@@ -11,7 +11,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, component
 Phase 0 is entirely testable with `/ground` plus `/webapp` running in **desktop Chrome** against a real flight controller over Web Serial. **No Android phone or native code is needed.**
 
 Phase 0 spikes:
-1. **Pairing spike** — generate a QR/token bundle, scan/parse it, complete a `wss://` handshake with cert pinning.
+1. **Pairing spike** — generate a QR/token bundle, scan/parse it, and complete a token-authenticated `wss://` handshake.
 2. **Serial spike** — open the real FC's COM port via `navigator.serial` in desktop Chrome, read raw bytes.
 3. **Bridge spike** — pipe a recorded byte stream into a local TCP socket, confirm INAV Configurator connects and parses it.
 
@@ -47,7 +47,13 @@ The following are explicitly out of scope until later phases. Do not start them:
 
 ## Getting started (Phase 0)
 
-**Prerequisites:** Node.js 22+, npm, desktop Chrome.
+**Prerequisites:** Node.js 22+, npm, desktop Chrome, `mkcert`.
+
+One-time TLS setup (per machine):
+
+```sh
+mkcert -install
+```
 
 ```sh
 # Ground software
@@ -60,7 +66,7 @@ npm start          # starts the signaling server
 # Web app (air-side PWA, run in desktop Chrome)
 cd webapp
 npm install
-npm run dev        # Vite dev server at http://localhost:5173
+npm run dev        # Vite dev server at https://localhost:5173
 npm test
 ```
 
