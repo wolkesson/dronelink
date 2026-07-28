@@ -101,7 +101,7 @@ export class PairingSession {
 
   private _bundle: PairingBundle | null = null;
 
-  private socket: PairingSocket | null = null;
+  private _socket: PairingSocket | null = null;
 
   constructor(options: PairingSessionOptions = {}) {
     this.socketFactory = options.socketFactory ?? createBrowserSocket;
@@ -120,6 +120,10 @@ export class PairingSession {
     return this._bundle;
   }
 
+  get socket(): PairingSocket | null {
+    return this._socket;
+  }
+
   async pair(input: string | PairingBundle): Promise<void> {
     const bundle = this.parseBundle(input);
     this._state = "AUTHENTICATING";
@@ -128,7 +132,7 @@ export class PairingSession {
 
     await new Promise<void>((resolve, reject) => {
       const socket = this.socketFactory(`wss://${bundle.host}:${String(bundle.port)}`);
-      this.socket = socket;
+      this._socket = socket;
       let settled = false;
       let timeout: ReturnType<typeof setTimeout> | undefined;
 
@@ -143,7 +147,7 @@ export class PairingSession {
         }
         this._state = "FAILED";
         this._error = message;
-        this.socket = null;
+        this._socket = null;
         reject(new Error(message));
       };
 
