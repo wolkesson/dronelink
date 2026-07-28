@@ -3,6 +3,7 @@ import { createServer, Socket } from "node:net";
 const MSP_REQUEST_HEADER = Buffer.from([0x24, 0x4d, 0x3c]);
 const MSP_API_VERSION_REQUEST = Buffer.from([0x24, 0x4d, 0x3c, 0x00, 0x01, 0x01]);
 const MSP_API_VERSION_RESPONSE = Buffer.from([0x24, 0x4d, 0x3e, 0x03, 0x01, 0x00, 0x02, 0x05, 0x05]);
+const MSP_FRAME_OVERHEAD = 6;
 
 const DEFAULT_PORT = 5761;
 const configuredPort = Number(process.argv[2] ?? process.env.PORT ?? DEFAULT_PORT);
@@ -42,18 +43,12 @@ const handleSocket = (socket: Socket): void => {
         break;
       }
 
-      if (buffer[0] !== 0x24 || buffer[1] !== 0x4d || buffer[2] !== 0x3c) {
-        logIgnored("dropped byte while seeking MSP request header");
-        buffer = buffer.subarray(1);
-        continue;
-      }
-
-      if (buffer.length < 6) {
+      if (buffer.length < MSP_FRAME_OVERHEAD) {
         break;
       }
 
       const payloadSize = buffer[3];
-      const frameLength = 6 + payloadSize;
+      const frameLength = MSP_FRAME_OVERHEAD + payloadSize;
 
       if (buffer.length < frameLength) {
         break;
