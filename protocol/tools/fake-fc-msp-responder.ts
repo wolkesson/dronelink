@@ -13,10 +13,13 @@ const MSP_V2_FRAME_OVERHEAD = 9;
 const MSP_V1_API_VERSION_FUNCTION = 0x01;
 const MSP_V2_API_VERSION_FUNCTION = 0x0001;
 const MSP_V1_ERROR_HEADER_BYTE = 0x21;
+const MSP_V1_EMPTY_PAYLOAD_SIZE = 0x00;
 const MSP_V2_SUCCESS_HEADER_BYTE = 0x3e;
 const MSP_V2_ERROR_HEADER_BYTE = 0x21;
 const MSP_V2_DEFAULT_FLAG = 0x00;
 const MSP_V2_API_VERSION_PAYLOAD = Buffer.from([0x00, 0x02, 0x05]);
+const CRC8_DVB_S2_POLYNOMIAL = 0xd5;
+const CRC8_HIGH_BIT = 0x80;
 
 const DEFAULT_PORT = 5761;
 const configuredPort = Number(process.argv[2] ?? process.env.PORT ?? DEFAULT_PORT);
@@ -40,7 +43,9 @@ const logIgnored = (reason: string): void => {
 const crc8DvbS2 = (crc: number, byte: number): number => {
   let next = crc ^ byte;
   for (let i = 0; i < 8; i += 1) {
-    next = (next & 0x80) === 0x80 ? ((next << 1) ^ 0xd5) & 0xff : (next << 1) & 0xff;
+    next = (next & CRC8_HIGH_BIT) === CRC8_HIGH_BIT
+      ? ((next << 1) ^ CRC8_DVB_S2_POLYNOMIAL) & 0xff
+      : (next << 1) & 0xff;
   }
   return next;
 };
@@ -114,7 +119,14 @@ const handleSocket = (socket: Socket): void => {
           socket.write(MSP_API_VERSION_RESPONSE);
           logV1Request(commandId, "API_VERSION");
         } else {
-          const genericError = Buffer.from([MSP_PREAMBLE_BYTE, MSP_V1_VERSION_BYTE, MSP_V1_ERROR_HEADER_BYTE, 0x00, commandId, commandId]);
+          const genericError = Buffer.from([
+            MSP_PREAMBLE_BYTE,
+            MSP_V1_VERSION_BYTE,
+            MSP_V1_ERROR_HEADER_BYTE,
+            MSP_V1_EMPTY_PAYLOAD_SIZE,
+            commandId,
+            commandId,
+          ]);
           socket.write(genericError);
           logV1Request(commandId, "generic_error");
         }
