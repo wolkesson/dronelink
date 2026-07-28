@@ -15,13 +15,16 @@ export class LinkActivityTracker {
   private rxActive = false;
   private txTimer: TimerHandle | null = null;
   private rxTimer: TimerHandle | null = null;
-  private onChangeHandler: ChangeHandler | null = null;
+  private readonly handlers = new Set<ChangeHandler>();
 
   constructor(private readonly holdMs = 180) {}
 
-  onChange(handler: ChangeHandler): void {
-    this.onChangeHandler = handler;
-    this.emit();
+  onChange(handler: ChangeHandler): () => void {
+    this.handlers.add(handler);
+    handler(this.snapshot());
+    return () => {
+      this.handlers.delete(handler);
+    };
   }
 
   recordTransmit(byteCount: number): void {
@@ -69,11 +72,18 @@ export class LinkActivityTracker {
   }
 
   private emit(): void {
-    this.onChangeHandler?.({
+    const current = this.snapshot();
+    for (const handler of this.handlers) {
+      handler(current);
+    }
+  }
+
+  private snapshot(): LinkActivitySnapshot {
+    return {
       txBytes: this.txBytes,
       rxBytes: this.rxBytes,
       txActive: this.txActive,
       rxActive: this.rxActive,
-    });
+    };
   }
 }

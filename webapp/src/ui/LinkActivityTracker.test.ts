@@ -10,11 +10,12 @@ describe("LinkActivityTracker", () => {
     const tracker = new LinkActivityTracker();
     const updates: string[] = [];
 
-    tracker.onChange((snapshot) => {
+    const unsub = tracker.onChange((snapshot) => {
       updates.push(`${snapshot.txBytes}/${snapshot.rxBytes}/${snapshot.txActive}/${snapshot.rxActive}`);
     });
 
     expect(updates).toEqual(["0/0/false/false"]);
+    unsub();
   });
 
   it("pulses TX activity and accumulates TX bytes", () => {
@@ -48,5 +49,18 @@ describe("LinkActivityTracker", () => {
 
     vi.advanceTimersByTime(100);
     expect(snapshots.at(-1)).toEqual({ rxBytes: 3, rxActive: false });
+  });
+
+  it("unsubscribe from onChange stops further updates", () => {
+    const tracker = new LinkActivityTracker();
+    const snapshots: number[] = [];
+    const unsub = tracker.onChange((snapshot) => {
+      snapshots.push(snapshot.txBytes);
+    });
+
+    unsub();
+    tracker.recordTransmit(2);
+
+    expect(snapshots).toEqual([0]);
   });
 });
