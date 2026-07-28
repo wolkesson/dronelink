@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "werift": "^0.24.1",
-    "ws": "^8.18.2"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

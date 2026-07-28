@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
+import mkcert from "vite-plugin-mkcert";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   plugins: [
+    process.env.VITEST ? undefined : mkcert(),
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
@@ -15,7 +17,10 @@ export default defineConfig({
         icons: [],
       },
     }),
-  ],
+  ].filter(Boolean),
+  server: {
+    https: true,
+  },
   test: {
     globals: true,
     environment: "node",

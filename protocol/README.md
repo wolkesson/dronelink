@@ -4,12 +4,17 @@ Shared wire-format documentation, signaling message JSON schemas, and recorded b
 
 ## Purpose
 
-- **`schemas/`** — JSON Schema definitions for signaling messages (pairing bundle, SDP offer/answer, ICE candidates, session token challenge/response). Both `/ground` and `/webapp` validate messages against these schemas.
+- **`schemas/`** — JSON Schema definitions for signaling messages (including the Phase 0 pairing bundle in `schemas/pairing-bundle.schema.json`). Both `/ground` and `/webapp` validate messages against these schemas.
 - **`fixtures/`** — Recorded raw serial byte-stream captures (e.g., real INAV/MAVLink telemetry bursts). Used by `/ground` integration tests and `/webapp` unit tests so neither test suite needs a real flight controller or SITL running.
 
-## Signaling message format (to be defined in Phase 0)
+## Signaling message format
 
-All signaling messages are JSON objects sent over the WebSocket connection established during pairing. The message envelope will be defined once the Phase 0 pairing spike is complete and placed in `schemas/`.
+Phase 0 defines the pairing bundle JSON shape in `schemas/pairing-bundle.schema.json`:
+
+- `sessionId` — random session identifier for the ground-side pairing session
+- `token` — random 128-bit base64url token the client must send in its first signaling message
+- `host` / `port` — the ground-side `wss://` endpoint
+- `certFingerprint` — SHA-256 fingerprint of the self-signed TLS certificate served by `/ground`
 
 ## Adding fixtures
 
