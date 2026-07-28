@@ -84,6 +84,8 @@ if (app) {
   });
 
   connectFcButton?.addEventListener("click", () => {
+    if (transport) return; // guard against multiple clicks
+
     // open() must be called synchronously inside this handler because requestPort()
     // requires a transient user activation that expires after the first await.
     const t = new WebSerialTransport();
@@ -91,11 +93,17 @@ if (app) {
       .open()
       .then(() => {
         transport = t;
-        transport.subscribe((bytes) => {
+        if (connectFcButton) connectFcButton.disabled = true;
+        const unsubSerial = transport.subscribe((bytes) => {
           sessionManager.sendBytes(bytes);
         });
-        sessionManager.subscribe((bytes) => {
+        const unsubWebRtc = sessionManager.subscribe((bytes) => {
           void transport?.write(bytes);
+        });
+        transport.subscribe(() => {
+          // zero-length chunk signals device disconnection — clean up subscriptions
+          unsubSerial();
+          unsubWebRtc();
         });
         if (fcStateEl) {
           fcStateEl.textContent = "FC connected";

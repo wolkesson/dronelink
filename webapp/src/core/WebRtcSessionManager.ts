@@ -60,9 +60,13 @@ export class WebRtcSessionManager {
       if (!isRecord(msg)) return;
 
       if (msg.type === "answer" && typeof msg.sdp === "string") {
-        void this.pc?.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+        void this.pc?.setRemoteDescription({ type: "answer", sdp: msg.sdp }).catch((err) => {
+          console.error("setRemoteDescription failed:", err instanceof Error ? err.message : String(err));
+        });
       } else if (msg.type === "ice-candidate" && isRecord(msg.candidate)) {
-        void this.pc?.addIceCandidate(msg.candidate as RTCIceCandidateInit);
+        void this.pc?.addIceCandidate(msg.candidate as RTCIceCandidateInit).catch((err) => {
+          console.warn("addIceCandidate failed:", err instanceof Error ? err.message : String(err));
+        });
       }
     });
 

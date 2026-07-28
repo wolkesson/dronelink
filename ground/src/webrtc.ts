@@ -29,6 +29,7 @@ export function handleSignalingMessage(
 
   if (message.type === "offer") {
     if (activePc) {
+      console.warn("WebRTC: ignoring offer — connection already active");
       return;
     }
 
@@ -69,7 +70,12 @@ export function handleSignalingMessage(
         await pc.setLocalDescription(answer);
         reply({ type: "answer", sdp: answer.sdp });
         for (const candidate of buffered) {
-          await pc.addIceCandidate(candidate);
+          await pc.addIceCandidate(candidate).catch((err: unknown) => {
+            console.warn(
+              "Failed to add buffered ICE candidate:",
+              err instanceof Error ? err.message : String(err),
+            );
+          });
         }
       })
       .catch((err: unknown) => {

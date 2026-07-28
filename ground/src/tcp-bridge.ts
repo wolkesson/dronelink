@@ -13,7 +13,11 @@ export function startBridge(dataChannel: RTCDataChannel): void {
 
   dataChannel.onMessage.subscribe((data) => {
     if (tcpClient && !tcpClient.destroyed) {
-      tcpClient.write(Buffer.isBuffer(data) ? data : Buffer.from(String(data), "binary"));
+      if (Buffer.isBuffer(data)) {
+        tcpClient.write(data);
+      } else {
+        console.warn("TCP bridge: unexpected non-Buffer data from data channel, dropping");
+      }
     }
   });
 
