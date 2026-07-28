@@ -100,10 +100,12 @@ if (app) {
         const unsubWebRtc = sessionManager.subscribe((bytes) => {
           void transport?.write(bytes);
         });
-        transport.subscribe(() => {
+        transport.subscribe((bytes) => {
           // zero-length chunk signals device disconnection — clean up subscriptions
-          unsubSerial();
-          unsubWebRtc();
+          if (bytes.length === 0) {
+            unsubSerial();
+            unsubWebRtc();
+          }
         });
         if (fcStateEl) {
           fcStateEl.textContent = "FC connected";

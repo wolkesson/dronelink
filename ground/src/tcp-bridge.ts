@@ -19,6 +19,9 @@ export function startBridge(dataChannel: RTCDataChannel): void {
         console.warn("TCP bridge: unexpected non-Buffer data from data channel, dropping");
       }
     }
+    else {
+      console.warn("TCP bridge: no TCP client connected, dropping data from data channel");
+    }
   });
 
   server = createServer((socket: Socket) => {
