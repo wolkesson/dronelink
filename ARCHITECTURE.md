@@ -77,12 +77,12 @@ This also means camera/mic capture needs no CameraX/AVFoundation-equivalent nati
 
 ## 6. Development plan
 
-**Phase 0 — spikes**
+**Phase 0 — spikes** ✅ Complete
 1. Pairing spike: generate a QR/token bundle, scan/parse it, complete a `wss` handshake with cert pinning — run entirely as `/ground` plus the `/webapp` in a desktop Chrome tab. No hardware needed.
 2. Serial spike: with the real FC wired to PC B, use `navigator.serial` in desktop Chrome to open the port and read raw bytes — confirms the hardware/driver path works, independent of networking or any native code.
 3. Bridge spike: pipe a recorded byte stream into a local TCP socket and confirm INAV Configurator on PC A connects and parses it.
 
-**Phase 1 — thin end-to-end pipe (both PCs, real FC, desktop Chrome only)**
+**Phase 1 — thin end-to-end pipe (both PCs, real FC, desktop Chrome only)** ✅ Complete
 Run `/webapp` in desktop Chrome on PC B: read real serial from the FC via `WebSerialTransport` → pair with and connect to `/ground` on PC A over WebRTC → ground software bridges to a local TCP port → INAV Configurator on PC A shows live telemetry. Fully real hardware, zero native/Android code.
 
 **Phase 2 — video track (both PCs, desktop Chrome only)**

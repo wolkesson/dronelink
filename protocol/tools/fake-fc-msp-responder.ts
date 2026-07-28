@@ -1,5 +1,10 @@
 // from the repo root run:
 // npx tsx protocol/tools/fake-fc-msp-responder.ts
+//
+// Handles both MSP v1 and MSP v2 framing (MSP v2 was added after Phase 0 when INAV
+// Configurator was found to send MSP v2 requests). Phase 1 testing was subsequently
+// done against the real FC directly, so this tool is low-priority and kept for
+// bring-up convenience only.
 
 import { createServer, Socket } from "node:net";
 
