@@ -6,7 +6,8 @@
  *
  * IMPORTANT: open() must be called synchronously inside a user-gesture handler (e.g. a button
  * click). Calling it on page load or in an async chain that has already yielded will throw a
- * SecurityError because requestPort() requires a transient user activation.
+ * SecurityError because requestPort() requires a transient user activation (the browser's
+ * time-limited permission granted by a direct user interaction such as a button click).
  */
 import type { SerialTransport } from "./SerialTransport.js";
 
@@ -17,6 +18,7 @@ export class WebSerialTransport implements SerialTransport {
   private readonly handlers = new Set<(data: Uint8Array) => void>();
   private port: SerialPort | null = null;
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private readLoopPromise: Promise<void> | null = null;
 
   /**
@@ -41,12 +43,18 @@ export class WebSerialTransport implements SerialTransport {
     this.port = await navigator.serial.requestPort();
     await this.port.open({ baudRate: BAUD_RATE });
 
+    // Acquire the writer once and keep it for the session. Re-acquiring per write() call is
+    // not allowed while the stream is locked to an existing writer.
+    if (this.port.writable) {
+      this.writer = this.port.writable.getWriter();
+    }
+
     // Start the read loop in the background; do not await it here.
     this.readLoopPromise = this.readLoop();
   }
 
   /**
-   * Release the reader lock and close the port.
+   * Release the writer and reader locks, then close the port.
    * Safe to call even if the port is already closed or was never opened.
    */
   async close(): Promise<void> {
@@ -68,6 +76,16 @@ export class WebSerialTransport implements SerialTransport {
       this.readLoopPromise = null;
     }
 
+    // Release the writer so the writable stream is no longer locked before port.close().
+    if (this.writer) {
+      try {
+        this.writer.releaseLock();
+      } catch {
+        // Already released or port already closed.
+      }
+      this.writer = null;
+    }
+
     if (this.port) {
       try {
         await this.port.close();
@@ -79,20 +97,14 @@ export class WebSerialTransport implements SerialTransport {
   }
 
   /**
-   * Write raw bytes to the serial port.
-   * Out of scope for Phase 0 spike — this method is here to satisfy the SerialTransport
-   * interface but is not exercised by the test page.
+   * Write raw bytes to the serial port using the persistent writer acquired at open().
+   * Throws if the port was not opened first.
    */
   async write(data: Uint8Array): Promise<void> {
-    if (!this.port?.writable) {
+    if (!this.writer) {
       throw new Error("Serial port is not open.");
     }
-    const writer = this.port.writable.getWriter();
-    try {
-      await writer.write(data);
-    } finally {
-      writer.releaseLock();
-    }
+    await this.writer.write(data);
   }
 
   subscribe(handler: (data: Uint8Array) => void): () => void {

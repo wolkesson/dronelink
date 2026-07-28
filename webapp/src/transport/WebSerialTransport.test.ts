@@ -41,19 +41,33 @@ function makeDisconnectingReadable(firstChunk: Uint8Array): ReadableStream<Uint8
   });
 }
 
+/** Creates a WritableStream that records all written chunks and exposes them via `written`. */
+function makeWritable(): { writable: WritableStream<Uint8Array>; written: Uint8Array[] } {
+  const written: Uint8Array[] = [];
+  const writable = new WritableStream<Uint8Array>({
+    write(chunk) {
+      written.push(chunk);
+    },
+  });
+  return { writable, written };
+}
+
 interface FakeSerialPort {
   open: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   readable: ReadableStream<Uint8Array>;
-  writable: WritableStream<Uint8Array> | null;
+  writable: WritableStream<Uint8Array>;
+  _written: Uint8Array[];
 }
 
 function makeFakePort(readable: ReadableStream<Uint8Array>): FakeSerialPort {
+  const { writable, written } = makeWritable();
   return {
     open: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     readable,
-    writable: null,
+    writable,
+    _written: written,
   };
 }
 
@@ -97,6 +111,39 @@ describe("WebSerialTransport", () => {
     expect(requestPort).toHaveBeenCalledWith();
     expect(fakePort.open).toHaveBeenCalledWith({ baudRate: 115200 });
     await transport.close();
+  });
+
+  // -- write() — persistent writer -------------------------------------------
+
+  it("write() sends bytes through the persistent writer acquired at open()", async () => {
+    const fakePort = makeFakePort(makeReadable([]));
+    const requestPort = vi.fn().mockResolvedValue(fakePort);
+    Object.defineProperty(globalThis, "navigator", {
+      value: { serial: { requestPort } },
+      configurable: true,
+      writable: true,
+    });
+
+    const transport = new WebSerialTransport();
+    await transport.open();
+
+    const chunk = new Uint8Array([0x24, 0x4d, 0x3c, 0x00, 0x01, 0x01]);
+    await transport.write(chunk);
+    await transport.write(new Uint8Array([0xff]));
+
+    // Both writes go through the same underlying WritableStream (not via releaseLock each time).
+    expect(fakePort._written).toHaveLength(2);
+    expect(fakePort._written[0]).toEqual(chunk);
+    expect(fakePort._written[1]).toEqual(new Uint8Array([0xff]));
+
+    await transport.close();
+  });
+
+  it("write() throws when the port is not open", async () => {
+    const transport = new WebSerialTransport();
+    await expect(transport.write(new Uint8Array([0x01]))).rejects.toThrow(
+      "Serial port is not open.",
+    );
   });
 
   // -- subscribe() / read loop -----------------------------------------------
