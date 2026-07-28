@@ -1,3 +1,6 @@
+// from the repo root run:
+// npx tsx protocol/tools/fake-fc-msp-responder.ts
+
 import { createServer, Socket } from "node:net";
 
 const MSP_V1_REQUEST_HEADER = Buffer.from([0x24, 0x4d, 0x3c]);
