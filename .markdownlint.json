@@ -1,0 +1,8 @@
+{
+    "blanks-around-headings": false,
+    "blanks-around-fences": false,
+    "blanks-around-lists": false,
+    "MD036": true,
+    "MD041": false,
+    "line-length": false,
+}

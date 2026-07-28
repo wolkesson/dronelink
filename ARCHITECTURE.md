@@ -15,7 +15,7 @@ Scope: Android air-side native shell + TypeScript PWA (air-side logic) + ground 
 ## 2. Components
 
 | Component | Role | Platform/Language |
-|---|---|---|
+| --- | --- | --- |
 | Ground software | Signaling, WebRTC peer, byte-stream↔TCP bridge (protocol-agnostic), video sink | Node.js + TypeScript, `werift` (pure-TS WebRTC) |
 | Air-side PWA (`/webapp`) | All air-side logic: pairing, WebRTC session, serial byte relay, UI. Runs in desktop Chrome for Phase 0–2, and inside the Android WebView from Phase 2.5 on | TypeScript, Vite + `vite-plugin-pwa` |
 | Android native shell (`/android-shell`) | Thin wrapper only: foreground service, USB permission + serial I/O, camera/mic permission passthrough, wake lock, autostart, hosts the PWA build over `localhost` in a WebView | Kotlin/Android — not started until Phase 2.5 |
@@ -30,7 +30,9 @@ Because Web Serial is unavailable on Android, the PWA's serial access is abstrac
 **Signaling lives inside the ground software.** No separate signaling service to deploy or secure.
 
 **Pairing/authentication: QR code (primary) or manual code (fallback).**
-On startup, the ground software generates a session bundle: session ID, random token, and a fingerprint of a self-signed TLS cert it serves `wss` on. Shown as a QR code (`droneops://pair?host=...&port=...&session=...&token=...&fp=...`). The air-side PWA scans it (via `getUserMedia` + a JS barcode-decoding library — no native code needed), connects over `wss`, pins the cert against the fingerprint, and presents the token before any SDP/ICE exchange is allowed. Manual entry (host + token only, no fingerprint) is a lower-assurance fallback, documented as such. Once paired, the ground software remembers the device.
+On startup, the ground software generates a session bundle: session ID and a random token. Shown as a QR code (`droneops://pair?host=...&port=...&session=...&token=...`). The air-side PWA scans it (via `getUserMedia` + a JS barcode-decoding library — no native code needed), connects over `wss`, and presents the token before any SDP/ICE exchange is allowed. Manual entry (host + token) is a fallback for when scanning isn't possible. Once paired, the ground software remembers the device.
+
+Certificate trust is handled out-of-band, not by app code, because browser JavaScript has no API to inspect or pin a TLS certificate — the browser's own network stack accepts or rejects the handshake before any page script runs, so a "verify the fingerprint in JS" step (as earlier drafts of this doc described) isn't actually implementable in a plain browser context. During Phase 0–2 desktop testing, trust is established either by manually accepting the browser's self-signed-cert warning once per machine, or — recommended for repeated testing — by using `mkcert` to install a local dev CA once (`mkcert -install`) and issuing the ground software's cert from it, which removes the warning entirely. The token exchange after the WebSocket connects remains the real, enforceable app-level authorization gate in this phase. Genuine certificate pinning becomes possible starting Phase 2.5, inside the Android native shell, since native code has access to `TrustManager`/`WebViewClient.onReceivedSslError` APIs that page JavaScript does not.
 
 **Byte-stream bridging, protocol-agnostic.** Neither side parses the serial data. Read from serial (or the Android USB bridge), forward over the WebRTC data channel (ordered/reliable), write to a local TCP socket on the ground side. Protocol choice (MSP, MAVLink, etc.) is entirely an FC/GCS configuration decision.
 
@@ -48,7 +50,7 @@ This also means camera/mic capture needs no CameraX/AVFoundation-equivalent nati
 
 ## 4. Repo layout (monorepo)
 
-```
+```text
 /ground              # Node.js/TS ground software (signaling, WebRTC peer, byte-stream/TCP bridge, video sink)
 /webapp              # TypeScript PWA — all air-side logic
   /src
@@ -69,6 +71,7 @@ This also means camera/mic capture needs no CameraX/AVFoundation-equivalent nati
   - `/android-shell`: build, lint, instrumented tests against a mocked USB serial device and mocked WebView bridge — added starting Phase 2.5, not before.
   - Protocol contract tests: `/ground` and `/webapp` both run their suites against the same fixtures in `/protocol`.
 - **INAV SITL** is the default fake flight controller for automated testing.
+- **Local dev TLS:** both `/webapp` (in dev) and `/ground` should be served over HTTPS/`wss` using certs issued by a shared local CA (`mkcert`), not ad-hoc self-signed certs. This isn't just about avoiding browser warnings — `navigator.serial` and `getUserMedia` both require a secure context, and plain `http://` on anything but `localhost` doesn't qualify, which would silently break the serial and QR-scanning spikes. Use `vite-plugin-mkcert` for `/webapp`'s dev server, and issue `/ground`'s cert from the same local CA (`mkcert <lan-ip> localhost 127.0.0.1`).
 - **Ground software is containerized**, validated for both airgapped (no egress) and Tailscale-joined networking.
 - `/android-shell` and `/bridge-firmware` are placeholders in the repo layout with no CI or tickets targeting them yet.
 
