@@ -4,10 +4,15 @@ const MSP_V1_REQUEST_HEADER = Buffer.from([0x24, 0x4d, 0x3c]);
 const MSP_V2_REQUEST_HEADER = Buffer.from([0x24, 0x58, 0x3c]);
 const MSP_API_VERSION_REQUEST = Buffer.from([0x24, 0x4d, 0x3c, 0x00, 0x01, 0x01]);
 const MSP_API_VERSION_RESPONSE = Buffer.from([0x24, 0x4d, 0x3e, 0x03, 0x01, 0x00, 0x02, 0x05, 0x05]);
+const MSP_PREAMBLE_BYTE = 0x24;
+const MSP_REQUEST_DIRECTION_BYTE = 0x3c;
+const MSP_V1_VERSION_BYTE = 0x4d;
+const MSP_V2_VERSION_BYTE = 0x58;
 const MSP_V1_FRAME_OVERHEAD = 6;
 const MSP_V2_FRAME_OVERHEAD = 9;
 const MSP_V1_API_VERSION_FUNCTION = 0x01;
 const MSP_V2_API_VERSION_FUNCTION = 0x0001;
+const MSP_V1_ERROR_HEADER_BYTE = 0x21;
 const MSP_V2_SUCCESS_HEADER_BYTE = 0x3e;
 const MSP_V2_ERROR_HEADER_BYTE = 0x21;
 const MSP_V2_DEFAULT_FLAG = 0x00;
@@ -55,12 +60,16 @@ const buildMspV2Response = (headerByte: number, flag: number, functionId: number
   body.writeUInt16LE(payload.length, 3);
   payload.copy(body, 5);
   const crc = crc8DvbS2Buffer(body);
-  return Buffer.concat([Buffer.from([0x24, 0x58, headerByte]), body, Buffer.from([crc])]);
+  return Buffer.concat([Buffer.from([MSP_PREAMBLE_BYTE, MSP_V2_VERSION_BYTE, headerByte]), body, Buffer.from([crc])]);
 };
 
 const findNextRequestHeader = (source: Buffer): number => {
   for (let index = 0; index <= source.length - 3; index += 1) {
-    if (source[index] === 0x24 && source[index + 2] === 0x3c && (source[index + 1] === 0x4d || source[index + 1] === 0x58)) {
+    if (
+      source[index] === MSP_PREAMBLE_BYTE
+      && source[index + 2] === MSP_REQUEST_DIRECTION_BYTE
+      && (source[index + 1] === MSP_V1_VERSION_BYTE || source[index + 1] === MSP_V2_VERSION_BYTE)
+    ) {
       return index;
     }
   }
@@ -105,7 +114,7 @@ const handleSocket = (socket: Socket): void => {
           socket.write(MSP_API_VERSION_RESPONSE);
           logV1Request(commandId, "API_VERSION");
         } else {
-          const genericError = Buffer.from([0x24, 0x4d, 0x21, 0x00, commandId, commandId]);
+          const genericError = Buffer.from([MSP_PREAMBLE_BYTE, MSP_V1_VERSION_BYTE, MSP_V1_ERROR_HEADER_BYTE, 0x00, commandId, commandId]);
           socket.write(genericError);
           logV1Request(commandId, "generic_error");
         }
