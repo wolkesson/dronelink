@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DroneLink — Serial spike (Phase 0)</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --surface: #161b22;
+        --border: #30363d;
+        --text: #c9d1d9;
+        --muted: #8b949e;
+        --green: #3fb950;
+        --red: #f85149;
+        --yellow: #d29922;
+        --accent: #58a6ff;
+        font-family: "Consolas", "Menlo", "Courier New", monospace;
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        padding: 1.5rem;
+        min-height: 100dvh;
+      }
+
+      h1 { font-size: 1.25rem; margin-bottom: 0.25rem; color: var(--accent); }
+      .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.25rem; }
+
+      .controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+
+      button {
+        padding: 0.45rem 1.1rem;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        font-family: inherit;
+        font-size: 0.9rem;
+        cursor: pointer;
+        background: var(--surface);
+        color: var(--text);
+        transition: background 0.15s;
+      }
+      button:hover:not(:disabled) { background: #21262d; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      #btn-connect { border-color: var(--green); color: var(--green); }
+      #btn-disconnect { border-color: var(--red); color: var(--red); }
+
+      .status-row {
+        display: flex;
+        gap: 1.5rem;
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-bottom: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .status-row span { white-space: nowrap; }
+      #status-indicator { font-weight: bold; }
+      .status-connected { color: var(--green); }
+      .status-disconnected { color: var(--muted); }
+      .status-error { color: var(--red); }
+
+      #error-banner {
+        display: none;
+        background: #2d0f0f;
+        border: 1px solid var(--red);
+        color: #f85149;
+        border-radius: 6px;
+        padding: 0.65rem 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        line-height: 1.5;
+      }
+      #error-banner.visible { display: block; }
+
+      .log-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 0.3rem;
+      }
+      .log-header span { font-size: 0.78rem; color: var(--muted); }
+
+      #log {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.75rem;
+        height: 60dvh;
+        overflow-y: auto;
+        font-size: 0.78rem;
+        line-height: 1.6;
+        word-break: break-all;
+        white-space: pre-wrap;
+        scroll-behavior: smooth;
+      }
+
+      .log-line { color: var(--text); }
+      .log-line .ts { color: var(--muted); user-select: none; }
+      .log-empty { color: var(--muted); font-style: italic; }
+    </style>
+  </head>
+  <body>
+    <h1>DroneLink — Serial spike (Phase 0)</h1>
+    <p class="subtitle">
+      Raw byte reader · Web Serial API · baud&nbsp;115200 — desktop Chrome / Edge only
+    </p>
+
+    <div id="error-banner" role="alert"></div>
+
+    <div class="controls">
+      <button id="btn-connect">Connect</button>
+      <button id="btn-disconnect" disabled>Disconnect</button>
+    </div>
+
+    <div class="status-row">
+      <span>Status: <span id="status-indicator" class="status-disconnected">disconnected</span></span>
+      <span>Bytes received: <span id="byte-counter">0</span></span>
+      <span>Last byte: <span id="last-ts">—</span></span>
+    </div>
+
+    <div class="log-header">
+      <span>Hex log</span>
+      <span id="log-count">0 chunks</span>
+    </div>
+    <div id="log"><span class="log-empty">No data yet — connect a port to begin.</span></div>
+
+    <script type="module" src="/src/serial-test.ts"></script>
+  </body>
+</html>
