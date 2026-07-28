@@ -1,15 +1,17 @@
-/**
- * Placeholder tests for WebRtcSessionManager.
- *
- * TODO (Phase 0/1 spike):
- *   - Use a fake RTCPeerConnection (or a werift-based local peer) so tests run without a browser.
- *   - Assert that connect() transitions state to CONNECTED when both sides complete SDP/ICE.
- *   - Assert that sendBytes() delivers data to the remote peer's data channel.
- *   - Assert that state transitions to FAILED on ICE failure or timeout.
- *   - Assert that (Phase 3) reconnection backoff kicks in after a connection drop.
- */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WebRtcSessionManager } from "./WebRtcSessionManager.js";
+import type { PairingSocket } from "./PairingSession.js";
+
+function makeMockSocket(): PairingSocket {
+  return {
+    send: vi.fn(),
+    close: vi.fn(),
+    onOpen: vi.fn(),
+    onMessage: vi.fn(),
+    onError: vi.fn(),
+    onClose: vi.fn(),
+  };
+}
 
 describe("WebRtcSessionManager", () => {
   it("starts in IDLE state", () => {
@@ -17,14 +19,77 @@ describe("WebRtcSessionManager", () => {
     expect(mgr.state).toBe("IDLE");
   });
 
-  it("TODO: connect() should transition to CONNECTED after SDP/ICE exchange", async () => {
+  it("sendBytes() throws when not connected", () => {
     const mgr = new WebRtcSessionManager();
-    // Expected to throw until implemented — this is a failing placeholder.
-    await expect(mgr.connect()).rejects.toThrow("not implemented yet");
+    expect(() => mgr.sendBytes(new Uint8Array([0x01]))).toThrow();
   });
 
-  it("TODO: sendBytes() should relay bytes over the data channel", async () => {
+  it("subscribe() returns a working unsubscribe function", () => {
     const mgr = new WebRtcSessionManager();
-    await expect(mgr.sendBytes(new Uint8Array([0x01]))).rejects.toThrow("not implemented yet");
+    const handler = vi.fn();
+    const unsub = mgr.subscribe(handler);
+    expect(typeof unsub).toBe("function");
+    unsub();
+  });
+
+  it("connect() transitions to CONNECTING then CONNECTED when data channel opens", async () => {
+    const openRef = { fn: null as ((() => void) | null) };
+
+    const dc = {
+      binaryType: "arraybuffer",
+      onmessage: null as unknown,
+      onerror: null as unknown,
+      onclose: null as unknown,
+      send: vi.fn(),
+    };
+    Object.defineProperty(dc, "onopen", {
+      set(fn: (() => void) | null) {
+        if (fn) openRef.fn = fn;
+      },
+      get() {
+        return openRef.fn;
+      },
+      configurable: true,
+    });
+
+    const pc = {
+      connectionState: "new",
+      onicecandidate: null as unknown,
+      onconnectionstatechange: null as unknown,
+      onicecandidateerror: null as unknown,
+      createDataChannel: vi.fn(() => dc),
+      createOffer: vi.fn(async () => ({ type: "offer" as const, sdp: "v=0\r\n" })),
+      setLocalDescription: vi.fn(async () => {}),
+      close: vi.fn(),
+    };
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const connectPromise = mgr.connect(socket);
+      expect(mgr.state).toBe("CONNECTING");
+
+      // Drain microtasks so the async setup (createOffer, setLocalDescription) completes
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      // Simulate the data channel opening
+      openRef.fn?.();
+
+      await connectPromise;
+      expect(mgr.state).toBe("CONNECTED");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
+

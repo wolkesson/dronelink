@@ -1,8 +1,19 @@
 import { createSignalingServer } from "./signaling.js";
+import { setDataChannelCallbacks } from "./webrtc.js";
+import { startBridge, stopBridge } from "./tcp-bridge.js";
 
 const PORT = Number(process.env.SIGNAL_PORT ?? 8443);
 const HOST = process.env.SIGNAL_HOST ?? "localhost";
 const TLS_TARGET = process.env.SIGNAL_TLS_TARGET ?? "localhost";
+
+setDataChannelCallbacks(
+  (channel) => {
+    startBridge(channel);
+  },
+  () => {
+    stopBridge();
+  },
+);
 
 const signalingServer = createSignalingServer({
   port: PORT,

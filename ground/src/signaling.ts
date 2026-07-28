@@ -11,6 +11,7 @@ import {
   isPairingRequest,
   type PairingBundle,
 } from "./pairing.js";
+import { handleSignalingMessage, handleSocketClose } from "./webrtc.js";
 
 export interface SignalingServerOptions {
   port: number;
@@ -108,12 +109,24 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
         return;
       }
 
-      logger.log("Ignoring signaling message until SDP/ICE exchange is implemented:", payloadText);
+      let signalingMessage: unknown;
+      try {
+        signalingMessage = JSON.parse(payloadText);
+      } catch {
+        logger.warn("Received malformed signaling message after auth");
+        return;
+      }
+      handleSignalingMessage(signalingMessage, (msg) => {
+        socket.send(JSON.stringify(msg));
+      });
     });
 
     socket.on("close", () => {
       clearTimeout(authTimeout);
       logger.log("Signaling client disconnected");
+      if (authenticated) {
+        handleSocketClose();
+      }
     });
   });
 
