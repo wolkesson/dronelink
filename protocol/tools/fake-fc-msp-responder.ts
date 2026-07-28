@@ -4,6 +4,7 @@ const MSP_REQUEST_HEADER = Buffer.from([0x24, 0x4d, 0x3c]);
 const MSP_API_VERSION_REQUEST = Buffer.from([0x24, 0x4d, 0x3c, 0x00, 0x01, 0x01]);
 const MSP_API_VERSION_RESPONSE = Buffer.from([0x24, 0x4d, 0x3e, 0x03, 0x01, 0x00, 0x02, 0x05, 0x05]);
 const MSP_FRAME_OVERHEAD = 6;
+const MSP_MAX_FRAME_LENGTH = MSP_FRAME_OVERHEAD + 0xff;
 
 const DEFAULT_PORT = 5761;
 const configuredPort = Number(process.argv[2] ?? process.env.PORT ?? DEFAULT_PORT);
@@ -39,16 +40,17 @@ const handleSocket = (socket: Socket): void => {
         buffer = buffer.subarray(headerIndex);
       }
 
-      if (buffer.length < 3) {
-        break;
-      }
-
       if (buffer.length < MSP_FRAME_OVERHEAD) {
         break;
       }
 
       const payloadSize = buffer[3];
       const frameLength = MSP_FRAME_OVERHEAD + payloadSize;
+      if (frameLength > MSP_MAX_FRAME_LENGTH) {
+        logIgnored(`dropped frame with invalid size byte ${toHex(payloadSize)}`);
+        buffer = buffer.subarray(1);
+        continue;
+      }
 
       if (buffer.length < frameLength) {
         break;
@@ -57,7 +59,7 @@ const handleSocket = (socket: Socket): void => {
       const frame = buffer.subarray(0, frameLength);
       const commandId = frame[4];
 
-      if (frame.equals(MSP_API_VERSION_REQUEST)) {
+      if (frame.length === MSP_API_VERSION_REQUEST.length && frame.equals(MSP_API_VERSION_REQUEST)) {
         socket.write(MSP_API_VERSION_RESPONSE);
         logRequest(commandId, "API_VERSION");
       } else {
