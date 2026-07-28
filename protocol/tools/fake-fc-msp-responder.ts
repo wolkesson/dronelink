@@ -18,6 +18,9 @@ const MSP_V2_SUCCESS_HEADER_BYTE = 0x3e;
 const MSP_V2_ERROR_HEADER_BYTE = 0x21;
 const MSP_V2_DEFAULT_FLAG = 0x00;
 const MSP_V2_API_VERSION_PAYLOAD = Buffer.from([0x00, 0x02, 0x05]);
+const MSP_V2_FUNCTION_OFFSET = 4;
+const MSP_V2_SIZE_OFFSET = 6;
+const MSP_V2_SIZE_FIELD_LENGTH = 2;
 const CRC8_DVB_S2_POLYNOMIAL = 0xd5;
 const CRC8_HIGH_BIT = 0x80;
 
@@ -69,14 +72,27 @@ const buildMspV2Response = (headerByte: number, flag: number, functionId: number
 };
 
 const findNextRequestHeader = (source: Buffer): number => {
-  for (let index = 0; index <= source.length - 3; index += 1) {
-    if (
-      source[index] === MSP_PREAMBLE_BYTE
-      && source[index + 2] === MSP_REQUEST_DIRECTION_BYTE
-      && (source[index + 1] === MSP_V1_VERSION_BYTE || source[index + 1] === MSP_V2_VERSION_BYTE)
-    ) {
+  let index = source.indexOf(MSP_PREAMBLE_BYTE);
+  while (index !== -1) {
+    if (index + 1 >= source.length) {
       return index;
     }
+
+    const versionByte = source[index + 1];
+    if (versionByte !== MSP_V1_VERSION_BYTE && versionByte !== MSP_V2_VERSION_BYTE) {
+      index = source.indexOf(MSP_PREAMBLE_BYTE, index + 1);
+      continue;
+    }
+
+    if (index + 2 >= source.length) {
+      return index;
+    }
+
+    if (source[index + 2] === MSP_REQUEST_DIRECTION_BYTE) {
+      return index;
+    }
+
+    index = source.indexOf(MSP_PREAMBLE_BYTE, index + 1);
   }
   return -1;
 };
@@ -99,6 +115,10 @@ const handleSocket = (socket: Socket): void => {
       if (headerIndex > 0) {
         logIgnored(`dropped ${headerIndex} leading non-MSP byte(s)`);
         buffer = buffer.subarray(headerIndex);
+      }
+
+      if (buffer.length < 3) {
+        break;
       }
 
       if (buffer.subarray(0, 3).equals(MSP_V1_REQUEST_HEADER)) {
@@ -140,8 +160,12 @@ const handleSocket = (socket: Socket): void => {
           break;
         }
 
-        const functionId = buffer.readUInt16LE(4);
-        const payloadSize = buffer.readUInt16LE(6);
+        if (buffer.length < MSP_V2_SIZE_OFFSET + MSP_V2_SIZE_FIELD_LENGTH) {
+          break;
+        }
+
+        const functionId = buffer.readUInt16LE(MSP_V2_FUNCTION_OFFSET);
+        const payloadSize = buffer.readUInt16LE(MSP_V2_SIZE_OFFSET);
         const frameLength = MSP_V2_FRAME_OVERHEAD + payloadSize;
         if (buffer.length < frameLength) {
           break;
