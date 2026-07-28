@@ -4,7 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   plugins: [
-    mkcert(),
+    process.env.VITEST ? undefined : mkcert(),
     VitePWA({
       registerType: "autoUpdate",
       manifest: {
@@ -17,7 +17,7 @@ export default defineConfig({
         icons: [],
       },
     }),
-  ],
+  ].filter(Boolean),
   server: {
     https: true,
   },

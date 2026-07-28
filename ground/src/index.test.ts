@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { WebSocket } from "ws";
@@ -38,6 +38,7 @@ function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignal
 function seedTlsMaterial(stateDir: string): void {
   const keyPath = join(stateDir, "pairing-key.pem");
   const certPath = join(stateDir, "pairing-cert.pem");
+  const tlsTargetPath = join(stateDir, "pairing-cert-target.txt");
   const result = spawnSync(
     "openssl",
     [
@@ -68,6 +69,8 @@ function seedTlsMaterial(stateDir: string): void {
     const details = result.stderr.trim() || result.stdout.trim() || "unknown openssl failure";
     throw new Error(`Failed to seed TLS certificate for tests: ${details}`);
   }
+
+  writeFileSync(tlsTargetPath, "localhost\n", "utf8");
 }
 
 function openClient(url: string): Promise<WebSocket> {
