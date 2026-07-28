@@ -103,6 +103,26 @@ describe("PairingSession", () => {
     expect(session.error).toBeNull();
   });
 
+  it("accepts an empty cert fingerprint in the pairing bundle", async () => {
+    const bundle = createBundle({
+      certFingerprint: "",
+    });
+    const session = new PairingSession({
+      socketFactory: createSocketFactory((firstMessage, socket) => {
+        const parsed = JSON.parse(firstMessage) as { sessionId: string; token: string; type: string };
+        expect(parsed.type).toBe("pair");
+        expect(parsed.sessionId).toBe(bundle.sessionId);
+        expect(parsed.token).toBe(bundle.token);
+        socket.accept(bundle.sessionId);
+      }),
+    });
+
+    await expect(session.pair(JSON.stringify(bundle))).resolves.toBeUndefined();
+    expect(session.bundle?.certFingerprint).toBe("");
+    expect(session.state).toBe("PAIRED");
+    expect(session.error).toBeNull();
+  });
+
   it("surfaces a wrong token as a pairing failure instead of hanging", async () => {
     const bundle = createBundle();
     const session = new PairingSession({

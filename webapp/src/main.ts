@@ -12,7 +12,7 @@ if (app) {
     <main>
       <h1>DroneLink pairing</h1>
       <p>Paste the pairing bundle JSON printed by <code>/ground</code>.</p>
-      <textarea id="pairing-bundle" rows="12" cols="80" placeholder='{"sessionId":"...","token":"...","host":"localhost","port":8443,"certFingerprint":"AA:BB:..."}'></textarea>
+      <textarea id="pairing-bundle" rows="12" cols="80" placeholder='{"sessionId":"...","token":"...","host":"localhost","port":8443,"certFingerprint":""} or {"certFingerprint":"AA:BB:..."}'></textarea>
       <div>
         <button id="pair-button" type="button">Pair</button>
       </div>

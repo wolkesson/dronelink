@@ -1,9 +1,9 @@
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
+import * as x509 from "@peculiar/x509";
 import { createSignalingServer } from "./signaling.js";
 
 const runtimes: Array<ReturnType<typeof createSignalingServer>> = [];
@@ -14,16 +14,20 @@ afterEach(async () => {
   tempDirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
 });
 
-function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignalingServer> {
+async function createRuntime(
+  handshakeTimeoutMs = 100,
+  skipPairingAuth = false,
+): Promise<ReturnType<typeof createSignalingServer>> {
   const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
   tempDirs.push(stateDir);
-  seedTlsMaterial(stateDir);
+  await seedTlsMaterial(stateDir);
 
   const runtime = createSignalingServer({
     port: 0,
     host: "127.0.0.1",
     stateDir,
     handshakeTimeoutMs,
+    skipPairingAuth,
     logger: {
       log: () => undefined,
       warn: () => undefined,
@@ -35,42 +39,37 @@ function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignal
   return runtime;
 }
 
-function seedTlsMaterial(stateDir: string): void {
+async function seedTlsMaterial(stateDir: string): Promise<void> {
   const keyPath = join(stateDir, "pairing-key.pem");
   const certPath = join(stateDir, "pairing-cert.pem");
   const tlsTargetPath = join(stateDir, "pairing-cert-target.txt");
-  const result = spawnSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-sha256",
-      "-nodes",
-      "-keyout",
-      keyPath,
-      "-out",
-      certPath,
-      "-days",
-      "1",
-      "-subj",
-      "/CN=localhost",
-      "-addext",
-      "subjectAltName=DNS:localhost,IP:127.0.0.1",
-    ],
-    {
-      encoding: "utf8",
-      stdio: "pipe",
-    },
-  );
-
-  if (result.status !== 0) {
-    const details = result.stderr.trim() || result.stdout.trim() || "unknown openssl failure";
-    throw new Error(`Failed to seed TLS certificate for tests: ${details}`);
-  }
+  x509.cryptoProvider.set(globalThis.crypto);
+  const algorithm = {
+    name: "RSASSA-PKCS1-v1_5",
+    hash: "SHA-256",
+    publicExponent: new Uint8Array([1, 0, 1]),
+    modulusLength: 2048,
+  } as const;
+  const keys = await globalThis.crypto.subtle.generateKey(algorithm, true, ["sign", "verify"]);
+  const cert = await x509.X509CertificateGenerator.createSelfSigned({
+    serialNumber: "01",
+    name: "CN=localhost",
+    notBefore: new Date(Date.now() - 86_400_000),
+    notAfter: new Date(Date.now() + 86_400_000),
+    signingAlgorithm: algorithm,
+    keys,
+  });
+  const privateKey = await globalThis.crypto.subtle.exportKey("pkcs8", keys.privateKey);
+  const privateKeyPem = toPem("PRIVATE KEY", Buffer.from(privateKey));
+  writeFileSync(keyPath, privateKeyPem, "utf8");
+  writeFileSync(certPath, cert.toString("pem"), "utf8");
 
   writeFileSync(tlsTargetPath, "localhost\n", "utf8");
+}
+
+function toPem(label: string, data: Buffer): string {
+  const body = data.toString("base64").match(/.{1,64}/g)?.join("\n") ?? "";
+  return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`;
 }
 
 function openClient(url: string): Promise<WebSocket> {
@@ -183,7 +182,7 @@ function validateAgainstPairingSchema(schema: Record<string, unknown>, value: Re
 
 describe("signaling server", () => {
   it("accepts the correct token as the first message", async () => {
-    const runtime = createRuntime();
+    const runtime = await createRuntime();
     const bundle = await runtime.start();
     const socket = await openClient(`wss://${bundle.host}:${bundle.port}`);
 
@@ -205,8 +204,33 @@ describe("signaling server", () => {
     socket.close();
   });
 
+  it("omits the cert fingerprint and skips token auth in test mode", async () => {
+    const runtime = await createRuntime(100, true);
+    const bundle = await runtime.start();
+    expect(bundle.certFingerprint).toBe("");
+
+    const socket = await openClient(`wss://${bundle.host}:${bundle.port}`);
+
+    socket.send(
+      JSON.stringify({
+        type: "pair",
+        sessionId: bundle.sessionId,
+        token: mutateToken(bundle.token),
+      }),
+    );
+
+    await expect(waitForMessage(socket)).resolves.toBe(
+      JSON.stringify({
+        type: "pairing-accepted",
+        sessionId: bundle.sessionId,
+      }),
+    );
+
+    socket.close();
+  });
+
   it("rejects a missing first-message token and closes the connection", async () => {
-    const runtime = createRuntime(50);
+    const runtime = await createRuntime(50);
     const bundle = await runtime.start();
     const socket = await openClient(`wss://${bundle.host}:${bundle.port}`);
 
@@ -217,7 +241,7 @@ describe("signaling server", () => {
   });
 
   it("rejects a wrong first-message token and closes the connection", async () => {
-    const runtime = createRuntime();
+    const runtime = await createRuntime();
     const bundle = await runtime.start();
     const socket = await openClient(`wss://${bundle.host}:${bundle.port}`);
 
@@ -236,7 +260,7 @@ describe("signaling server", () => {
   });
 
   it("prints a bundle shape that matches the protocol schema", async () => {
-    const runtime = createRuntime();
+    const runtime = await createRuntime();
     const bundle = await runtime.start();
     const schema = JSON.parse(
       readFileSync(
@@ -253,7 +277,7 @@ describe("signaling server", () => {
   it("reuses the persisted TLS certificate across restarts", async () => {
     const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
     tempDirs.push(stateDir);
-    seedTlsMaterial(stateDir);
+    await seedTlsMaterial(stateDir);
 
     const first = createSignalingServer({
       port: 0,

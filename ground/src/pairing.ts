@@ -54,6 +54,12 @@ export function isPairingBundle(value: unknown): value is PairingBundle {
     return false;
   }
 
+  if (typeof value.certFingerprint !== "string") {
+    return false;
+  }
+
+  const hasFingerprint = value.certFingerprint === "" || FINGERPRINT_PATTERN.test(value.certFingerprint);
+
   return (
     typeof value.sessionId === "string" &&
     value.sessionId.length > 0 &&
@@ -65,8 +71,7 @@ export function isPairingBundle(value: unknown): value is PairingBundle {
     Number.isInteger(value.port) &&
     value.port >= 1 &&
     value.port <= 65535 &&
-    typeof value.certFingerprint === "string" &&
-    FINGERPRINT_PATTERN.test(value.certFingerprint)
+    hasFingerprint
   );
 }
 
@@ -131,7 +136,7 @@ export function ensureTlsMaterial(stateDir: string, tlsTarget: string): TlsMater
     }
 
     if (result.status !== 0) {
-      const details = result.stderr.trim() || result.stdout.trim() || "unknown mkcert failure";
+      const details = (result.stderr ?? "").trim() || (result.stdout ?? "").trim() || "unknown mkcert failure";
       throw new Error(`Failed to generate TLS certificate with mkcert: ${details}`);
     }
 

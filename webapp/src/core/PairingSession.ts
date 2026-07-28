@@ -36,6 +36,12 @@ function isPairingBundle(value: unknown): value is PairingBundle {
     return false;
   }
 
+  if (typeof value.certFingerprint !== "string") {
+    return false;
+  }
+
+  const hasFingerprint = value.certFingerprint === "" || FINGERPRINT_PATTERN.test(value.certFingerprint);
+
   return (
     typeof value.sessionId === "string" &&
     value.sessionId.length > 0 &&
@@ -47,8 +53,7 @@ function isPairingBundle(value: unknown): value is PairingBundle {
     Number.isInteger(value.port) &&
     value.port >= 1 &&
     value.port <= 65535 &&
-    typeof value.certFingerprint === "string" &&
-    FINGERPRINT_PATTERN.test(value.certFingerprint)
+    hasFingerprint
   );
 }
 
@@ -231,7 +236,7 @@ export class PairingSession {
 
     return {
       ...parsed,
-      certFingerprint: parsed.certFingerprint.toUpperCase(),
+      certFingerprint: parsed.certFingerprint.length > 0 ? parsed.certFingerprint.toUpperCase() : "",
     };
   }
 }

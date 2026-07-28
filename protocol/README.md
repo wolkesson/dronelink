@@ -15,6 +15,7 @@ Phase 0 defines the pairing bundle JSON shape in `schemas/pairing-bundle.schema.
 - `token` — random 128-bit base64url token the client must send in its first signaling message
 - `host` / `port` — the ground-side `wss://` endpoint
 - `certFingerprint` — SHA-256 fingerprint of the self-signed TLS certificate served by `/ground`
+- `certFingerprint` may be empty when `/ground` is started with `SIGNAL_SKIP_PAIRING_AUTH=1` for local testing
 
 ## Adding fixtures
 

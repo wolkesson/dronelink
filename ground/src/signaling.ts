@@ -17,6 +17,7 @@ export interface SignalingServerOptions {
   port: number;
   host?: string;
   tlsTarget?: string;
+  skipPairingAuth?: boolean;
   stateDir?: string;
   handshakeTimeoutMs?: number;
   logger?: Pick<Console, "log" | "warn" | "error">;
@@ -43,6 +44,7 @@ function getListeningPort(server: HttpsServer): number {
 export function createSignalingServer(options: SignalingServerOptions): SignalingServerRuntime {
   const host = options.host ?? "localhost";
   const tlsTarget = options.tlsTarget ?? "localhost";
+  const skipPairingAuth = options.skipPairingAuth ?? false;
   const stateDir = options.stateDir ?? join(homedir(), ".dronelink-ground");
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   const logger = options.logger ?? console;
@@ -69,16 +71,27 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
     logger.log("Signaling client connected");
 
     let authenticated = false;
-    const authTimeout = setTimeout(() => {
-      if (!authenticated) {
-        socket.close(1008, "token required");
-      }
-    }, handshakeTimeoutMs);
+    const authTimeout = skipPairingAuth
+      ? undefined
+      : setTimeout(() => {
+          if (!authenticated) {
+            socket.close(1008, "token required");
+          }
+        }, handshakeTimeoutMs);
 
     socket.on("message", (data) => {
       const payloadText = data.toString();
 
       if (!authenticated) {
+        if (skipPairingAuth) {
+          authenticated = true;
+          if (authTimeout) {
+            clearTimeout(authTimeout);
+          }
+          socket.send(JSON.stringify(createPairingAcceptedMessage(sessionId)));
+          return;
+        }
+
         let parsed: unknown;
 
         try {
@@ -122,7 +135,9 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
     });
 
     socket.on("close", () => {
-      clearTimeout(authTimeout);
+      if (authTimeout) {
+        clearTimeout(authTimeout);
+      }
       logger.log("Signaling client disconnected");
       if (authenticated) {
         handleSocketClose();
@@ -133,7 +148,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   return {
     httpsServer,
     wss,
-    certFingerprint: tlsMaterial.certFingerprint,
+    certFingerprint: skipPairingAuth ? "" : tlsMaterial.certFingerprint,
     async start(): Promise<PairingBundle> {
       if (!startPromise) {
         startPromise = new Promise<PairingBundle>((resolve, reject) => {
@@ -149,7 +164,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
               token,
               host,
               port: getListeningPort(httpsServer),
-              certFingerprint: tlsMaterial.certFingerprint,
+              certFingerprint: skipPairingAuth ? "" : tlsMaterial.certFingerprint,
             });
             resolve(bundle);
           };
