@@ -5,6 +5,7 @@ import { WebSocketServer } from "ws";
 import {
   createPairingAcceptedMessage,
   createPairingBundle,
+  ensureTailscaleTlsMaterial,
   ensureTlsMaterial,
   generateSessionId,
   generateToken,
@@ -17,6 +18,7 @@ export interface SignalingServerOptions {
   port: number;
   host?: string;
   tlsTarget?: string;
+  tlsProvider?: "mkcert" | "tailscale";
   stateDir?: string;
   handshakeTimeoutMs?: number;
   logger?: Pick<Console, "log" | "warn" | "error">;
@@ -43,13 +45,18 @@ function getListeningPort(server: HttpsServer): number {
 export function createSignalingServer(options: SignalingServerOptions): SignalingServerRuntime {
   const host = options.host ?? "localhost";
   const tlsTarget = options.tlsTarget ?? "localhost";
+  const tlsProvider = options.tlsProvider ?? "mkcert";
   const stateDir = options.stateDir ?? join(homedir(), ".dronelink-ground");
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   const logger = options.logger ?? console;
-  const tlsMaterial = ensureTlsMaterial(stateDir, tlsTarget);
   const sessionId = generateSessionId();
   const token = generateToken();
 
+  const tlsMaterial =
+    tlsProvider === "tailscale"
+      ? ensureTailscaleTlsMaterial(stateDir, tlsTarget)
+      : ensureTlsMaterial(stateDir, tlsTarget);
+  const tlsFingerprint = tlsMaterial.certFingerprint;
   const httpsServer = createServer(
     {
       key: tlsMaterial.key,

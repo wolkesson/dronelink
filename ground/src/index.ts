@@ -5,6 +5,7 @@ import { startBridge, stopBridge } from "./tcp-bridge.js";
 const PORT = Number(process.env.SIGNAL_PORT ?? 8443);
 const HOST = process.env.SIGNAL_HOST ?? "localhost";
 const TLS_TARGET = process.env.SIGNAL_TLS_TARGET ?? "localhost";
+const TLS_PROVIDER = process.env.TLS_PROVIDER === "tailscale" ? "tailscale" : "mkcert";
 
 setDataChannelCallbacks(
   (channel) => {
@@ -19,6 +20,7 @@ const signalingServer = createSignalingServer({
   port: PORT,
   host: HOST,
   tlsTarget: TLS_TARGET,
+  tlsProvider: TLS_PROVIDER
 });
 
 void signalingServer
