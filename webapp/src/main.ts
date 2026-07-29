@@ -1,11 +1,13 @@
 import { PairingSession } from "./core/PairingSession.js";
 import { WebRtcSessionManager } from "./core/WebRtcSessionManager.js";
 import { WebSerialTransport } from "./transport/WebSerialTransport.js";
+import { LinkActivityTracker } from "./ui/LinkActivityTracker.js";
 
 const app = document.getElementById("app");
 if (app) {
   const session = new PairingSession();
   const sessionManager = new WebRtcSessionManager();
+  const activityTracker = new LinkActivityTracker();
   let transport: WebSerialTransport | null = null;
 
   app.innerHTML = `
@@ -22,6 +24,11 @@ if (app) {
       <div id="fc-section" hidden>
         <button id="connect-fc-button" type="button">Connect FC</button>
         <p id="fc-state"></p>
+        <div id="link-status" hidden>
+          <p><strong>Link activity</strong> (modem LEDs)</p>
+          <p><span id="tx-led">⚫ TX (FC→Ground)</span> · <span id="rx-led">⚫ RX (Ground→FC)</span></p>
+          <p id="link-counters">TX 0 bytes (FC→Ground) · RX 0 bytes (Ground→FC)</p>
+        </div>
       </div>
     </main>
   `;
@@ -34,6 +41,10 @@ if (app) {
   const fcSection = app.querySelector<HTMLDivElement>("#fc-section");
   const connectFcButton = app.querySelector<HTMLButtonElement>("#connect-fc-button");
   const fcStateEl = app.querySelector<HTMLParagraphElement>("#fc-state");
+  const linkStatusEl = app.querySelector<HTMLDivElement>("#link-status");
+  const txLedEl = app.querySelector<HTMLSpanElement>("#tx-led");
+  const rxLedEl = app.querySelector<HTMLSpanElement>("#rx-led");
+  const linkCountersEl = app.querySelector<HTMLParagraphElement>("#link-counters");
 
   const render = () => {
     if (stateEl) {
@@ -51,6 +62,17 @@ if (app) {
 
   render();
 
+  activityTracker.onChange((snapshot) => {
+    if (txLedEl) {
+      txLedEl.textContent = `${snapshot.txActive ? "🟢" : "⚫"} TX (FC→Ground)`;
+    }
+    if (rxLedEl) {
+      rxLedEl.textContent = `${snapshot.rxActive ? "🟢" : "⚫"} RX (Ground→FC)`;
+    }
+    if (linkCountersEl) {
+      linkCountersEl.textContent = `TX ${snapshot.txBytes} bytes (FC→Ground) · RX ${snapshot.rxBytes} bytes (Ground→FC)`;
+    }
+  });
   button?.addEventListener("click", async () => {
     if (!input) {
       return;
@@ -94,21 +116,42 @@ if (app) {
       .then(() => {
         transport = t;
         if (connectFcButton) connectFcButton.disabled = true;
-        const unsubSerial = transport.subscribe((bytes) => {
+        let unsubSerial: (() => void) | null = null;
+        let unsubWebRtc: (() => void) | null = null;
+        let fcDisconnected = false;
+        const handleFcDisconnect = () => {
+          if (fcDisconnected) {
+            return;
+          }
+          fcDisconnected = true;
+          unsubSerial?.();
+          unsubSerial = null;
+          unsubWebRtc?.();
+          unsubWebRtc = null;
+          if (fcStateEl) {
+            fcStateEl.textContent = "FC disconnected";
+          }
+          if (linkStatusEl) {
+            linkStatusEl.hidden = true;
+          }
+        };
+        unsubSerial = transport.subscribe((bytes) => {
+          if (bytes.length === 0) {
+            handleFcDisconnect();
+            return;
+          }
+          activityTracker.recordTransmit(bytes.length);
           sessionManager.sendBytes(bytes);
         });
-        const unsubWebRtc = sessionManager.subscribe((bytes) => {
+        unsubWebRtc = sessionManager.subscribe((bytes) => {
+          activityTracker.recordReceive(bytes.length);
           void transport?.write(bytes);
-        });
-        transport.subscribe((bytes) => {
-          // zero-length chunk signals device disconnection — clean up subscriptions
-          if (bytes.length === 0) {
-            unsubSerial();
-            unsubWebRtc();
-          }
         });
         if (fcStateEl) {
           fcStateEl.textContent = "FC connected";
+        }
+        if (linkStatusEl) {
+          linkStatusEl.hidden = false;
         }
       })
       .catch((err: unknown) => {
