@@ -4,15 +4,20 @@ This file provides orientation for AI coding agents (GitHub Copilot, Claude Code
 
 ## Repository overview
 
-DroneLink is a drone command-and-control (C2) and video link system. It is a TypeScript/Node.js monorepo currently in **Phase 0 (spikes)**. Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making any changes.
+DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 (video) is next**. Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making any changes.
 
 ## Monorepo layout
 
 | Directory | Language | Role |
 |---|---|---|
 | `/ground` | Node.js + TypeScript | Signaling server, WebRTC peer (`werift`), byte-stream↔TCP bridge, video sink |
+| `/ground/src/pairing.ts` | TypeScript | TLS material (mkcert / Tailscale), token/bundle types and validation |
+| `/ground/src/signaling.ts` | TypeScript | HTTPS/WSS server factory, token auth gate, forwards signaling messages to `webrtc.ts` |
+| `/ground/src/webrtc.ts` | TypeScript | `RTCPeerConnection` lifecycle, offer/answer/ICE, data-channel callbacks |
+| `/ground/src/tcp-bridge.ts` | TypeScript | TCP server, one-client limit, bidirectional relay between TCP and the WebRTC data channel |
 | `/webapp` | TypeScript (Vite PWA) | All air-side logic: pairing, WebRTC session, serial byte relay, UI |
 | `/webapp/src/core` | TypeScript | Transport-agnostic: pairing, session state machine, WebRTC relay logic |
+| `/webapp/src/core/WebRtcSessionManager.ts` | TypeScript | WebRTC session state machine: offer/answer/ICE exchange, data-channel relay to `SerialTransport` |
 | `/webapp/src/transport` | TypeScript | `SerialTransport` interface + `WebSerialTransport` and `NativeBridgeTransport` implementations |
 | `/webapp/src/ui` | TypeScript | UI components |
 | `/android-shell` | Kotlin | **Not started — do not touch until Phase 2.5** |
@@ -73,7 +78,7 @@ When modifying CI workflows, preserve the path filters and the advisory `continu
 - **No protocol parsing.** Serial data is forwarded as an opaque byte stream end-to-end. Never add MSP/MAVLink parsing to `/ground` or `/webapp`. Protocol choice is an FC/GCS configuration matter.
 - **`SerialTransport` abstraction.** All serial I/O in `/webapp` goes through the `SerialTransport` interface. `WebSerialTransport` is the desktop Chrome implementation. `NativeBridgeTransport` (Android WebView) communicates over a `WebMessageChannel`. Do not bypass this interface.
 - **Signaling is inside `/ground`.** There is no separate signaling service. Keep it that way.
-- **TLS cert pinning is not implementable in browser JS.** The token exchange after the WebSocket connects is the real authorization gate in Phase 0–2. Certificate pinning becomes feasible in Phase 2.5 inside the Android native shell.
+- **TLS cert pinning is not implementable in browser JS.** Two TLS paths exist: (1) `mkcert` issues a local-CA cert trusted via `mkcert -install` — browser accepts it after a one-time per-machine install, no click-through warning; (2) `TLS_PROVIDER=tailscale` obtains a real Let's Encrypt cert via `tailscale cert` — publicly trusted, no `mkcert` needed on either machine. In both cases the browser has no API to inspect or pin the certificate before the page script runs. The token exchange after the WebSocket connects is the real, enforceable app-level authorization gate in Phase 0–2. Certificate pinning becomes feasible in Phase 2.5 inside the Android native shell.
 
 ## What NOT to build yet
 
@@ -89,14 +94,11 @@ Do not start these — they are explicitly deferred:
 | iPhone air-side app | Future work (after bridge firmware) |
 | Protocol-aware channel prioritization | Future work |
 
-## Current work (Phase 0 spikes)
+## Phase 1 complete — Phase 2 next
 
-The three spikes to complete are:
-1. **Pairing spike** — generate a QR/token bundle in `/ground`, scan/parse it in `/webapp`, complete a token-authenticated `wss://` handshake.
-2. **Serial spike** — open the real FC's COM port via `navigator.serial` (`WebSerialTransport`) in desktop Chrome, read raw bytes.
-3. **Bridge spike** — pipe a recorded byte stream from `/protocol/fixtures` into a local TCP socket, confirm INAV Configurator connects and parses it.
+Phase 1 delivered the thin end-to-end pipe: pairing, WebRTC data channel, and the ground-side TCP bridge are implemented and working end-to-end against a real FC over both LAN and Tailscale. The Phase 0 spikes (pairing, serial, bridge) are fully subsumed into Phase 1.
 
-All three spikes run with `/ground` + `/webapp` in desktop Chrome only. No Android phone or native code is needed.
+For the current Phase 2 scope (video track), see the **Phase 2** description in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## Testing approach
 

@@ -6,14 +6,13 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, component
 
 ---
 
-## Current phase: Phase 0 — Spikes
+## Current phase: Phase 1 — Complete; Phase 2 next
 
-Phase 0 is entirely testable with `/ground` plus `/webapp` running in **desktop Chrome** against a real flight controller over Web Serial. **No Android phone or native code is needed.**
+**Phase 0** established the three core spikes: pairing (QR/token bundle → authenticated `wss://` handshake), serial (raw FC bytes via `navigator.serial` in desktop Chrome), and bridge (byte stream forwarded to a TCP socket, INAV Configurator connects and reads telemetry). These spikes proved out the full hardware and protocol path with no Android or native code.
 
-Phase 0 spikes:
-1. **Pairing spike** — generate a QR/token bundle, scan/parse it, and complete a token-authenticated `wss://` handshake.
-2. **Serial spike** — open the real FC's COM port via `navigator.serial` in desktop Chrome, read raw bytes.
-3. **Bridge spike** — pipe a recorded byte stream into a local TCP socket, confirm INAV Configurator connects and parses it.
+**Phase 1** delivered the thin end-to-end pipe: `/webapp` in desktop Chrome reads live serial data from the FC via `WebSerialTransport`, pairs with and connects to `/ground` over a WebRTC data channel, and `/ground` bridges the byte stream to a local TCP port — INAV Configurator shows live telemetry. Tested over both LAN and Tailscale against a real FC.
+
+**Phase 2 (video) is next.** See `ARCHITECTURE.md` for details.
 
 ---
 
@@ -45,7 +44,7 @@ The following are explicitly out of scope until later phases. Do not start them:
 
 ---
 
-## Getting started (Phase 0)
+## Getting started (Phase 1 — LAN)
 
 **Prerequisites:** Node.js 22+, npm, desktop Chrome, `mkcert`.
 
@@ -56,18 +55,29 @@ mkcert -install
 ```
 
 ```sh
-# Ground software
+# Ground software (PC running INAV)
 cd ground
 npm install
-npm run build
-npm test
-npm start          # starts the signaling server
+npm start          # starts the signaling server; prints the pairing bundle
 
-# Web app (air-side PWA, run in desktop Chrome)
+# Web app — Air-side PWA, run in desktop Chrome on the same PC (or any LAN machine) with FC wired via USB
 cd webapp
 npm install
 npm run dev        # Vite dev server at https://localhost:5173
-npm test
+```
+
+1. Open `https://localhost:5173` in desktop Chrome.
+2. Paste the pairing bundle printed by `/ground` (or scan its QR code) and click **Pair**.
+3. Click **Connect FC** and select the FC's serial port — raw bytes start flowing over WebRTC to `/ground`.
+4. In INAV Configurator, connect to `localhost:5761` (TCP) — live telemetry should appear.
+
+> **Running over Tailscale?** See the [Running over Tailscale](#running-over-tailscale-instead-of-lan) section below for the `TLS_PROVIDER=tailscale` setup, which gives you a real Let's Encrypt cert and works across any internet connection.
+
+To run the test suites:
+
+```sh
+cd ground && npm test
+cd webapp && npm test
 ```
 
 ---
