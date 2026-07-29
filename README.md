@@ -55,12 +55,12 @@ mkcert -install
 ```
 
 ```sh
-# Ground software (PC with FC wired via USB)
+# Ground software (PC running INAV)
 cd ground
 npm install
 npm start          # starts the signaling server; prints the pairing bundle
 
-# Web app — run in desktop Chrome on the same PC (or any LAN machine)
+# Web app — Air-side PWA, run in desktop Chrome on the same PC (or any LAN machine) with FC wired via USB
 cd webapp
 npm install
 npm run dev        # Vite dev server at https://localhost:5173
