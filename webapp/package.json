@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "jsqr": "^1.4.0",
     "vite-plugin-pwa": "^1.3.0"
   },
   "devDependencies": {
