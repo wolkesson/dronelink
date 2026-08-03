@@ -6,11 +6,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+// Fix #13: match 100.64.0.0/10 (first octet 100, second octet 64-127)
+export function isTailscaleCandidate(candidate: string): boolean {
+  return /\b100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b/.test(candidate);
+}
+
+export interface WebRtcSessionManagerOptions {
+  connectTimeoutMs?: number;
+}
+
 export class WebRtcSessionManager {
   private _state: SessionState = "IDLE";
   private pc: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private readonly handlers = new Set<(data: Uint8Array) => void>();
+  private readonly connectTimeoutMs: number;
+
+  constructor(options: WebRtcSessionManagerOptions = {}) {
+    this.connectTimeoutMs = options.connectTimeoutMs ?? 15_000;
+  }
 
   get state(): SessionState {
     return this._state;
@@ -20,8 +34,10 @@ export class WebRtcSessionManager {
    * Create an RTCPeerConnection, open the "serial-relay" data channel, and
    * complete the SDP/ICE exchange over the already-paired signaling socket.
    * Resolves once the data channel transitions to open.
+   * When isTailscaleTarget is true, only forwards ICE candidates in the
+   * 100.64.0.0/10 range so non-routable candidates are not wasted on Tailscale.
    */
-  async connect(socket: PairingSocket): Promise<void> {
+  async connect(socket: PairingSocket, isTailscaleTarget = false): Promise<void> {
     this._state = "CONNECTING";
 
     this.pc = new RTCPeerConnection();
@@ -39,8 +55,12 @@ export class WebRtcSessionManager {
     };
 
     // Forward our ICE candidates to the ground over the signaling socket.
+    // When pairing over Tailscale, only forward candidates in 100.64.0.0/10.
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
+        if (isTailscaleTarget && !isTailscaleCandidate(event.candidate.candidate)) {
+          return;
+        }
         socket.send(
           JSON.stringify({ type: "ice-candidate", candidate: event.candidate.toJSON() }),
         );
@@ -76,10 +96,12 @@ export class WebRtcSessionManager {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
       const succeed = () => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeoutId);
         this._state = "CONNECTED";
         resolve();
       };
@@ -87,9 +109,14 @@ export class WebRtcSessionManager {
       const fail = (reason: string) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeoutId);
         this._state = "FAILED";
         reject(new Error(reason));
       };
+
+      timeoutId = setTimeout(() => {
+        fail("WebRTC connection timed out");
+      }, this.connectTimeoutMs);
 
       dc.onopen = succeed;
 
