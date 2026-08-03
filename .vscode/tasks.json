@@ -4,7 +4,7 @@
     {
       "label": "webapp: dev",
       "type": "shell",
-      "command": "npm run dev",
+      "command": "npm run preview",
       "options": {
         "cwd": "${workspaceFolder}/webapp"
       },

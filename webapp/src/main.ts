@@ -1,4 +1,5 @@
 import { PairingSession } from "./core/PairingSession.js";
+import { QrPairingScanner } from "./core/QrPairingScanner.js";
 import { WebRtcSessionManager } from "./core/WebRtcSessionManager.js";
 import { WebSerialTransport } from "./transport/WebSerialTransport.js";
 import { LinkActivityTracker } from "./ui/LinkActivityTracker.js";
@@ -13,10 +14,15 @@ if (app) {
   app.innerHTML = `
     <main>
       <h1>DroneLink pairing</h1>
-      <p>Paste the pairing bundle JSON printed by <code>/ground</code>.</p>
+      <p>Paste the pairing bundle JSON printed by <code>/ground</code>, or scan its QR code.</p>
       <textarea id="pairing-bundle" rows="12" cols="80" placeholder='{"sessionId":"...","token":"...","host":"localhost","port":8443,"certFingerprint":"AA:BB:..."}'></textarea>
       <div>
         <button id="pair-button" type="button">Pair</button>
+        ${QrPairingScanner.isSupported() ? '<button id="scan-qr-button" type="button">Scan QR</button>' : ""}
+      </div>
+      <div id="qr-scanner" hidden>
+        <video id="qr-video" autoplay playsinline style="max-width:100%"></video>
+        <div><button id="cancel-scan-button" type="button">Cancel</button></div>
       </div>
       <p id="pairing-state">State: ${session.state}</p>
       <p id="webrtc-state">WebRTC: ${sessionManager.state}</p>
@@ -35,6 +41,10 @@ if (app) {
 
   const input = app.querySelector<HTMLTextAreaElement>("#pairing-bundle");
   const button = app.querySelector<HTMLButtonElement>("#pair-button");
+  const scanQrButton = app.querySelector<HTMLButtonElement>("#scan-qr-button");
+  const qrScannerEl = app.querySelector<HTMLDivElement>("#qr-scanner");
+  const qrVideoEl = app.querySelector<HTMLVideoElement>("#qr-video");
+  const cancelScanButton = app.querySelector<HTMLButtonElement>("#cancel-scan-button");
   const stateEl = app.querySelector<HTMLParagraphElement>("#pairing-state");
   const webrtcStateEl = app.querySelector<HTMLParagraphElement>("#webrtc-state");
   const error = app.querySelector<HTMLParagraphElement>("#pairing-error");
@@ -73,15 +83,12 @@ if (app) {
       linkCountersEl.textContent = `TX ${snapshot.txBytes} bytes (FC→Ground) · RX ${snapshot.rxBytes} bytes (Ground→FC)`;
     }
   });
-  button?.addEventListener("click", async () => {
-    if (!input) {
-      return;
-    }
 
+  const attemptPair = async (bundleText: string) => {
     render();
 
     try {
-      await session.pair(input.value);
+      await session.pair(bundleText);
       render();
 
       const socket = session.socket;
@@ -103,7 +110,38 @@ if (app) {
     } finally {
       render();
     }
+  };
+
+  button?.addEventListener("click", () => {
+    if (!input) {
+      return;
+    }
+    void attemptPair(input.value);
   });
+
+  if (scanQrButton && qrScannerEl && qrVideoEl && cancelScanButton) {
+    const scanner = new QrPairingScanner();
+
+    scanQrButton.addEventListener("click", () => {
+      qrScannerEl.hidden = false;
+      scanQrButton.disabled = true;
+      if (button) button.disabled = true;
+
+      void scanner.start(qrVideoEl, (bundleText) => {
+        qrScannerEl.hidden = true;
+        scanQrButton.disabled = false;
+        if (button) button.disabled = false;
+        void attemptPair(bundleText);
+      });
+    });
+
+    cancelScanButton.addEventListener("click", () => {
+      scanner.stop();
+      qrScannerEl.hidden = true;
+      scanQrButton.disabled = false;
+      if (button) button.disabled = false;
+    });
+  }
 
   connectFcButton?.addEventListener("click", () => {
     if (transport) return; // guard against multiple clicks
