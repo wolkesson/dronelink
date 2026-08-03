@@ -1,3 +1,4 @@
+import qrcodeTerminal from "qrcode-terminal";
 import { createSignalingServer } from "./signaling.js";
 import { setDataChannelCallbacks } from "./webrtc.js";
 import { startBridge, stopBridge } from "./tcp-bridge.js";
@@ -30,6 +31,7 @@ void signalingServer
     console.log(`TLS certificate fingerprint (SHA-256): ${bundle.certFingerprint}`);
     console.log("Pairing bundle JSON:");
     console.log(JSON.stringify(bundle, null, 2));
+    qrcodeTerminal.generate(JSON.stringify(bundle), { small: true }, (qr) => console.log(qr));
   })
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
