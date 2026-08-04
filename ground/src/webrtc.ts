@@ -21,9 +21,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+// Fix #13: match 100.64.0.0/10 (first octet 100, second octet 64-127)
+export function isTailscaleCandidate(candidate: string): boolean {
+  return /\b100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b/.test(candidate);
+}
+
 export function handleSignalingMessage(
   message: unknown,
   reply: (msg: unknown) => void,
+  isTailscale = false,
 ): void {
   if (!isRecord(message)) return;
 
@@ -41,6 +47,9 @@ export function handleSignalingMessage(
 
     pc.onIceCandidate.subscribe((candidate) => {
       if (candidate) {
+        if (isTailscale && !isTailscaleCandidate(candidate.candidate)) {
+          return;
+        }
         reply({ type: "ice-candidate", candidate: candidate.toJSON() });
       }
     });

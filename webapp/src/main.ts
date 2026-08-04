@@ -96,7 +96,7 @@ if (app) {
         throw new Error("Socket unexpectedly null after pairing.");
       }
 
-      await sessionManager.connect(socket);
+      await sessionManager.connect(socket, (session.bundle?.host ?? "").endsWith(".ts.net"));
       render();
 
       if (fcSection) {
