@@ -36,6 +36,8 @@ Certificate trust is handled out-of-band, not by app code, because browser JavaS
 
 **Byte-stream bridging, protocol-agnostic.** Neither side parses the serial data. Read from serial (or the Android USB bridge), forward over the WebRTC data channel (ordered/reliable), write to a local TCP socket on the ground side. Protocol choice (MSP, MAVLink, etc.) is entirely an FC/GCS configuration decision.
 
+**`QrPairingScanner` owns only detection, not stream lifecycle.** `QrPairingScanner.start(videoEl, stream, onResult)` accepts a caller-supplied `MediaStream` and scans frames from it using `requestAnimationFrame`. It never calls `getUserMedia`, never stops tracks, and never reassigns `srcObject` after `start()` returns. The caller is responsible for acquiring the stream before scanning, displaying it (if desired), and stopping its tracks when done. This separation allows the same camera stream to be reused for both live preview and QR scanning without re-prompting for permissions, and makes ownership unambiguous.
+
 **Nearly all air-side logic lives in TypeScript, in a PWA.** The Android native shell is intentionally minimal:
 - Keeps a foreground service running, so the process isn't killed by the OS during flight.
 - Owns the USB device: requests the USB host permission, reads/writes the serial connection (`usb-serial-for-android` or direct `android.hardware.usb`), and exposes it to the WebView as a `SerialTransport` over a `WebMessageChannel`.

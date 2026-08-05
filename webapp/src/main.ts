@@ -214,6 +214,19 @@ if (app) {
 
   if (scanQrButton && qrScannerEl && qrVideoEl && cancelScanButton) {
     const scanner = new QrPairingScanner();
+    let scanStream: MediaStream | null = null;
+
+    const stopScan = () => {
+      scanner.stop();
+      if (scanStream) {
+        scanStream.getTracks().forEach((t) => t.stop());
+        scanStream = null;
+        qrVideoEl.srcObject = null;
+      }
+      qrScannerEl.hidden = true;
+      scanQrButton.disabled = false;
+      if (button) button.disabled = false;
+    };
 
     scanQrButton.addEventListener("click", () => {
       qrScannerEl.hidden = false;
@@ -222,28 +235,31 @@ if (app) {
 
       if (videoStream && previewVideoEl) {
         // Reuse the already-active camera stream — no second permission prompt.
-        void scanner.start(previewVideoEl, (bundleText) => {
-          qrScannerEl.hidden = true;
-          scanQrButton.disabled = false;
-          if (button) button.disabled = false;
-          void attemptPair(bundleText);
-        }, videoStream);
-      } else {
-        void scanner.start(qrVideoEl, (bundleText) => {
-          qrScannerEl.hidden = true;
-          scanQrButton.disabled = false;
-          if (button) button.disabled = false;
+        scanner.start(previewVideoEl, videoStream, (bundleText) => {
+          stopScan();
           void attemptPair(bundleText);
         });
+      } else {
+        // Acquire a dedicated stream for scanning; stopped when scan ends.
+        void navigator.mediaDevices
+          .getUserMedia({ video: { facingMode: { ideal: "environment" } } })
+          .then((stream) => {
+            scanStream = stream;
+            scanner.start(qrVideoEl, stream, (bundleText) => {
+              stopScan();
+              void attemptPair(bundleText);
+            });
+          })
+          .catch((err: unknown) => {
+            stopScan();
+            if (error) {
+              error.textContent = err instanceof Error ? err.message : "Camera access denied.";
+            }
+          });
       }
     });
 
-    cancelScanButton.addEventListener("click", () => {
-      scanner.stop();
-      qrScannerEl.hidden = true;
-      scanQrButton.disabled = false;
-      if (button) button.disabled = false;
-    });
+    cancelScanButton.addEventListener("click", stopScan);
   }
 
   connectFcButton?.addEventListener("click", () => {
