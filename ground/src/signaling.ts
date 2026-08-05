@@ -12,7 +12,7 @@ import {
   isPairingRequest,
   type PairingBundle,
 } from "./pairing.js";
-import { handleSignalingMessage, handleSocketClose } from "./webrtc.js";
+import { handleSignalingMessage, handleSocketClose, setStateDir } from "./webrtc.js";
 
 export interface SignalingServerOptions {
   port: number;
@@ -51,6 +51,8 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   const logger = options.logger ?? console;
   const sessionId = generateSessionId();
   const token = generateToken();
+
+  setStateDir(stateDir);
 
   const tlsMaterial =
     tlsProvider === "tailscale"
@@ -125,7 +127,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
       }
       handleSignalingMessage(signalingMessage, (msg) => {
         socket.send(JSON.stringify(msg));
-      }, tlsProvider === "tailscale");
+      }, tlsProvider === "tailscale", sessionId);
     });
 
     socket.on("close", () => {

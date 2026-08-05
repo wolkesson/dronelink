@@ -47,8 +47,7 @@ describe("QrPairingScanner", () => {
   });
 
   it("calls onResult with the rawValue from the first QR detection", async () => {
-    const track = makeFakeTrack();
-    const stream = makeFakeStream([track]);
+    const stream = makeFakeStream();
     const videoEl = makeFakeVideoEl();
 
     let detectCallCount = 0;
@@ -65,12 +64,10 @@ describe("QrPairingScanner", () => {
 
     const scanner = new QrPairingScanner({
       detectorFactory: () => fakeDetector,
-      mediaFactory: async () => stream,
     });
 
     const onResult = vi.fn();
-    // start() resolves after mediaFactory() completes and the first RAF is scheduled
-    await scanner.start(videoEl, onResult);
+    scanner.start(videoEl, stream, onResult);
 
     // Tick 1: detect returns [] (call 1)
     flushRaf();
@@ -88,7 +85,7 @@ describe("QrPairingScanner", () => {
     expect(onResult).toHaveBeenCalledWith("qr-payload");
   });
 
-  it("stop() halts scanning and stops all media tracks", async () => {
+  it("stop() halts scanning and does not stop any media tracks", () => {
     const track = makeFakeTrack();
     const stream = makeFakeStream([track]);
     const videoEl = makeFakeVideoEl();
@@ -99,32 +96,25 @@ describe("QrPairingScanner", () => {
 
     const scanner = new QrPairingScanner({
       detectorFactory: () => fakeDetector,
-      mediaFactory: async () => stream,
     });
 
     const onResult = vi.fn();
-    await scanner.start(videoEl, onResult);
-
-    // Let one tick fire
-    flushRaf();
-    await flushMicrotasks();
-
+    scanner.start(videoEl, stream, onResult);
     scanner.stop();
 
     expect(onResult).not.toHaveBeenCalled();
-    expect(track.stop).toHaveBeenCalled();
+    expect(track.stop).not.toHaveBeenCalled();
   });
 
-  it("stop() is safe to call multiple times", async () => {
+  it("stop() is safe to call multiple times", () => {
     const stream = makeFakeStream();
     const videoEl = makeFakeVideoEl();
 
     const scanner = new QrPairingScanner({
       detectorFactory: () => ({ detect: vi.fn(async () => [] as { rawValue: string }[]) }),
-      mediaFactory: async () => stream,
     });
 
-    await scanner.start(videoEl, vi.fn());
+    scanner.start(videoEl, stream, vi.fn());
 
     expect(() => {
       scanner.stop();
@@ -136,22 +126,20 @@ describe("QrPairingScanner", () => {
   it("stop() is safe to call before start()", () => {
     const scanner = new QrPairingScanner({
       detectorFactory: () => ({ detect: vi.fn(async () => [] as { rawValue: string }[]) }),
-      mediaFactory: async () => makeFakeStream(),
     });
 
     expect(() => scanner.stop()).not.toThrow();
   });
 
-  it("sets videoEl.srcObject to the media stream", async () => {
+  it("sets videoEl.srcObject to the media stream", () => {
     const stream = makeFakeStream();
     const videoEl = makeFakeVideoEl();
 
     const scanner = new QrPairingScanner({
       detectorFactory: () => ({ detect: vi.fn(async () => [] as { rawValue: string }[]) }),
-      mediaFactory: async () => stream,
     });
 
-    await scanner.start(videoEl, vi.fn());
+    scanner.start(videoEl, stream, vi.fn());
 
     expect(videoEl.srcObject).toBe(stream);
     scanner.stop();
@@ -166,9 +154,7 @@ describe("QrPairingScanner", () => {
       }
       vi.stubGlobal("window", { BarcodeDetector: MockBarcodeDetector });
 
-      const scanner = new QrPairingScanner({
-        mediaFactory: async () => makeFakeStream(),
-      });
+      const scanner = new QrPairingScanner();
       const detector = (scanner as unknown as { detectorFactory: () => unknown }).detectorFactory();
       expect(detector).toBeInstanceOf(MockBarcodeDetector);
     });
@@ -176,9 +162,7 @@ describe("QrPairingScanner", () => {
     it("falls back to JsQrDetector when BarcodeDetector is absent", () => {
       vi.stubGlobal("window", {});
 
-      const scanner = new QrPairingScanner({
-        mediaFactory: async () => makeFakeStream(),
-      });
+      const scanner = new QrPairingScanner();
       const detector = (scanner as unknown as { detectorFactory: () => unknown }).detectorFactory();
       expect(detector).toBeInstanceOf(JsQrDetector);
     });
@@ -235,6 +219,32 @@ describe("QrPairingScanner", () => {
       const result = await detector.detect(videoEl);
       expect(result).toEqual([]);
     });
+  });
+
+  it("detects QR codes against the provided video element", async () => {
+    const stream = makeFakeStream();
+    const videoEl = makeFakeVideoEl();
+    let detectCallCount = 0;
+    const fakeDetector = {
+      detect: vi.fn(async () => {
+        detectCallCount++;
+        return detectCallCount >= 2 ? [{ rawValue: "payload" }] : ([] as { rawValue: string }[]);
+      }),
+    };
+
+    const scanner = new QrPairingScanner({
+      detectorFactory: () => fakeDetector,
+    });
+
+    const onResult = vi.fn();
+    scanner.start(videoEl, stream, onResult);
+
+    flushRaf();
+    await flushMicrotasks();
+    flushRaf();
+    await flushMicrotasks();
+
+    expect(onResult).toHaveBeenCalledWith("payload");
   });
 });
 

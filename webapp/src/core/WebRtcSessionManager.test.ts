@@ -252,5 +252,54 @@ describe("WebRtcSessionManager", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("connect() calls addTrack() for each stream track before createOffer when localStream provided", async () => {
+    const { pc, openRef } = makeMockPc();
+    const addTrack = vi.fn();
+    (pc as unknown as Record<string, unknown>).addTrack = addTrack;
+
+    let createOfferCalled = false;
+    const originalCreateOffer = pc.createOffer;
+    pc.createOffer = vi.fn(async () => {
+      createOfferCalled = true;
+      return originalCreateOffer();
+    });
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const fakeTrack = { kind: "video" } as MediaStreamTrack;
+      const fakeStream = {
+        getTracks: () => [fakeTrack],
+      } as unknown as MediaStream;
+
+      const connectPromise = mgr.connect(socket, false, fakeStream);
+
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      openRef.fn?.();
+      await connectPromise;
+
+      expect(addTrack).toHaveBeenCalledOnce();
+      expect(addTrack).toHaveBeenCalledWith(fakeTrack, fakeStream);
+      expect(createOfferCalled).toBe(true);
+      // addTrack must have been called before createOffer
+      const addTrackOrder = addTrack.mock.invocationCallOrder[0];
+      const createOfferOrder = (pc.createOffer as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+      expect(addTrackOrder).toBeLessThan(createOfferOrder);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 

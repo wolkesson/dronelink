@@ -37,7 +37,7 @@ export class WebRtcSessionManager {
    * When isTailscaleTarget is true, only forwards ICE candidates in the
    * 100.64.0.0/10 range so non-routable candidates are not wasted on Tailscale.
    */
-  async connect(socket: PairingSocket, isTailscaleTarget = false): Promise<void> {
+  async connect(socket: PairingSocket, isTailscaleTarget = false, localStream?: MediaStream): Promise<void> {
     this._state = "CONNECTING";
 
     this.pc = new RTCPeerConnection();
@@ -89,6 +89,12 @@ export class WebRtcSessionManager {
         });
       }
     });
+
+    if (localStream) {
+      for (const track of localStream.getTracks()) {
+        this.pc.addTrack(track, localStream);
+      }
+    }
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);

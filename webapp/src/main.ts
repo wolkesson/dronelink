@@ -10,23 +10,39 @@ if (app) {
   const sessionManager = new WebRtcSessionManager();
   const activityTracker = new LinkActivityTracker();
   let transport: WebSerialTransport | null = null;
+  let videoStream: MediaStream | null = null;
 
   app.innerHTML = `
     <main>
-      <h1>DroneLink pairing</h1>
-      <p>Paste the pairing bundle JSON printed by <code>/ground</code>, or scan its QR code.</p>
-      <textarea id="pairing-bundle" rows="12" cols="80" placeholder='{"sessionId":"...","token":"...","host":"localhost","port":8443,"certFingerprint":"AA:BB:..."}'></textarea>
-      <div>
-        <button id="pair-button" type="button">Pair</button>
-        ${QrPairingScanner.isSupported() ? '<button id="scan-qr-button" type="button">Scan QR</button>' : ""}
-      </div>
-      <div id="qr-scanner" hidden>
-        <video id="qr-video" autoplay playsinline style="max-width:100%"></video>
-        <div><button id="cancel-scan-button" type="button">Cancel</button></div>
-      </div>
-      <p id="pairing-state">State: ${session.state}</p>
-      <p id="webrtc-state">WebRTC: ${sessionManager.state}</p>
-      <p id="pairing-error" role="alert"></p>
+      <h1>DroneLink</h1>
+
+      <section id="video-source-section">
+        <h2>Video source</h2>
+        <select id="camera-select">
+          <option value="">No video</option>
+        </select>
+        <div id="video-preview-container" hidden>
+          <video id="preview-video" autoplay playsinline muted style="max-width:100%"></video>
+        </div>
+      </section>
+
+      <section>
+        <h2>Pairing</h2>
+        <p>Paste the pairing bundle JSON printed by <code>/ground</code>, or scan its QR code.</p>
+        <textarea id="pairing-bundle" rows="12" cols="80" placeholder='{"sessionId":"...","token":"...","host":"localhost","port":8443,"certFingerprint":"AA:BB:..."}'></textarea>
+        <div>
+          <button id="pair-button" type="button">Pair</button>
+          ${QrPairingScanner.isSupported() ? '<button id="scan-qr-button" type="button">Scan QR</button>' : ""}
+        </div>
+        <div id="qr-scanner" hidden>
+          <video id="qr-video" autoplay playsinline style="max-width:100%"></video>
+          <div><button id="cancel-scan-button" type="button">Cancel</button></div>
+        </div>
+        <p id="pairing-state">State: ${session.state}</p>
+        <p id="webrtc-state">WebRTC: ${sessionManager.state}</p>
+        <p id="pairing-error" role="alert"></p>
+      </section>
+
       <div id="fc-section" hidden>
         <button id="connect-fc-button" type="button">Connect FC</button>
         <p id="fc-state"></p>
@@ -38,6 +54,10 @@ if (app) {
       </div>
     </main>
   `;
+
+  const cameraSelect = app.querySelector<HTMLSelectElement>("#camera-select");
+  const videoPreviewContainer = app.querySelector<HTMLDivElement>("#video-preview-container");
+  const previewVideoEl = app.querySelector<HTMLVideoElement>("#preview-video");
 
   const input = app.querySelector<HTMLTextAreaElement>("#pairing-bundle");
   const button = app.querySelector<HTMLButtonElement>("#pair-button");
@@ -55,6 +75,75 @@ if (app) {
   const txLedEl = app.querySelector<HTMLSpanElement>("#tx-led");
   const rxLedEl = app.querySelector<HTMLSpanElement>("#rx-led");
   const linkCountersEl = app.querySelector<HTMLParagraphElement>("#link-counters");
+
+  // --- Video source setup ---
+
+  const stopVideoStream = () => {
+    if (videoStream) {
+      videoStream.getTracks().forEach((t) => t.stop());
+      videoStream = null;
+    }
+    if (previewVideoEl) {
+      previewVideoEl.srcObject = null;
+    }
+    if (videoPreviewContainer) {
+      videoPreviewContainer.hidden = true;
+    }
+  };
+
+  const populateCameraList = async () => {
+    if (!cameraSelect) return;
+
+    // Throwaway getUserMedia call to unlock device labels, then stop immediately.
+    try {
+      const unlock = await navigator.mediaDevices.getUserMedia({ video: true });
+      unlock.getTracks().forEach((t) => t.stop());
+    } catch {
+      // Permission denied or no camera — keep "No video" as the only option.
+      return;
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter((d) => d.kind === "videoinput");
+    let cameraIndex = 1;
+    for (const device of videoInputs) {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || `Camera ${cameraIndex}`;
+      cameraSelect.appendChild(option);
+      cameraIndex++;
+    }
+  };
+
+  void populateCameraList();
+
+  cameraSelect?.addEventListener("change", () => {
+    const deviceId = cameraSelect.value;
+    stopVideoStream();
+    if (!deviceId) return;
+
+    void navigator.mediaDevices
+      .getUserMedia({
+        video: { deviceId: { exact: deviceId }, width: { ideal: 320 }, height: { ideal: 240 } },
+      })
+      .then((stream) => {
+        videoStream = stream;
+        if (previewVideoEl) {
+          previewVideoEl.srcObject = stream;
+        }
+        if (videoPreviewContainer) {
+          videoPreviewContainer.hidden = false;
+        }
+      })
+      .catch((err: unknown) => {
+        if (error) {
+          error.textContent =
+            err instanceof Error ? err.message : "Failed to open camera.";
+        }
+      });
+  });
+
+  // --- Pairing UI ---
 
   const render = () => {
     if (stateEl) {
@@ -96,7 +185,11 @@ if (app) {
         throw new Error("Socket unexpectedly null after pairing.");
       }
 
-      await sessionManager.connect(socket, (session.bundle?.host ?? "").endsWith(".ts.net"));
+      await sessionManager.connect(
+        socket,
+        (session.bundle?.host ?? "").endsWith(".ts.net"),
+        videoStream ?? undefined,
+      );
       render();
 
       if (fcSection) {
@@ -121,26 +214,52 @@ if (app) {
 
   if (scanQrButton && qrScannerEl && qrVideoEl && cancelScanButton) {
     const scanner = new QrPairingScanner();
+    let scanStream: MediaStream | null = null;
+
+    const stopScan = () => {
+      scanner.stop();
+      if (scanStream) {
+        scanStream.getTracks().forEach((t) => t.stop());
+        scanStream = null;
+        qrVideoEl.srcObject = null;
+      }
+      qrScannerEl.hidden = true;
+      scanQrButton.disabled = false;
+      if (button) button.disabled = false;
+    };
 
     scanQrButton.addEventListener("click", () => {
       qrScannerEl.hidden = false;
       scanQrButton.disabled = true;
       if (button) button.disabled = true;
 
-      void scanner.start(qrVideoEl, (bundleText) => {
-        qrScannerEl.hidden = true;
-        scanQrButton.disabled = false;
-        if (button) button.disabled = false;
-        void attemptPair(bundleText);
-      });
+      if (videoStream && previewVideoEl) {
+        // Reuse the already-active camera stream — no second permission prompt.
+        scanner.start(previewVideoEl, videoStream, (bundleText) => {
+          stopScan();
+          void attemptPair(bundleText);
+        });
+      } else {
+        // Acquire a dedicated stream for scanning; stopped when scan ends.
+        void navigator.mediaDevices
+          .getUserMedia({ video: { facingMode: { ideal: "environment" } } })
+          .then((stream) => {
+            scanStream = stream;
+            scanner.start(qrVideoEl, stream, (bundleText) => {
+              stopScan();
+              void attemptPair(bundleText);
+            });
+          })
+          .catch((err: unknown) => {
+            stopScan();
+            if (error) {
+              error.textContent = err instanceof Error ? err.message : "Camera access denied.";
+            }
+          });
+      }
     });
 
-    cancelScanButton.addEventListener("click", () => {
-      scanner.stop();
-      qrScannerEl.hidden = true;
-      scanQrButton.disabled = false;
-      if (button) button.disabled = false;
-    });
+    cancelScanButton.addEventListener("click", stopScan);
   }
 
   connectFcButton?.addEventListener("click", () => {

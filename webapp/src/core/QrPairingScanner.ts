@@ -12,7 +12,6 @@ interface BarcodeDetectorLike {
 
 export interface QrPairingScannerOptions {
   detectorFactory?: () => BarcodeDetectorLike;
-  mediaFactory?: () => Promise<MediaStream>;
 }
 
 export class JsQrDetector implements BarcodeDetectorLike {
@@ -34,6 +33,9 @@ export class JsQrDetector implements BarcodeDetectorLike {
   }
 }
 
+// QrPairingScanner scans QR codes from a caller-supplied MediaStream.
+// The caller is responsible for acquiring the stream (getUserMedia) and stopping
+// its tracks when done — this class never starts or stops any media tracks.
 export class QrPairingScanner {
   // jsQR provides a pure-JS fallback so scanning is always available.
   static isSupported(): boolean {
@@ -41,8 +43,6 @@ export class QrPairingScanner {
   }
 
   private readonly detectorFactory: () => BarcodeDetectorLike;
-  private readonly mediaFactory: () => Promise<MediaStream>;
-  private stream: MediaStream | null = null;
   private rafId: number | null = null;
 
   constructor(options: QrPairingScannerOptions = {}) {
@@ -58,19 +58,14 @@ export class QrPairingScanner {
         }
         return new JsQrDetector();
       });
-    this.mediaFactory =
-      options.mediaFactory ??
-      (() =>
-        navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-        }));
   }
 
-  async start(videoEl: HTMLVideoElement, onResult: (text: string) => void): Promise<void> {
-    const stream = await this.mediaFactory();
-    this.stream = stream;
+  start(
+    videoEl: HTMLVideoElement,
+    stream: MediaStream,
+    onResult: (text: string) => void,
+  ): void {
     videoEl.srcObject = stream;
-
     const detector = this.detectorFactory();
 
     const tick = async () => {
@@ -101,10 +96,6 @@ export class QrPairingScanner {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
-    }
-    if (this.stream) {
-      this.stream.getTracks().forEach((t) => t.stop());
-      this.stream = null;
     }
   }
 }
