@@ -1,5 +1,9 @@
 import { RTCPeerConnection } from "werift";
+import { MediaRecorder } from "werift/nonstandard";
 import type { RTCDataChannel, RTCIceCandidateInit } from "werift";
+import type { MediaStreamTrack } from "werift";
+import { join } from "path";
+import { mkdirSync } from "fs";
 
 type DataChannelOpenCallback = (channel: RTCDataChannel) => void;
 type DataChannelCloseCallback = () => void;
@@ -7,7 +11,18 @@ type DataChannelCloseCallback = () => void;
 let onDataChannelOpenCallback: DataChannelOpenCallback | null = null;
 let onDataChannelCloseCallback: DataChannelCloseCallback | null = null;
 let activePc: RTCPeerConnection | null = null;
+let activeRecorder: MediaRecorder | null = null;
 const pendingCandidates: RTCIceCandidateInit[] = [];
+let stateDir = "";
+
+export function setStateDir(dir: string): void {
+  stateDir = dir;
+}
+
+/** Returns the path for a video recording file for the given session ID. */
+export function videoFilePath(dir: string, sessionId: string): string {
+  return join(dir, `video-${sessionId}.webm`);
+}
 
 export function setDataChannelCallbacks(
   onOpen: DataChannelOpenCallback,
@@ -30,6 +45,7 @@ export function handleSignalingMessage(
   message: unknown,
   reply: (msg: unknown) => void,
   isTailscale = false,
+  sessionId = "session",
 ): void {
   if (!isRecord(message)) return;
 
@@ -54,6 +70,23 @@ export function handleSignalingMessage(
       }
     });
 
+    pc.onTrack.subscribe((track: MediaStreamTrack) => {
+      if (track.kind !== "video") return;
+
+      if (stateDir) {
+        mkdirSync(stateDir, { recursive: true });
+      }
+      const filePath = videoFilePath(stateDir || ".", sessionId);
+      const recorder = new MediaRecorder({ tracks: [track], path: filePath });
+      activeRecorder = recorder;
+      void recorder.addTrack(track).catch((err: unknown) => {
+        console.error(
+          "Video recorder error:",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+    });
+
     pc.onDataChannel.subscribe((channel) => {
       if (channel.label !== "serial-relay") return;
 
@@ -61,6 +94,7 @@ export function handleSignalingMessage(
         onDataChannelOpenCallback?.(channel);
         channel.onclose = () => {
           onDataChannelCloseCallback?.();
+          void stopRecorder();
           void pc.close().catch(() => undefined);
           activePc = null;
         };
@@ -124,10 +158,25 @@ export function handleSignalingMessage(
   }
 }
 
+async function stopRecorder(): Promise<void> {
+  if (activeRecorder) {
+    const recorder = activeRecorder;
+    activeRecorder = null;
+    await recorder.stop().catch((err: unknown) => {
+      console.warn(
+        "Video recorder stop error:",
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+  }
+}
+
 export function handleSocketClose(): void {
   if (activePc) {
     void activePc.close().catch(() => undefined);
     activePc = null;
   }
+  void stopRecorder();
   pendingCandidates.length = 0;
 }
+

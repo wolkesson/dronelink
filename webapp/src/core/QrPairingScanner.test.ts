@@ -236,6 +236,73 @@ describe("QrPairingScanner", () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe("reuse mode", () => {
+    it("does not call mediaFactory and does not reassign srcObject", async () => {
+      const track = makeFakeTrack();
+      const reuseStream = makeFakeStream([track]);
+      const videoEl = makeFakeVideoEl();
+      const existingSrcObject = {};
+      videoEl.srcObject = existingSrcObject as unknown as MediaStream;
+
+      const mediaFactory = vi.fn(async () => makeFakeStream());
+
+      const scanner = new QrPairingScanner({
+        detectorFactory: () => ({ detect: vi.fn(async () => [] as { rawValue: string }[]) }),
+        mediaFactory,
+      });
+
+      await scanner.start(videoEl, vi.fn(), reuseStream);
+
+      expect(mediaFactory).not.toHaveBeenCalled();
+      expect(videoEl.srcObject).toBe(existingSrcObject);
+
+      scanner.stop();
+    });
+
+    it("stop() does not stop the reused stream's tracks", async () => {
+      const track = makeFakeTrack();
+      const reuseStream = makeFakeStream([track]);
+      const videoEl = makeFakeVideoEl();
+
+      const scanner = new QrPairingScanner({
+        detectorFactory: () => ({ detect: vi.fn(async () => [] as { rawValue: string }[]) }),
+        mediaFactory: async () => makeFakeStream(),
+      });
+
+      await scanner.start(videoEl, vi.fn(), reuseStream);
+      scanner.stop();
+
+      expect(track.stop).not.toHaveBeenCalled();
+    });
+
+    it("detects QR codes against the reused video element", async () => {
+      const reuseStream = makeFakeStream();
+      const videoEl = makeFakeVideoEl();
+      let detectCallCount = 0;
+      const fakeDetector = {
+        detect: vi.fn(async () => {
+          detectCallCount++;
+          return detectCallCount >= 2 ? [{ rawValue: "reuse-payload" }] : ([] as { rawValue: string }[]);
+        }),
+      };
+
+      const scanner = new QrPairingScanner({
+        detectorFactory: () => fakeDetector,
+        mediaFactory: async () => makeFakeStream(),
+      });
+
+      const onResult = vi.fn();
+      await scanner.start(videoEl, onResult, reuseStream);
+
+      flushRaf();
+      await flushMicrotasks();
+      flushRaf();
+      await flushMicrotasks();
+
+      expect(onResult).toHaveBeenCalledWith("reuse-payload");
+    });
+  });
 });
 
 

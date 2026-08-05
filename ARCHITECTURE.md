@@ -86,7 +86,12 @@ This also means camera/mic capture needs no CameraX/AVFoundation-equivalent nati
 Run `/webapp` in desktop Chrome on PC B: read real serial from the FC via `WebSerialTransport` → pair with and connect to `/ground` on PC A over WebRTC → ground software bridges to a local TCP port → INAV Configurator on PC A shows live telemetry. Fully real hardware, zero native/Android code.
 
 **Phase 2 — video track (both PCs, desktop Chrome only)**
-Add `getUserMedia` video capture to `/webapp` (PC B's webcam stands in for the phone camera) and confirm `/ground` receives and displays it.
+Add `getUserMedia` video capture to `/webapp` (PC B's webcam stands in for the phone camera) and confirm `/ground` receives and records it. Phase 2 is broken into four spikes:
+
+1. **(spike 1 — in progress)** Air-side camera source selection (including a "No video" option), live preview in the UI, camera reused for QR scanning when selected; ground records the received video track to a file for manual verification.
+2. **(spike 2)** Ground-side web GUI displaying video live via a second, local (loopback) WebRTC connection from ground to a browser tab on the same machine — chosen over a UDP/RTP relay into VLC specifically for latency: WebRTC's own jitter buffer and rendering path are tuned for real-time playback, general media players are tuned for smooth playback, not lowest latency.
+3. **(spike 3 — future, not yet scoped in detail)** Retransmission over WebRTC to additional external viewers beyond the local ground GUI.
+4. **(spike 4 — future, not yet scoped in detail)** Image processing on video frames — ground-side via canvas or Insertable Streams is the primary target given available compute; air-side is possible via the same techniques but competes with encoding/serial-relay for phone CPU/battery, so only justified for autonomy use cases that can't depend on the link.
 
 **Phase 2.5 — Android native shell (when a phone is available)**
 Build `/android-shell` for the first time: foreground service, USB permission + serial bridge over a `WebMessageChannel`, camera/mic permission passthrough, wake lock, boot/USB-attach autostart, and a `localhost` server hosting the `/webapp` build in a WebView. Implement `NativeBridgeTransport` in `/webapp` to receive bytes from the shell instead of `navigator.serial`. Because the pairing, session, and relay logic were already fully proven in Phases 0–2, this phase is scoped to native platform integration risk only — USB host reliability on the specific phone, WebView's `onPermissionRequest`/getUserMedia behavior, foreground service correctness, thermal/power under load.

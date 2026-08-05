@@ -44,6 +44,7 @@ export class QrPairingScanner {
   private readonly mediaFactory: () => Promise<MediaStream>;
   private stream: MediaStream | null = null;
   private rafId: number | null = null;
+  private reusing = false;
 
   constructor(options: QrPairingScannerOptions = {}) {
     this.detectorFactory =
@@ -66,10 +67,26 @@ export class QrPairingScanner {
         }));
   }
 
-  async start(videoEl: HTMLVideoElement, onResult: (text: string) => void): Promise<void> {
-    const stream = await this.mediaFactory();
-    this.stream = stream;
-    videoEl.srcObject = stream;
+  async start(videoEl: HTMLVideoElement, onResult: (text: string) => void): Promise<void>;
+  async start(
+    videoEl: HTMLVideoElement,
+    onResult: (text: string) => void,
+    reuseStream: MediaStream,
+  ): Promise<void>;
+  async start(
+    videoEl: HTMLVideoElement,
+    onResult: (text: string) => void,
+    reuseStream?: MediaStream,
+  ): Promise<void> {
+    if (reuseStream) {
+      this.reusing = true;
+      this.stream = null;
+    } else {
+      this.reusing = false;
+      const stream = await this.mediaFactory();
+      this.stream = stream;
+      videoEl.srcObject = stream;
+    }
 
     const detector = this.detectorFactory();
 
@@ -102,9 +119,10 @@ export class QrPairingScanner {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
-    if (this.stream) {
+    if (!this.reusing && this.stream) {
       this.stream.getTracks().forEach((t) => t.stop());
-      this.stream = null;
     }
+    this.stream = null;
+    this.reusing = false;
   }
 }

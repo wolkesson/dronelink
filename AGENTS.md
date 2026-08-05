@@ -4,7 +4,7 @@ This file provides orientation for AI coding agents (GitHub Copilot, Claude Code
 
 ## Repository overview
 
-DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 (video) is next**. Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making any changes.
+DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 spike 1 is in progress** (air-side camera source selection, live preview, ground-side video recording). Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making any changes.
 
 ## Monorepo layout
 
@@ -88,17 +88,20 @@ Do not start these — they are explicitly deferred:
 |---|---|
 | `/android-shell` (Kotlin foreground service, USB bridge, WebView host) | Phase 2.5 |
 | `/bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
-| Video capture and forwarding | Phase 2 |
+| Video capture and forwarding — ground-side GUI (spike 2+) | Phase 2, spikes 2–4 |
 | Reconnection / backoff / resilience | Phase 3 |
 | Docker Compose / containerized deployment | Phase 4 |
 | iPhone air-side app | Future work (after bridge firmware) |
 | Protocol-aware channel prioritization | Future work |
 
-## Phase 1 complete — Phase 2 next
+## Phase 2 spike 1 in progress — spikes 2–4 upcoming
 
 Phase 1 delivered the thin end-to-end pipe: pairing, WebRTC data channel, and the ground-side TCP bridge are implemented and working end-to-end against a real FC over both LAN and Tailscale. The Phase 0 spikes (pairing, serial, bridge) are fully subsumed into Phase 1.
 
-For the current Phase 2 scope (video track), see the **Phase 2** description in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+Phase 2 adds the video track in four spikes (see **Phase 2** in [`ARCHITECTURE.md`](./ARCHITECTURE.md)):
+- **Spike 1 (in progress):** Air-side camera source selection (picker + "No video" option), live preview, camera reused for QR scanning when selected; ground records the received video track to a `.webm` file for manual verification.
+- **Spike 2 (upcoming):** Ground-side web GUI displaying video live via a local loopback WebRTC connection.
+- **Spikes 3–4 (future, not yet scoped):** External retransmission; image processing.
 
 ## Testing approach
 
