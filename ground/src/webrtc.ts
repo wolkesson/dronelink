@@ -41,6 +41,17 @@ export function isTailscaleCandidate(candidate: string): boolean {
   return /\b100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b/.test(candidate);
 }
 
+/** Parse and validate videoWidth/videoHeight from a signaling offer message. */
+export function parseOfferDimensions(
+  message: Record<string, unknown>,
+): { width: number; height: number } | undefined {
+  const { videoWidth, videoHeight } = message;
+  if (typeof videoWidth === "number" && typeof videoHeight === "number") {
+    return { width: videoWidth, height: videoHeight };
+  }
+  return undefined;
+}
+
 export function handleSignalingMessage(
   message: unknown,
   reply: (msg: unknown) => void,
@@ -56,6 +67,7 @@ export function handleSignalingMessage(
     }
 
     const sdp = typeof message.sdp === "string" ? message.sdp : "";
+    const dims = parseOfferDimensions(message);
     const pc = new RTCPeerConnection({});
     activePc = pc;
 
@@ -77,7 +89,17 @@ export function handleSignalingMessage(
         mkdirSync(stateDir, { recursive: true });
       }
       const filePath = videoFilePath(stateDir || ".", sessionId);
-      const recorder = new MediaRecorder({ tracks: [track], path: filePath });
+
+      // Use dimensions signaled in the offer. If missing, fall back to 320x240
+      // (werift's MediaRecorder default is 640x360 which causes shearing artifacts).
+      const { width, height } = dims ?? { width: 320, height: 240 };
+      if (!dims) {
+        console.warn(
+          "Video dimensions not signaled in offer; falling back to 320x240 for recording.",
+        );
+      }
+
+      const recorder = new MediaRecorder({ tracks: [track], path: filePath, width, height });
       activeRecorder = recorder;
       void recorder.addTrack(track).catch((err: unknown) => {
         console.error(

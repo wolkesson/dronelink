@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { join } from "path";
-import { isTailscaleCandidate, videoFilePath } from "./webrtc.js";
+import { isTailscaleCandidate, videoFilePath, parseOfferDimensions } from "./webrtc.js";
 
 describe("isTailscaleCandidate", () => {
   it("matches addresses in 100.64.0.0/10 (second octet 64–127)", () => {
@@ -44,5 +44,24 @@ describe("isTailscaleCandidate", () => {
     expect(isTailscaleCandidate("candidate:1 1 UDP 2130706431 192.168.1.1 51820 typ host")).toBe(false);
     expect(isTailscaleCandidate("candidate:1 1 UDP 2130706431 10.0.0.1 51820 typ host")).toBe(false);
     expect(isTailscaleCandidate("candidate:1 1 UDP 2130706431 172.16.0.1 51820 typ host")).toBe(false);
+  });
+});
+
+describe("parseOfferDimensions", () => {
+  it("returns width and height when both are numbers", () => {
+    const result = parseOfferDimensions({ videoWidth: 1280, videoHeight: 720 });
+    expect(result).toEqual({ width: 1280, height: 720 });
+  });
+
+  it("returns undefined when fields are missing", () => {
+    expect(parseOfferDimensions({})).toBeUndefined();
+    expect(parseOfferDimensions({ videoWidth: 1280 })).toBeUndefined();
+    expect(parseOfferDimensions({ videoHeight: 720 })).toBeUndefined();
+  });
+
+  it("returns undefined when fields are not numbers (no throw)", () => {
+    expect(parseOfferDimensions({ videoWidth: "1280", videoHeight: 720 })).toBeUndefined();
+    expect(parseOfferDimensions({ videoWidth: 1280, videoHeight: "720" })).toBeUndefined();
+    expect(parseOfferDimensions({ videoWidth: null, videoHeight: null })).toBeUndefined();
   });
 });
