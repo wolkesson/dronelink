@@ -1,0 +1,11 @@
+{
+  "name": "dronelink",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}

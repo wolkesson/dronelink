@@ -1,0 +1,23 @@
+{
+  "name": "@dronelink/ground-web-client",
+  "version": "0.1.0",
+  "description": "Ground-side web UI composition shell scaffold",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@dronelink/ground-client-sdk": "file:../../packages/ground-client-sdk",
+    "@dronelink/ui-kit-ground": "file:../../packages/ui-kit-ground",
+    "@dronelink/ui-kit-shared": "file:../../packages/ui-kit-shared"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.9.2"
+  }
+}

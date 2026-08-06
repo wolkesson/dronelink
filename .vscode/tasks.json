@@ -2,11 +2,11 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "webapp: dev",
+      "label": "air-webapp: dev",
       "type": "shell",
-      "command": "npm run dev",
+      "command": "npm run dev --workspace @dronelink/air-webapp",
       "options": {
-        "cwd": "${workspaceFolder}/webapp"
+        "cwd": "${workspaceFolder}"
       },
       "isBackground": true,
       "problemMatcher": {
@@ -22,6 +22,15 @@
           "endsPattern": "press h \\+ enter to show help"
         }
       }
+    },
+    {
+      "label": "ground-core-node:start",
+      "type": "shell",
+      "command": "npm start --workspace @dronelink/ground-core-node",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true
     }
   ]
 }
