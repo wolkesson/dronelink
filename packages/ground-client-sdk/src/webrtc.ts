@@ -4,11 +4,8 @@ import type { RTCDataChannel, RTCIceCandidateInit } from "werift";
 import type { RtpPacket } from "werift";
 import { join } from "path";
 import { mkdirSync } from "fs";
-<<<<<<< HEAD:ground/src/webrtc.ts
 import { randomUUID } from "crypto";
-=======
 import { isTailscaleCandidate } from "@dronelink/core-transport";
->>>>>>> origin/main:packages/ground-client-sdk/src/webrtc.ts
 
 type DataChannelOpenCallback = (channel: RTCDataChannel) => void;
 type DataChannelCloseCallback = () => void;
@@ -136,7 +133,6 @@ export function handleSignalingMessage(
         
       });
       activeRecorder = recorder;
-<<<<<<< HEAD:ground/src/webrtc.ts
       void recorder.addTrack(track)
       .then(() => {console.log(`Video recording (${videoWidth}x${videoHeight}) started: ${filePath}`);})
       .catch((err: unknown) => {
@@ -145,8 +141,6 @@ export function handleSignalingMessage(
           err instanceof Error ? err.message : String(err),
         );
       });
-=======
->>>>>>> origin/main:packages/ground-client-sdk/src/webrtc.ts
     });
 
     pc.onDataChannel.subscribe((channel) => {

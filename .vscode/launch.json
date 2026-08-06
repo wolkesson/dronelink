@@ -13,11 +13,10 @@
             "type": "node",
             "request": "launch",
             "name": "Ground: Debug",
-            "runtimeArgs": [
-                "--loader",
-                "ts-node/esm"
-            ],
-            "program": "${workspaceFolder}/ground/src/index.ts",
+            "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
+            "program": "${workspaceFolder}/apps/ground-core-node/src/index.ts",
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
             "env": {
                 "SIGNAL_HOST": "desktop-cradle.tail70570b.ts.net",
                 "TLS_PROVIDER": "tailscale"
