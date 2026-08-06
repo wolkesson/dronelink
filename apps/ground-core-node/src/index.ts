@@ -3,7 +3,11 @@ import { createSignalingServer, setDataChannelCallbacks, startBridge, stopBridge
 
 const PORT = Number(process.env.SIGNAL_PORT ?? 8443);
 const HOST = process.env.SIGNAL_HOST ?? "localhost";
-const TLS_TARGET = process.env.SIGNAL_TLS_TARGET ?? "localhost";
+// Defaults to HOST rather than a fixed value, since the two must match for TLS
+// hostname validation to succeed (the cert is issued for TLS_TARGET; the client
+// connects to HOST) — override independently only if you have a real reason to
+// (e.g. an mkcert cert covering multiple names while binding a different address).
+const TLS_TARGET = process.env.SIGNAL_TLS_TARGET ?? HOST;
 const TLS_PROVIDER = process.env.TLS_PROVIDER === "tailscale" ? "tailscale" : "mkcert";
 
 setDataChannelCallbacks(
