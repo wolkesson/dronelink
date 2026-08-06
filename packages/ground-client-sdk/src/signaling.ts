@@ -1,7 +1,8 @@
 import { createServer, type Server as HttpsServer } from "node:https";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
 import {
   createPairingAcceptedMessage,
   createPairingBundle,
@@ -11,7 +12,18 @@ import {
   type PairingBundle,
 } from "@dronelink/core-transport";
 import { ensureTailscaleTlsMaterial, ensureTlsMaterial } from "@dronelink/core-transport/node";
-import { handleSignalingMessage, handleSocketClose, setStateDir } from "./webrtc.js";
+import {
+  handleGuiSignalingMessage,
+  handleGuiSocketClose,
+  handleSignalingMessage,
+  handleSocketClose,
+  setStateDir,
+} from "./webrtc.js";
+
+export interface GuiAssets {
+  page: string;
+  clientScript: string;
+}
 
 export interface SignalingServerOptions {
   port: number;
@@ -21,11 +33,13 @@ export interface SignalingServerOptions {
   stateDir?: string;
   handshakeTimeoutMs?: number;
   logger?: Pick<Console, "log" | "warn" | "error">;
+  guiAssets?: GuiAssets;
 }
 
 export interface SignalingServerRuntime {
   httpsServer: HttpsServer;
   wss: WebSocketServer;
+  guiWss: WebSocketServer;
   certFingerprint: string;
   start(): Promise<PairingBundle>;
   getPairingBundle(): PairingBundle;
@@ -48,6 +62,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   const stateDir = options.stateDir ?? join(homedir(), ".dronelink-ground");
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   const logger = options.logger ?? console;
+  const guiAssets = options.guiAssets;
   const sessionId = generateSessionId();
   const token = generateToken();
 
@@ -62,17 +77,31 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
       key: tlsMaterial.key,
       cert: tlsMaterial.cert,
     },
-    (_req, res) => {
+    (req: IncomingMessage, res: ServerResponse) => {
+      if (req.url === "/gui" || req.url === "/gui-client.js") {
+        if (!guiAssets) {
+          res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+          res.end("Ground GUI assets are unavailable.\n");
+          return;
+        }
+        const isPage = req.url === "/gui";
+        res.writeHead(200, {
+          "content-type": isPage ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8",
+        });
+        res.end(isPage ? guiAssets.page : guiAssets.clientScript);
+        return;
+      }
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
       res.end("DroneLink signaling endpoint\n");
     },
   );
 
-  const wss = new WebSocketServer({ server: httpsServer });
+  const wss = new WebSocketServer({ noServer: true });
+  const guiWss = new WebSocketServer({ noServer: true });
   let bundle: PairingBundle | undefined;
   let startPromise: Promise<PairingBundle> | undefined;
 
-  wss.on("connection", (socket) => {
+  const configureAirSignalingSocket = (socket: WebSocket) => {
     logger.log("Signaling client connected");
 
     let authenticated = false;
@@ -135,11 +164,49 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
         handleSocketClose();
       }
     });
+  };
+
+  wss.on("connection", configureAirSignalingSocket);
+  guiWss.on("connection", (socket) => {
+    socket.on("message", (data) => {
+      let signalingMessage: unknown;
+      try {
+        signalingMessage = JSON.parse(data.toString());
+      } catch {
+        logger.warn("Received malformed GUI signaling message");
+        return;
+      }
+      handleGuiSignalingMessage(signalingMessage, (msg) => {
+        socket.send(JSON.stringify(msg));
+      }, tlsProvider === "tailscale");
+    });
+
+    socket.on("close", () => {
+      handleGuiSocketClose();
+    });
+  });
+
+  httpsServer.on("upgrade", (request, socket, head) => {
+    const path = new URL(request.url ?? "/", "https://localhost").pathname;
+    if (path === "/gui-signaling") {
+      guiWss.handleUpgrade(request, socket, head, (guiSocket) => {
+        guiWss.emit("connection", guiSocket, request);
+      });
+      return;
+    }
+    if (path === "/") {
+      wss.handleUpgrade(request, socket, head, (signalingSocket) => {
+        wss.emit("connection", signalingSocket, request);
+      });
+      return;
+    }
+    socket.destroy();
   });
 
   return {
     httpsServer,
     wss,
+    guiWss,
     certFingerprint: tlsMaterial.certFingerprint,
     async start(): Promise<PairingBundle> {
       if (!startPromise) {
@@ -183,14 +250,19 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
             reject(wssError);
             return;
           }
-
-          httpsServer.close((serverError) => {
-            if (serverError) {
-              reject(serverError);
+          guiWss.close((guiWssError) => {
+            if (guiWssError) {
+              reject(guiWssError);
               return;
             }
+            httpsServer.close((serverError) => {
+              if (serverError) {
+                reject(serverError);
+                return;
+              }
 
-            resolve();
+              resolve();
+            });
           });
         });
       });

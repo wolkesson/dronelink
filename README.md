@@ -10,7 +10,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, package b
 
 **Phase 1 is complete.** The real FC → WebRTC → TCP bridge path works end-to-end over both LAN and Tailscale.
 
-**Phase 2 spike 1 is in progress.** Current work adds air-side camera selection/live preview and ground-side video recording without changing the protocol-agnostic byte relay.
+**Phase 2 spikes 1–2 are complete.** The air-side camera picker/live preview, ground-side video recording, and live video GUI are available without changing the protocol-agnostic byte relay.
 
 ---
 
@@ -19,7 +19,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, package b
 ```text
 apps/
   ground-core-node/    # headless signaling host + TCP bridge runtime
-  ground-web-client/   # ground-side UI composition scaffold
+  ground-web-client/   # ground-side live video GUI composition
   air-webapp/          # air-side PWA composition shell
 packages/
   core-transport/      # pairing/token protocol, TLS helpers, shared transport primitives
@@ -75,6 +75,7 @@ npm run dev --workspace @dronelink/air-webapp
 2. Paste the pairing bundle printed by `@dronelink/ground-core-node` (or scan its QR code) and click **Pair**.
 3. Click **Connect FC** and select the FC's serial port.
 4. In INAV Configurator, connect to `localhost:5761` (TCP).
+5. Open the `Ground video GUI` URL printed by the ground runtime to view the incoming camera feed while it is recorded.
 
 To run validation locally:
 
@@ -117,7 +118,7 @@ The air-side app still runs locally via `npm run dev --workspace @dronelink/air-
 |---|---|
 | `android-shell` foreground service / USB bridge / WebView host | Phase 2.5 |
 | `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
-| Ground-side live video GUI beyond the composition scaffold | Phase 2 spikes 2–4 |
+| Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
 | Reconnection / backoff / resilience logic | Phase 3 |
 | Docker Compose / containerized deployment | Phase 4 |
 | iPhone air-side app | Future work |
