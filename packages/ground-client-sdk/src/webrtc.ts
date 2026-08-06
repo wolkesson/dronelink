@@ -75,12 +75,6 @@ export function handleSignalingMessage(
       const filePath = videoFilePath(stateDir || ".", sessionId);
       const recorder = new MediaRecorder({ tracks: [track], path: filePath });
       activeRecorder = recorder;
-      void recorder.addTrack(track).catch((err: unknown) => {
-        console.error(
-          "Video recorder error:",
-          err instanceof Error ? err.message : String(err),
-        );
-      });
     });
 
     pc.onDataChannel.subscribe((channel) => {
