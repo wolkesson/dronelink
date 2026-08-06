@@ -41,6 +41,9 @@ export interface SignalingServerRuntime {
 }
 
 function viewerHtml(sessionId: string, token: string): string {
+  const sessionIdJson = JSON.stringify(sessionId).replace(/</gu, "\\u003c");
+  const tokenJson = JSON.stringify(token).replace(/</gu, "\\u003c");
+
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -112,7 +115,11 @@ function viewerHtml(sessionId: string, token: string): string {
             };
 
             pc.onconnectionstatechange = () => {
-              if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+              if (
+                pc.connectionState === "failed" ||
+                pc.connectionState === "disconnected" ||
+                pc.connectionState === "closed"
+              ) {
                 setStatus("Peer state: " + pc.connectionState);
               }
             };
@@ -150,9 +157,7 @@ function viewerHtml(sessionId: string, token: string): string {
                 await pc.addIceCandidate(message.candidate);
               }
             });
-            ws.send(JSON.stringify({ type: "pair", sessionId: ${JSON.stringify(
-              sessionId,
-            )}, token: ${JSON.stringify(token)} }));
+            ws.send(JSON.stringify({ type: "pair", sessionId: ${sessionIdJson}, token: ${tokenJson} }));
             setStatus("Authorizing viewer...");
           } catch (error) {
             setStatus("Failed: " + (error instanceof Error ? error.message : String(error)));

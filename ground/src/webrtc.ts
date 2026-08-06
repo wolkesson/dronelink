@@ -55,7 +55,7 @@ function closeViewerPeer(viewerId: string): void {
   }
 
   viewerPeers.delete(viewerId);
-  void viewerPeer.pc.close().catch(() => undefined);
+  viewerPeer.pc.close();
 }
 
 function closeAllViewerPeers(): void {
