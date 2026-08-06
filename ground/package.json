@@ -8,7 +8,7 @@
     "build": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "test": "vitest run",
-    "start": "node --loader ts-node/esm src/index.ts"
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0",
@@ -16,13 +16,13 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
     "@types/qrcode-terminal": "^0.12.2",
     "@types/ws": "^8.5.14",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.0.0",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.19.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.10"
   }

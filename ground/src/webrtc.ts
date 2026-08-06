@@ -41,19 +41,8 @@ export function isTailscaleCandidate(candidate: string): boolean {
   return /\b100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b/.test(candidate);
 }
 
-/** Parse and validate videoWidth/videoHeight from a signaling offer message. */
-export function parseOfferDimensions(
-  message: Record<string, unknown>,
-): { width: number; height: number } | undefined {
-  const { videoWidth, videoHeight } = message;
-  if (typeof videoWidth === "number" && typeof videoHeight === "number") {
-    return { width: videoWidth, height: videoHeight };
-  }
-  return undefined;
-}
-
 export function handleSignalingMessage(
-  message: unknown,
+  message: Record<string, unknown>,
   reply: (msg: unknown) => void,
   isTailscale = false,
   sessionId = "session",
@@ -67,9 +56,13 @@ export function handleSignalingMessage(
     }
 
     const sdp = typeof message.sdp === "string" ? message.sdp : "";
-    const dims = parseOfferDimensions(message);
     const pc = new RTCPeerConnection({});
     activePc = pc;
+
+    // Use dimensions signaled in the offer. If missing or invalid, fall back to 320x240
+    // (werift's MediaRecorder default is 640x360 which causes shearing artifacts).
+    const videoWidth: number = typeof message.videoWidth === "number" ? message.videoWidth : 320;
+    const videoHeight: number = typeof message.videoHeight === "number" ? message.videoHeight : 240;
 
     const buffered = pendingCandidates.splice(0);
 
@@ -90,18 +83,29 @@ export function handleSignalingMessage(
       }
       const filePath = videoFilePath(stateDir || ".", sessionId);
 
-      // Use dimensions signaled in the offer. If missing, fall back to 320x240
-      // (werift's MediaRecorder default is 640x360 which causes shearing artifacts).
-      const { width, height } = dims ?? { width: 320, height: 240 };
-      if (!dims) {
+      if (typeof message.videoWidth !== "number" || typeof message.videoHeight !== "number") {
         console.warn(
           "Video dimensions not signaled in offer; falling back to 320x240 for recording.",
         );
       }
 
-      const recorder = new MediaRecorder({ tracks: [track], path: filePath, width, height });
+      const recorder = new MediaRecorder({
+        tracks: [track],
+        path: filePath,
+        width: videoWidth,
+        height: videoHeight,
+        // No audio track exists for this recording, so lip-sync buffering (which only
+        // synchronizes audio+video timing) serves no purpose here — disabling it also
+        // sidesteps a bug in werift's LipsyncCallback stage where a duplicate end-of-
+        // stream signal throws "this.videoOutput is not a function", which was
+        // interrupting the WebM finalization (Duration/SegmentSize patch-up) and
+        // corrupting playback.
+        disableLipSync: true,
+      });
       activeRecorder = recorder;
-      void recorder.addTrack(track).catch((err: unknown) => {
+      void recorder.addTrack(track)
+      .then(() => {console.log(`Video recording (${videoWidth}x${videoHeight}) started: ${filePath}`);})
+      .catch((err: unknown) => {
         console.error(
           "Video recorder error:",
           err instanceof Error ? err.message : String(err),
