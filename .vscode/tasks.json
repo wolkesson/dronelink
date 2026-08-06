@@ -13,15 +13,13 @@
         "owner": "custom",
         "fileLocation": "absolute",
         "pattern": {
-          "regexp": "^(.*)$",
-          "file": 1,
-          "location": 1,
+          "regexp": "^(?:ERROR|error):\\s*(.*)$",
           "message": 1
         },
         "background": {
           "activeOnStart": true,
           "beginsPattern": "^\\s*VITE v",
-          "endsPattern": "Local:\\s+http://localhost:5173"
+          "endsPattern": "press h \\+ enter to show help"
         }
       }
     }

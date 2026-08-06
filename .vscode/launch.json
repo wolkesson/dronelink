@@ -5,7 +5,7 @@
             "name": "Webapp: Debug in Chrome",
             "type": "chrome",
             "request": "launch",
-            "url": "http://localhost:5173",
+            "url": "https://localhost:5173",
             "webRoot": "${workspaceFolder}/webapp",
             "preLaunchTask": "webapp: dev"
         },
@@ -19,8 +19,8 @@
             ],
             "program": "${workspaceFolder}/ground/src/index.ts",
             "env": {
-                "SIGNAL_HOST": "henrikszenbook.tail70570b.ts.net",
-                "SIGNAL_TLS_TARGET": "henrikszenbook.tail70570b.ts.net",
+                "SIGNAL_HOST": "desktop-cradle.tail70570b.ts.net",
+                "SIGNAL_TLS_TARGET": "desktop-cradle.tail70570b.ts.net",
                 "TLS_PROVIDER": "tailscale"
             },
             "cwd": "${workspaceFolder}/ground",
