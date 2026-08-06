@@ -386,3 +386,91 @@ describe("WebRtcSessionManager — offer video dimensions", () => {
     }
   });
 });
+
+describe("WebRtcSessionManager — getConnectionMetrics", () => {
+  it("returns null when there is no active connection", async () => {
+    const mgr = new WebRtcSessionManager();
+    await expect(mgr.getConnectionMetrics()).resolves.toBeNull();
+  });
+
+  it("aggregates RTT and byte counters from the stats report after connecting", async () => {
+    const { pc, openRef } = makeMockPc();
+
+    const statsRows = [
+      { type: "candidate-pair", state: "succeeded", currentRoundTripTime: 0.048 },
+      { type: "outbound-rtp", bytesSent: 1000 },
+      { type: "inbound-rtp", bytesReceived: 500 },
+      { type: "data-channel", bytesSent: 200, bytesReceived: 100 },
+      // Ignored: not the active pair.
+      { type: "candidate-pair", state: "failed", currentRoundTripTime: 9 },
+    ];
+    (pc as unknown as Record<string, unknown>).getStats = vi.fn(async () => ({
+      forEach: (cb: (stat: unknown) => void) => statsRows.forEach(cb),
+    }));
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const connectPromise = mgr.connect(socket);
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+      openRef.fn?.();
+      await connectPromise;
+
+      const metrics = await mgr.getConnectionMetrics();
+      expect(metrics).toEqual({ rttMs: 48, bytesSent: 1200, bytesReceived: 600 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("WebRtcSessionManager — disconnect", () => {
+  it("is a no-op when never connected", () => {
+    const mgr = new WebRtcSessionManager();
+    expect(() => mgr.disconnect()).not.toThrow();
+    expect(mgr.state).toBe("IDLE");
+  });
+
+  it("closes the data channel and peer connection, and resets state to IDLE", async () => {
+    const { pc, dc, openRef } = makeMockPc();
+    (dc as unknown as Record<string, unknown>).close = vi.fn();
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const connectPromise = mgr.connect(socket);
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+      openRef.fn?.();
+      await connectPromise;
+
+      mgr.disconnect();
+
+      expect((dc as unknown as { close: ReturnType<typeof vi.fn> }).close).toHaveBeenCalledOnce();
+      expect(pc.close).toHaveBeenCalledOnce();
+      expect(mgr.state).toBe("IDLE");
+      expect(() => mgr.sendBytes(new Uint8Array([1]))).toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

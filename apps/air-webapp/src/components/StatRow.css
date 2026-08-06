@@ -1,0 +1,23 @@
+.dl-stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding-top: 10px;
+  border-top: 1px solid var(--dl-border);
+}
+
+.dl-stat-row__label {
+  color: var(--dl-text-dim);
+}
+
+.dl-stat-row__value {
+  color: var(--dl-text);
+  font-weight: 600;
+  text-align: right;
+}
+
+.dl-stat-row__value--tone-green {
+  color: var(--dl-green);
+}

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "air-webapp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "apps/air-webapp", "--", "--port", "5180"],
+      "port": 5180,
+      "url": "https://localhost:5180"
+    }
+  ]
+}

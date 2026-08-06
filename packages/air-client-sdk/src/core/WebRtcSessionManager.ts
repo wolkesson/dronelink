@@ -11,6 +11,13 @@ export interface WebRtcSessionManagerOptions {
   connectTimeoutMs?: number;
 }
 
+export interface WebRtcConnectionMetrics {
+  /** Round-trip time in milliseconds from the active candidate pair, or null if unavailable. */
+  rttMs: number | null;
+  bytesSent: number;
+  bytesReceived: number;
+}
+
 export class WebRtcSessionManager {
   private _state: SessionState = "IDLE";
   private pc: RTCPeerConnection | null = null;
@@ -167,5 +174,57 @@ export class WebRtcSessionManager {
     return () => {
       this.handlers.delete(handler);
     };
+  }
+
+  /**
+   * Read the current round-trip time and cumulative byte counters from the
+   * underlying RTCPeerConnection. Returns null when there is no active connection.
+   * Sums bytes across the data channel and any outbound/inbound media so a single
+   * pair of counters reflects total relay throughput.
+   */
+  async getConnectionMetrics(): Promise<WebRtcConnectionMetrics | null> {
+    if (!this.pc) {
+      return null;
+    }
+
+    const report = await this.pc.getStats();
+    const metrics: WebRtcConnectionMetrics = { rttMs: null, bytesSent: 0, bytesReceived: 0 };
+
+    report.forEach((stat: RTCStats) => {
+      const record = stat as unknown as Record<string, unknown>;
+
+      if (
+        stat.type === "candidate-pair" &&
+        record.state === "succeeded" &&
+        typeof record.currentRoundTripTime === "number"
+      ) {
+        metrics.rttMs = record.currentRoundTripTime * 1000;
+      }
+
+      if (
+        (stat.type === "outbound-rtp" || stat.type === "data-channel") &&
+        typeof record.bytesSent === "number"
+      ) {
+        metrics.bytesSent += record.bytesSent;
+      }
+
+      if (
+        (stat.type === "inbound-rtp" || stat.type === "data-channel") &&
+        typeof record.bytesReceived === "number"
+      ) {
+        metrics.bytesReceived += record.bytesReceived;
+      }
+    });
+
+    return metrics;
+  }
+
+  /** Tear down the peer connection and data channel. Safe to call when already idle. */
+  disconnect(): void {
+    this.dataChannel?.close();
+    this.pc?.close();
+    this.dataChannel = null;
+    this.pc = null;
+    this._state = "IDLE";
   }
 }
