@@ -303,10 +303,11 @@ describe("WebRtcSessionManager", () => {
       vi.unstubAllGlobals();
     }
   });
+});
 
+describe("WebRtcSessionManager — offer video dimensions", () => {
   it("connect() includes videoWidth/videoHeight in offer when localStream has a video track with settings", async () => {
     const { pc, openRef } = makeMockPc();
-    (pc as unknown as Record<string, unknown>).addTrack = vi.fn();
 
     vi.stubGlobal(
       "RTCPeerConnection",
@@ -327,6 +328,7 @@ describe("WebRtcSessionManager", () => {
         getTracks: () => [fakeTrack],
         getVideoTracks: () => [fakeTrack],
       } as unknown as MediaStream;
+      (pc as unknown as Record<string, unknown>).addTrack = vi.fn();
 
       const connectPromise = mgr.connect(socket, false, fakeStream);
 

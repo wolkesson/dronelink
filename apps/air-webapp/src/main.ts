@@ -1,8 +1,10 @@
-import { PairingSession } from "./core/PairingSession.js";
-import { QrPairingScanner } from "./core/QrPairingScanner.js";
-import { WebRtcSessionManager } from "./core/WebRtcSessionManager.js";
-import { WebSerialTransport } from "./transport/WebSerialTransport.js";
-import { LinkActivityTracker } from "./ui/LinkActivityTracker.js";
+import {
+  PairingSession,
+  QrPairingScanner,
+  WebRtcSessionManager,
+  WebSerialTransport,
+} from "@dronelink/air-client-sdk";
+import { LinkActivityTracker } from "@dronelink/ui-kit-shared";
 
 const app = document.getElementById("app");
 if (app) {
@@ -28,7 +30,7 @@ if (app) {
 
       <section>
         <h2>Pairing</h2>
-        <p>Paste the pairing bundle JSON printed by <code>/ground</code>, or scan its QR code.</p>
+        <p>Paste the pairing bundle JSON printed by <code>/apps/ground-core-node</code>, or scan its QR code.</p>
         <textarea id="pairing-bundle" rows="12" cols="80" placeholder='{"sessionId":"...","token":"...","host":"localhost","port":8443,"certFingerprint":"AA:BB:..."}'></textarea>
         <div>
           <button id="pair-button" type="button">Pair</button>

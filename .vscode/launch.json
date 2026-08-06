@@ -2,26 +2,27 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Webapp: Debug in Chrome",
+            "name": "Air Webapp: Debug in Chrome",
             "type": "chrome",
             "request": "launch",
-            "url": "http://localhost:5173",
-            "webRoot": "${workspaceFolder}/webapp",
-            "preLaunchTask": "webapp: dev"
+            "url": "https://localhost:5173",
+            "webRoot": "${workspaceFolder}/apps/air-webapp",
+            "preLaunchTask": "air-webapp: dev"
         },
         {
             "type": "node",
             "request": "launch",
             "name": "Ground: Debug",
-            "runtimeExecutable": "${workspaceFolder}/ground/node_modules/.bin/tsx",
+            "runtimeArgs": [
+                "--loader",
+                "ts-node/esm"
+            ],
             "program": "${workspaceFolder}/ground/src/index.ts",
-            "console": "integratedTerminal",
-            "internalConsoleOptions": "neverOpen",
             "env": {
                 "SIGNAL_HOST": "desktop-cradle.tail70570b.ts.net",
                 "TLS_PROVIDER": "tailscale"
             },
-            "cwd": "${workspaceFolder}/ground",
+            "cwd": "${workspaceFolder}/apps/ground-core-node",
             "skipFiles": [
                 "<node_internals>/**"
             ]

@@ -15,7 +15,7 @@
  * harness independent of pairing / WebRTC / protocol parsing.
  */
 
-import { WebSerialTransport } from "./transport/WebSerialTransport.js";
+import { WebSerialTransport } from "@dronelink/air-client-sdk";
 
 // ---------------------------------------------------------------------------
 // MSP_API_VERSION request frame (fixed literal — do not compute at runtime).

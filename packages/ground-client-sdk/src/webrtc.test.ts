@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { join } from "path";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
 import { MediaStreamTrack } from "werift";
-import { forwardRtpTrack, parseOfferDimensions, videoFilePath } from "./webrtc.js";
+import { forwardRtpTrack, videoFilePath } from "./webrtc.js";
 
 describe("isTailscaleCandidate", () => {
   it("matches addresses in 100.64.0.0/10 (second octet 64–127)", () => {
@@ -49,23 +49,5 @@ describe("forwardRtpTrack", () => {
     forwarder.stop();
     source.onReceiveRtp.execute(packet as never);
     expect(received).toHaveLength(1);
-  });
-});
-
-describe("parseOfferDimensions", () => {
-  it("returns width and height when both are numbers", () => {
-    expect(parseOfferDimensions({ videoWidth: 1280, videoHeight: 720 })).toEqual({ width: 1280, height: 720 });
-  });
-
-  it("returns undefined when fields are missing", () => {
-    expect(parseOfferDimensions({})).toBeUndefined();
-    expect(parseOfferDimensions({ videoWidth: 1280 })).toBeUndefined();
-    expect(parseOfferDimensions({ videoHeight: 720 })).toBeUndefined();
-  });
-
-  it("returns undefined when fields are not numbers (no throw)", () => {
-    expect(parseOfferDimensions({ videoWidth: "1280", videoHeight: 720 })).toBeUndefined();
-    expect(parseOfferDimensions({ videoWidth: 1280, videoHeight: "720" })).toBeUndefined();
-    expect(parseOfferDimensions({ videoWidth: null, videoHeight: null })).toBeUndefined();
   });
 });

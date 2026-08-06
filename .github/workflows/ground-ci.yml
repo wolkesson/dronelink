@@ -3,24 +3,33 @@ name: ground CI
 on:
   push:
     paths:
-      - "ground/**"
+      - "apps/ground-core-node/**"
+      - "apps/ground-web-client/**"
+      - "packages/core-transport/**"
+      - "packages/ground-client-sdk/**"
+      - "packages/ui-kit-ground/**"
+      - "packages/ui-kit-shared/**"
+      - "protocol/**"
       - ".github/workflows/ground-ci.yml"
   pull_request:
     paths:
-      - "ground/**"
+      - "apps/ground-core-node/**"
+      - "apps/ground-web-client/**"
+      - "packages/core-transport/**"
+      - "packages/ground-client-sdk/**"
+      - "packages/ui-kit-ground/**"
+      - "packages/ui-kit-shared/**"
+      - "protocol/**"
       - ".github/workflows/ground-ci.yml"
 
 jobs:
   build-lint-test:
     name: Build, lint, and test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ground
 
     # TODO (Phase 0/1 SITL integration): add an INAV SITL service container here.
     # Example stub (do not enable until the SITL image is available and the integration
-    # tests in src/index.test.ts are implemented):
+    # tests in packages/ground-client-sdk/src/index.test.ts are implemented):
     #
     # services:
     #   inav-sitl:
@@ -41,20 +50,35 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: ground/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build (type-check)
-        run: npm run build
+        run: |
+          npm run build --workspace @dronelink/core-transport
+          npm run build --workspace @dronelink/ground-client-sdk
+          npm run build --workspace @dronelink/ui-kit-shared
+          npm run build --workspace @dronelink/ui-kit-ground
+          npm run build --workspace @dronelink/ground-core-node
+          npm run build --workspace @dronelink/ground-web-client
 
       - name: Lint
-        run: npm run lint
+        run: |
+          npm run lint --workspace @dronelink/core-transport
+          npm run lint --workspace @dronelink/ground-client-sdk
+          npm run lint --workspace @dronelink/ui-kit-shared
+          npm run lint --workspace @dronelink/ui-kit-ground
+          npm run lint --workspace @dronelink/ground-core-node
+          npm run lint --workspace @dronelink/ground-web-client
         continue-on-error: true  # lint is advisory until ESLint config is finalized
 
       - name: Test
-        run: npm test
+        run: |
+          npm test --workspace @dronelink/core-transport
+          npm test --workspace @dronelink/ground-client-sdk
+          npm test --workspace @dronelink/ui-kit-shared
         # TODO: once SITL service container is enabled above, pass SITL_PORT env var:
         # env:
         #   SITL_PORT: 5761

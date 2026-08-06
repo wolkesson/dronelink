@@ -21,8 +21,4 @@ export default defineConfig({
   server: {
     https: true,
   },
-  test: {
-    globals: true,
-    environment: "node",
-  },
 });
