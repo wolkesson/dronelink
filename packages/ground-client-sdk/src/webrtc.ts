@@ -1,7 +1,7 @@
-import { RTCPeerConnection } from "werift";
+import { MediaStreamTrack, RTCPeerConnection } from "werift";
 import { MediaRecorder } from "werift/nonstandard";
 import type { RTCDataChannel, RTCIceCandidateInit } from "werift";
-import type { MediaStreamTrack } from "werift";
+import type { RtpPacket } from "werift";
 import { join } from "path";
 import { mkdirSync } from "fs";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
@@ -13,7 +13,12 @@ let onDataChannelOpenCallback: DataChannelOpenCallback | null = null;
 let onDataChannelCloseCallback: DataChannelCloseCallback | null = null;
 let activePc: RTCPeerConnection | null = null;
 let activeRecorder: MediaRecorder | null = null;
+let activeVideoTrack: MediaStreamTrack | null = null;
+let activeGuiPc: RTCPeerConnection | null = null;
+let activeGuiForwarder: RtpTrackForwarder | null = null;
+let guiRemoteDescriptionSet = false;
 const pendingCandidates: RTCIceCandidateInit[] = [];
+const pendingGuiCandidates: RTCIceCandidateInit[] = [];
 let stateDir = "";
 
 export function setStateDir(dir: string): void {
@@ -23,6 +28,26 @@ export function setStateDir(dir: string): void {
 /** Returns the path for a video recording file for the given session ID. */
 export function videoFilePath(dir: string, sessionId: string): string {
   return join(dir, `video-${sessionId}.webm`);
+}
+
+export interface RtpTrackForwarder {
+  track: MediaStreamTrack;
+  stop(): void;
+}
+
+export function forwardRtpTrack(source: Pick<MediaStreamTrack, "kind" | "onReceiveRtp">): RtpTrackForwarder {
+  const track = new MediaStreamTrack({ kind: source.kind });
+  const subscription = source.onReceiveRtp.subscribe((rtp: RtpPacket) => {
+    track.writeRtp(rtp.clone());
+  });
+
+  return {
+    track,
+    stop(): void {
+      subscription.unSubscribe();
+      track.stop();
+    },
+  };
 }
 
 export function setDataChannelCallbacks(
@@ -68,6 +93,7 @@ export function handleSignalingMessage(
 
     pc.onTrack.subscribe((track: MediaStreamTrack) => {
       if (track.kind !== "video") return;
+      activeVideoTrack = track;
 
       if (stateDir) {
         mkdirSync(stateDir, { recursive: true });
@@ -148,6 +174,93 @@ export function handleSignalingMessage(
   }
 }
 
+export function handleGuiSignalingMessage(
+  message: unknown,
+  reply: (msg: unknown) => void,
+  isTailscale = false,
+): void {
+  if (!isRecord(message)) return;
+
+  if (message.type === "offer") {
+    if (activeGuiPc) {
+      reply({ type: "error", message: "A GUI viewer is already connected." });
+      return;
+    }
+
+    if (!activeVideoTrack) {
+      reply({ type: "error", message: "No incoming video is available yet." });
+      return;
+    }
+
+    const sdp = typeof message.sdp === "string" ? message.sdp : "";
+    const pc = new RTCPeerConnection({});
+    const forwarder = forwardRtpTrack(activeVideoTrack);
+    activeGuiPc = pc;
+    activeGuiForwarder = forwarder;
+    guiRemoteDescriptionSet = false;
+    pc.addTrack(forwarder.track);
+
+    pc.onIceCandidate.subscribe((candidate) => {
+      if (!candidate) return;
+      if (isTailscale && !isTailscaleCandidate(candidate.candidate)) {
+        return;
+      }
+      reply({ type: "ice-candidate", candidate: candidate.toJSON() });
+    });
+
+    pc.setRemoteDescription({ type: "offer", sdp })
+      .then(async () => {
+        guiRemoteDescriptionSet = true;
+        const buffered = pendingGuiCandidates.splice(0);
+        for (const candidate of buffered) {
+          await pc.addIceCandidate(candidate).catch((err: unknown) => {
+            console.warn(
+              "Failed to add buffered GUI ICE candidate:",
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+        }
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        reply({ type: "answer", sdp: answer.sdp });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("GUI WebRTC offer handling failed:", msg);
+        closeGuiPeer();
+      });
+
+    return;
+  }
+
+  if (message.type === "ice-candidate") {
+    if (!isRecord(message.candidate) || typeof message.candidate.candidate !== "string") return;
+
+    const candidateInit: RTCIceCandidateInit = {
+      candidate: message.candidate.candidate,
+      sdpMid: typeof message.candidate.sdpMid === "string" ? message.candidate.sdpMid : null,
+      sdpMLineIndex:
+        typeof message.candidate.sdpMLineIndex === "number"
+          ? message.candidate.sdpMLineIndex
+          : null,
+      usernameFragment:
+        typeof message.candidate.usernameFragment === "string"
+          ? message.candidate.usernameFragment
+          : null,
+    };
+
+    if (!activeGuiPc || !guiRemoteDescriptionSet) {
+      pendingGuiCandidates.push(candidateInit);
+      return;
+    }
+
+    activeGuiPc.addIceCandidate(candidateInit).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("GUI addIceCandidate failed:", msg);
+    });
+  }
+}
+
 async function stopRecorder(): Promise<void> {
   if (activeRecorder) {
     const recorder = activeRecorder;
@@ -161,11 +274,28 @@ async function stopRecorder(): Promise<void> {
   }
 }
 
+function closeGuiPeer(): void {
+  if (activeGuiPc) {
+    void activeGuiPc.close().catch(() => undefined);
+    activeGuiPc = null;
+  }
+  activeGuiForwarder?.stop();
+  activeGuiForwarder = null;
+  guiRemoteDescriptionSet = false;
+  pendingGuiCandidates.length = 0;
+}
+
+export function handleGuiSocketClose(): void {
+  closeGuiPeer();
+}
+
 export function handleSocketClose(): void {
   if (activePc) {
     void activePc.close().catch(() => undefined);
     activePc = null;
   }
   void stopRecorder();
+  activeVideoTrack = null;
+  closeGuiPeer();
   pendingCandidates.length = 0;
 }

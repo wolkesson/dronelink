@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
-import { createSignalingServer } from "./signaling.js";
+import { createSignalingServer, type GuiAssets } from "./signaling.js";
 
 const runtimes: Array<ReturnType<typeof createSignalingServer>> = [];
 const tempDirs: string[] = [];
@@ -14,7 +14,10 @@ afterEach(async () => {
   tempDirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }));
 });
 
-function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignalingServer> {
+function createRuntime(
+  handshakeTimeoutMs = 100,
+  guiAssets?: GuiAssets,
+): ReturnType<typeof createSignalingServer> {
   const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
   tempDirs.push(stateDir);
   seedTlsMaterial(stateDir);
@@ -24,6 +27,7 @@ function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignal
     host: "127.0.0.1",
     stateDir,
     handshakeTimeoutMs,
+    guiAssets,
     logger: {
       log: () => undefined,
       warn: () => undefined,
@@ -233,6 +237,19 @@ describe("signaling server", () => {
       code: 1008,
       reason: "invalid token",
     });
+  });
+
+  it("serves GUI WebRTC signaling without pairing", async () => {
+    const runtime = createRuntime();
+    const bundle = await runtime.start();
+    const socket = await openClient(`wss://${bundle.host}:${bundle.port}/gui-signaling`);
+
+    socket.send(JSON.stringify({ type: "offer", sdp: "v=0\r\n" }));
+
+    await expect(waitForMessage(socket)).resolves.toBe(
+      JSON.stringify({ type: "error", message: "No incoming video is available yet." }),
+    );
+    socket.close();
   });
 
   it("prints a bundle shape that matches the protocol schema", async () => {

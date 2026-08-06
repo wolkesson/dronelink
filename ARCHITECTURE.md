@@ -80,12 +80,10 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - Phase 0 pairing/token flow
 - Phase 1 thin end-to-end FC → WebRTC → TCP bridge path
 - Workspace extraction of shared transport, air SDK, ground SDK, and app shells
-
-### In progress
-- Phase 2 spike 1: air-side camera source selection/live preview and ground-side video recording
+- Phase 2 spikes 1–2: air-side camera source selection/live preview, ground-side video recording, and the live video GUI
 
 ### Deferred
-- Ground-side full web UI implementation (`ground-web-client` is currently scaffolded only)
+- Ground-side GUI features beyond the live video viewer
 - Android native shell work until Phase 2.5
 - ESP32 bridge firmware and iPhone air-side support
 - Reconnection/resilience work

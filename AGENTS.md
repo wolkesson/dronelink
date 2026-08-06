@@ -4,7 +4,7 @@ This file provides orientation for AI coding agents working in this repository.
 
 ## Repository overview
 
-DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and the ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 spike 1 is in progress** (air-side camera source selection, live preview, and ground-side video recording).
+DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and the ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 spikes 1–2 are complete** (air-side camera selection/live preview, ground-side video recording, and a live video GUI).
 
 Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making changes.
 
@@ -18,7 +18,7 @@ Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) befor
 | `/packages/ui-kit-shared` | TypeScript | Shared UI-facing presentation helpers |
 | `/packages/ui-kit-ground` | TypeScript | Ground-only UI-facing scaffold |
 | `/apps/ground-core-node` | Node.js + TypeScript | Headless ground runtime: signaling host + relay only |
-| `/apps/ground-web-client` | TypeScript | Ground-side web UI composition scaffold |
+| `/apps/ground-web-client` | TypeScript + browser assets | Ground-side live video GUI composition |
 | `/apps/air-webapp` | TypeScript (Vite PWA) | Air-side PWA composition shell |
 | `/android-shell` | Kotlin | **Not started — do not touch until Phase 2.5** |
 | `/bridge-firmware` | ESP32 | **Future work — not started** |
@@ -107,7 +107,7 @@ Do not start these until their planned phases:
 |---|---|
 | `/android-shell` (foreground service, USB bridge, WebView host) | Phase 2.5 |
 | `/bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
-| Ground-side live video GUI beyond the composition scaffold | Phase 2 spikes 2–4 |
+| Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
 | Reconnection / backoff / resilience | Phase 3 |
 | Docker Compose / containerized deployment | Phase 4 |
 | iPhone air-side app | Future work |
