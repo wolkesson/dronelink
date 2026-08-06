@@ -1,0 +1,8 @@
+{
+  "name": "dronelink",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

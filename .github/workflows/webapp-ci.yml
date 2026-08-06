@@ -3,27 +3,32 @@ name: webapp CI
 on:
   push:
     paths:
-      - "webapp/**"
+      - "apps/air-webapp/**"
+      - "packages/core-transport/**"
+      - "packages/air-client-sdk/**"
+      - "packages/ui-kit-shared/**"
+      - "protocol/**"
       - ".github/workflows/webapp-ci.yml"
   pull_request:
     paths:
-      - "webapp/**"
+      - "apps/air-webapp/**"
+      - "packages/core-transport/**"
+      - "packages/air-client-sdk/**"
+      - "packages/ui-kit-shared/**"
+      - "protocol/**"
       - ".github/workflows/webapp-ci.yml"
 
 jobs:
   build-lint-test:
     name: Build, lint, and test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: webapp
 
     # TODO (future — headless regression harness): add a service container or step here that
     # runs a Node-based harness using werift + a mock/SITL transport to exercise the
-    # /core relay logic without a real browser. This is optional and deferred past Phase 1.
+    # shared relay logic without a real browser. This is optional and deferred past Phase 1.
     #
-    # TODO (SITL integration): if /webapp gains protocol-contract tests against /protocol/fixtures,
-    # wire the INAV SITL service container here the same way as ground-ci.yml.
+    # TODO (SITL integration): if air-side packages gain protocol-contract tests against
+    # /protocol/fixtures, wire the INAV SITL service container here the same way as ground-ci.yml.
 
     steps:
       - uses: actions/checkout@v4
@@ -33,17 +38,28 @@ jobs:
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: webapp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build
-        run: npm run build
+        run: |
+          npm run build --workspace @dronelink/core-transport
+          npm run build --workspace @dronelink/air-client-sdk
+          npm run build --workspace @dronelink/ui-kit-shared
+          npm run build --workspace @dronelink/air-webapp
 
       - name: Lint
-        run: npm run lint
+        run: |
+          npm run lint --workspace @dronelink/core-transport
+          npm run lint --workspace @dronelink/air-client-sdk
+          npm run lint --workspace @dronelink/ui-kit-shared
+          npm run lint --workspace @dronelink/air-webapp
         continue-on-error: true  # lint is advisory until ESLint config is finalized
 
       - name: Test
-        run: npm test
+        run: |
+          npm test --workspace @dronelink/core-transport
+          npm test --workspace @dronelink/air-client-sdk
+          npm test --workspace @dronelink/ui-kit-shared

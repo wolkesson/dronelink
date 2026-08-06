@@ -67,3 +67,5 @@ desktop.ini
 *.log
 *.pid
 .cache/
+
+pairing-cert-target.txt

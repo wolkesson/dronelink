@@ -1,0 +1,22 @@
+{
+  "name": "@dronelink/ui-kit-shared",
+  "version": "0.1.0",
+  "description": "Shared UI-facing presentation helpers",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
+  }
+}
