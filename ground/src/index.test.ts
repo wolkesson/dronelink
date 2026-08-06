@@ -85,6 +85,10 @@ function openClient(url: string): Promise<WebSocket> {
   });
 }
 
+function openViewerClient(url: string): Promise<WebSocket> {
+  return openClient(`${url}/viewer-ws`);
+}
+
 function waitForMessage(socket: WebSocket): Promise<string> {
   return new Promise((resolve) => {
     socket.once("message", (data) => resolve(data.toString()));
@@ -325,5 +329,16 @@ describe("signaling server", () => {
     expect(response.body).toContain("DroneLink Ground Viewer");
     expect(response.body).toContain("/viewer-ws");
     expect(response.body).toContain("<video");
+  });
+
+  it("rejects unauthenticated local viewer websocket connections", async () => {
+    const runtime = createRuntime(50);
+    const bundle = await runtime.start();
+    const socket = await openViewerClient(`wss://${bundle.host}:${bundle.port}`);
+
+    await expect(waitForClose(socket)).resolves.toEqual({
+      code: 1008,
+      reason: "token required",
+    });
   });
 });

@@ -40,7 +40,7 @@ export interface SignalingServerRuntime {
   close(): Promise<void>;
 }
 
-function viewerHtml(): string {
+function viewerHtml(sessionId: string, token: string): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -124,7 +124,22 @@ function viewerHtml(): string {
             };
 
             ws.addEventListener("message", async (messageEvent) => {
-              const message = JSON.parse(messageEvent.data);
+              let message;
+              try {
+                message = JSON.parse(messageEvent.data);
+              } catch {
+                setStatus("Viewer signaling parse error");
+                return;
+              }
+
+              if (message.type === "pairing-accepted") {
+                const offer = await pc.createOffer({ offerToReceiveVideo: true });
+                await pc.setLocalDescription(offer);
+                ws.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
+                setStatus("Negotiating viewer session...");
+                return;
+              }
+
               if (message.type === "answer" && typeof message.sdp === "string") {
                 await pc.setRemoteDescription({ type: "answer", sdp: message.sdp });
                 setStatus("Waiting for video track...");
@@ -135,10 +150,10 @@ function viewerHtml(): string {
                 await pc.addIceCandidate(message.candidate);
               }
             });
-
-            const offer = await pc.createOffer({ offerToReceiveVideo: true });
-            await pc.setLocalDescription(offer);
-            ws.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
+            ws.send(JSON.stringify({ type: "pair", sessionId: ${JSON.stringify(
+              sessionId,
+            )}, token: ${JSON.stringify(token)} }));
+            setStatus("Authorizing viewer...");
           } catch (error) {
             setStatus("Failed: " + (error instanceof Error ? error.message : String(error)));
           }
@@ -184,7 +199,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
 
       if (requestPath === "/viewer") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(viewerHtml());
+        res.end(viewerHtml(sessionId, token));
         return;
       }
 
@@ -221,6 +236,12 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   viewerWss.on("connection", (socket) => {
     const viewerId = randomUUID();
     logger.log("Local viewer connected");
+    let authenticated = false;
+    const authTimeout = setTimeout(() => {
+      if (!authenticated) {
+        socket.close(1008, "token required");
+      }
+    }, handshakeTimeoutMs);
 
     socket.on("message", (data) => {
       let signalingMessage: unknown;
@@ -231,12 +252,35 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
         return;
       }
 
+      if (!authenticated) {
+        if (!isPairingRequest(signalingMessage)) {
+          socket.close(1008, "token required");
+          return;
+        }
+
+        if (signalingMessage.sessionId !== sessionId) {
+          socket.close(1008, "invalid session");
+          return;
+        }
+
+        if (signalingMessage.token !== token) {
+          socket.close(1008, "invalid token");
+          return;
+        }
+
+        authenticated = true;
+        clearTimeout(authTimeout);
+        socket.send(JSON.stringify(createPairingAcceptedMessage(sessionId)));
+        return;
+      }
+
       handleViewerSignalingMessage(viewerId, signalingMessage, (msg) => {
         socket.send(JSON.stringify(msg));
       });
     });
 
     socket.on("close", () => {
+      clearTimeout(authTimeout);
       logger.log("Local viewer disconnected");
       handleViewerSocketClose(viewerId);
     });
