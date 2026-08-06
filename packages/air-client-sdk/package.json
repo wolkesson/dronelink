@@ -1,0 +1,27 @@
+{
+  "name": "@dronelink/air-client-sdk",
+  "version": "0.1.0",
+  "description": "Air-side transport and pairing SDK",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dronelink/core-transport": "file:../core-transport",
+    "jsqr": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/w3c-web-serial": "^1.0.8",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
+  }
+}
