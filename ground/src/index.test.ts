@@ -16,6 +16,12 @@ afterEach(async () => {
 });
 
 function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignalingServer> {
+  return createRuntimeWithState(handshakeTimeoutMs).runtime;
+}
+
+function createRuntimeWithState(
+  handshakeTimeoutMs = 100,
+): { runtime: ReturnType<typeof createSignalingServer>; stateDir: string } {
   const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
   tempDirs.push(stateDir);
   seedTlsMaterial(stateDir);
@@ -33,7 +39,7 @@ function createRuntime(handshakeTimeoutMs = 100): ReturnType<typeof createSignal
   });
 
   runtimes.push(runtime);
-  return runtime;
+  return { runtime, stateDir };
 }
 
 function seedTlsMaterial(stateDir: string): void {
@@ -108,14 +114,14 @@ function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string
 
 function fetchHttpsText(
   url: string,
-  options?: { authorization?: string },
+  options?: { authorization?: string; ca?: string },
 ): Promise<{ statusCode: number; contentType: string; body: string }> {
   return new Promise((resolve, reject) => {
     const req = httpsRequest(
       url,
       {
         method: "GET",
-        rejectUnauthorized: false,
+        ca: options?.ca,
         headers: options?.authorization ? { authorization: options.authorization } : undefined,
       },
       (res) => {
@@ -324,11 +330,13 @@ describe("signaling server", () => {
   });
 
   it("serves the local viewer page over HTTPS", async () => {
-    const runtime = createRuntime();
+    const { runtime, stateDir } = createRuntimeWithState();
     const bundle = await runtime.start();
+    const ca = readFileSync(join(stateDir, "pairing-cert.pem"), "utf8");
 
     const response = await fetchHttpsText(`https://${bundle.host}:${bundle.port}/viewer`, {
       authorization: `Basic ${Buffer.from(`viewer:${bundle.token}`).toString("base64")}`,
+      ca,
     });
     expect(response.statusCode).toBe(200);
     expect(response.contentType).toContain("text/html");
@@ -338,10 +346,11 @@ describe("signaling server", () => {
   });
 
   it("rejects unauthorized access to the local viewer page", async () => {
-    const runtime = createRuntime();
+    const { runtime, stateDir } = createRuntimeWithState();
     const bundle = await runtime.start();
+    const ca = readFileSync(join(stateDir, "pairing-cert.pem"), "utf8");
 
-    const response = await fetchHttpsText(`https://${bundle.host}:${bundle.port}/viewer`);
+    const response = await fetchHttpsText(`https://${bundle.host}:${bundle.port}/viewer`, { ca });
     expect(response.statusCode).toBe(401);
     expect(response.contentType).toContain("text/plain");
     expect(response.body).toContain("viewer auth required");
