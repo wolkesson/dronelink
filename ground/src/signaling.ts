@@ -169,6 +169,28 @@ function viewerHtml(sessionId: string, token: string): string {
 </html>`;
 }
 
+function isViewerAuthorized(authorizationHeader: string | undefined, token: string): boolean {
+  if (!authorizationHeader || !authorizationHeader.startsWith("Basic ")) {
+    return false;
+  }
+
+  let decoded = "";
+  try {
+    decoded = Buffer.from(authorizationHeader.slice("Basic ".length), "base64").toString("utf8");
+  } catch {
+    return false;
+  }
+
+  const separatorIndex = decoded.indexOf(":");
+  if (separatorIndex < 0) {
+    return false;
+  }
+
+  const username = decoded.slice(0, separatorIndex);
+  const password = decoded.slice(separatorIndex + 1);
+  return username === "viewer" && password === token;
+}
+
 function getListeningPort(server: HttpsServer): number {
   const address = server.address();
   if (!address || typeof address === "string") {
@@ -203,6 +225,18 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
       const requestPath = new URL(req.url ?? "/", "https://localhost").pathname;
 
       if (requestPath === "/viewer") {
+        const authHeader = Array.isArray(req.headers.authorization)
+          ? req.headers.authorization[0]
+          : req.headers.authorization;
+        if (!isViewerAuthorized(authHeader, token)) {
+          res.writeHead(401, {
+            "content-type": "text/plain; charset=utf-8",
+            "www-authenticate": "Basic realm=\"DroneLink Viewer\"",
+          });
+          res.end("viewer auth required\n");
+          return;
+        }
+
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(viewerHtml(sessionId, token));
         return;

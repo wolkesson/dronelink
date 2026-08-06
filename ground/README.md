@@ -30,4 +30,8 @@ When the ground process is running, open:
 
 - `https://localhost:8443/viewer` (or your configured `SIGNAL_HOST`/`SIGNAL_PORT`)
 
-Click **Connect viewer** to establish the local loopback WebRTC session and render the incoming air-side video in the browser tab.
+The page uses HTTP Basic auth:
+- username: `viewer`
+- password: the current pairing `token` printed by the ground process
+
+After authenticating, click **Connect viewer** to establish the local loopback WebRTC session and render the incoming air-side video in the browser tab.

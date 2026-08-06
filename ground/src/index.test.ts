@@ -106,13 +106,17 @@ function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string
   });
 }
 
-function fetchHttpsText(url: string): Promise<{ statusCode: number; contentType: string; body: string }> {
+function fetchHttpsText(
+  url: string,
+  options?: { authorization?: string },
+): Promise<{ statusCode: number; contentType: string; body: string }> {
   return new Promise((resolve, reject) => {
     const req = httpsRequest(
       url,
       {
         method: "GET",
         rejectUnauthorized: false,
+        headers: options?.authorization ? { authorization: options.authorization } : undefined,
       },
       (res) => {
         let body = "";
@@ -323,12 +327,24 @@ describe("signaling server", () => {
     const runtime = createRuntime();
     const bundle = await runtime.start();
 
-    const response = await fetchHttpsText(`https://${bundle.host}:${bundle.port}/viewer`);
+    const response = await fetchHttpsText(`https://${bundle.host}:${bundle.port}/viewer`, {
+      authorization: `Basic ${Buffer.from(`viewer:${bundle.token}`).toString("base64")}`,
+    });
     expect(response.statusCode).toBe(200);
     expect(response.contentType).toContain("text/html");
     expect(response.body).toContain("DroneLink Ground Viewer");
     expect(response.body).toContain("/viewer-ws");
     expect(response.body).toContain("<video");
+  });
+
+  it("rejects unauthorized access to the local viewer page", async () => {
+    const runtime = createRuntime();
+    const bundle = await runtime.start();
+
+    const response = await fetchHttpsText(`https://${bundle.host}:${bundle.port}/viewer`);
+    expect(response.statusCode).toBe(401);
+    expect(response.contentType).toContain("text/plain");
+    expect(response.body).toContain("viewer auth required");
   });
 
   it("rejects unauthenticated local viewer websocket connections", async () => {
