@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { request as httpsRequest } from "node:https";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -98,6 +99,37 @@ function waitForClose(socket: WebSocket): Promise<{ code: number; reason: string
         reason: reason.toString(),
       });
     });
+  });
+}
+
+function fetchHttpsText(url: string): Promise<{ statusCode: number; contentType: string; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      url,
+      {
+        method: "GET",
+        rejectUnauthorized: false,
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          resolve({
+            statusCode: res.statusCode ?? 0,
+            contentType: Array.isArray(res.headers["content-type"])
+              ? res.headers["content-type"].join(",")
+              : (res.headers["content-type"] ?? ""),
+            body,
+          });
+        });
+      },
+    );
+
+    req.once("error", reject);
+    req.end();
   });
 }
 
@@ -281,5 +313,17 @@ describe("signaling server", () => {
 
     const [firstBundle, secondBundle] = await Promise.all([first.start(), second.start()]);
     expect(firstBundle.certFingerprint).toBe(secondBundle.certFingerprint);
+  });
+
+  it("serves the local viewer page over HTTPS", async () => {
+    const runtime = createRuntime();
+    const bundle = await runtime.start();
+
+    const response = await fetchHttpsText(`https://${bundle.host}:${bundle.port}/viewer`);
+    expect(response.statusCode).toBe(200);
+    expect(response.contentType).toContain("text/html");
+    expect(response.body).toContain("DroneLink Ground Viewer");
+    expect(response.body).toContain("/viewer-ws");
+    expect(response.body).toContain("<video");
   });
 });

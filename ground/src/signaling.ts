@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type Server as HttpsServer } from "node:https";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +13,13 @@ import {
   isPairingRequest,
   type PairingBundle,
 } from "./pairing.js";
-import { handleSignalingMessage, handleSocketClose, setStateDir } from "./webrtc.js";
+import {
+  handleSignalingMessage,
+  handleSocketClose,
+  handleViewerSignalingMessage,
+  handleViewerSocketClose,
+  setStateDir,
+} from "./webrtc.js";
 
 export interface SignalingServerOptions {
   port: number;
@@ -31,6 +38,115 @@ export interface SignalingServerRuntime {
   start(): Promise<PairingBundle>;
   getPairingBundle(): PairingBundle;
   close(): Promise<void>;
+}
+
+function viewerHtml(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DroneLink Ground Viewer</title>
+    <style>
+      body { margin: 0; font-family: sans-serif; background: #111; color: #eee; }
+      main { padding: 12px; max-width: 960px; margin: 0 auto; }
+      video { width: 100%; max-height: 80vh; background: black; }
+      button { padding: 8px 12px; margin-bottom: 12px; }
+      #status { margin-bottom: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DroneLink Ground Viewer</h1>
+      <div id="status">Idle</div>
+      <button id="connect" type="button">Connect viewer</button>
+      <video id="viewer" autoplay playsinline controls muted></video>
+    </main>
+    <script>
+      const statusEl = document.getElementById("status");
+      const buttonEl = document.getElementById("connect");
+      const videoEl = document.getElementById("viewer");
+      let ws;
+      let pc;
+
+      const setStatus = (message) => {
+        statusEl.textContent = message;
+      };
+
+      const cleanup = () => {
+        if (pc) {
+          pc.close();
+          pc = undefined;
+        }
+        if (ws) {
+          ws.close();
+          ws = undefined;
+        }
+      };
+
+      buttonEl.addEventListener("click", async () => {
+        cleanup();
+        setStatus("Connecting...");
+
+        ws = new WebSocket(location.origin.replace(/^http/, "ws") + "/viewer-ws");
+        ws.addEventListener("close", () => {
+          setStatus("Disconnected");
+        });
+        ws.addEventListener("error", () => {
+          setStatus("Viewer signaling error");
+        });
+
+        ws.addEventListener("open", async () => {
+          try {
+            pc = new RTCPeerConnection();
+            pc.ontrack = (event) => {
+              const [stream] = event.streams;
+              if (stream) {
+                videoEl.srcObject = stream;
+                setStatus("Live video");
+                return;
+              }
+              const fallbackStream = new MediaStream([event.track]);
+              videoEl.srcObject = fallbackStream;
+              setStatus("Live video");
+            };
+
+            pc.onconnectionstatechange = () => {
+              if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+                setStatus("Peer state: " + pc.connectionState);
+              }
+            };
+
+            pc.onicecandidate = (event) => {
+              if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "ice-candidate", candidate: event.candidate.toJSON() }));
+              }
+            };
+
+            ws.addEventListener("message", async (messageEvent) => {
+              const message = JSON.parse(messageEvent.data);
+              if (message.type === "answer" && typeof message.sdp === "string") {
+                await pc.setRemoteDescription({ type: "answer", sdp: message.sdp });
+                setStatus("Waiting for video track...");
+                return;
+              }
+
+              if (message.type === "ice-candidate" && message.candidate) {
+                await pc.addIceCandidate(message.candidate);
+              }
+            });
+
+            const offer = await pc.createOffer({ offerToReceiveVideo: true });
+            await pc.setLocalDescription(offer);
+            ws.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
+          } catch (error) {
+            setStatus("Failed: " + (error instanceof Error ? error.message : String(error)));
+          }
+        });
+      });
+    </script>
+  </body>
+</html>`;
 }
 
 function getListeningPort(server: HttpsServer): number {
@@ -58,21 +174,73 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
     tlsProvider === "tailscale"
       ? ensureTailscaleTlsMaterial(stateDir, tlsTarget)
       : ensureTlsMaterial(stateDir, tlsTarget);
-  const tlsFingerprint = tlsMaterial.certFingerprint;
   const httpsServer = createServer(
     {
       key: tlsMaterial.key,
       cert: tlsMaterial.cert,
     },
-    (_req, res) => {
+    (req, res) => {
+      const requestPath = new URL(req.url ?? "/", "https://localhost").pathname;
+
+      if (requestPath === "/viewer") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(viewerHtml());
+        return;
+      }
+
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
       res.end("DroneLink signaling endpoint\n");
     },
   );
 
-  const wss = new WebSocketServer({ server: httpsServer });
+  const wss = new WebSocketServer({ noServer: true });
+  const viewerWss = new WebSocketServer({ noServer: true });
   let bundle: PairingBundle | undefined;
   let startPromise: Promise<PairingBundle> | undefined;
+
+  httpsServer.on("upgrade", (req, socket, head) => {
+    const requestPath = new URL(req.url ?? "/", "https://localhost").pathname;
+
+    if (requestPath === "/viewer-ws") {
+      viewerWss.handleUpgrade(req, socket, head, (ws) => {
+        viewerWss.emit("connection", ws, req);
+      });
+      return;
+    }
+
+    if (requestPath === "/" || requestPath === "") {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit("connection", ws, req);
+      });
+      return;
+    }
+
+    socket.destroy();
+  });
+
+  viewerWss.on("connection", (socket) => {
+    const viewerId = randomUUID();
+    logger.log("Local viewer connected");
+
+    socket.on("message", (data) => {
+      let signalingMessage: unknown;
+      try {
+        signalingMessage = JSON.parse(data.toString());
+      } catch {
+        logger.warn("Received malformed local viewer signaling message");
+        return;
+      }
+
+      handleViewerSignalingMessage(viewerId, signalingMessage, (msg) => {
+        socket.send(JSON.stringify(msg));
+      });
+    });
+
+    socket.on("close", () => {
+      logger.log("Local viewer disconnected");
+      handleViewerSocketClose(viewerId);
+    });
+  });
 
   wss.on("connection", (socket) => {
     logger.log("Signaling client connected");
@@ -180,19 +348,26 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
     },
     async close(): Promise<void> {
       await new Promise<void>((resolve, reject) => {
-        wss.close((wssError) => {
-          if (wssError) {
-            reject(wssError);
+        viewerWss.close((viewerWssError) => {
+          if (viewerWssError) {
+            reject(viewerWssError);
             return;
           }
 
-          httpsServer.close((serverError) => {
-            if (serverError) {
-              reject(serverError);
+          wss.close((wssError) => {
+            if (wssError) {
+              reject(wssError);
               return;
             }
 
-            resolve();
+            httpsServer.close((serverError) => {
+              if (serverError) {
+                reject(serverError);
+                return;
+              }
+
+              resolve();
+            });
           });
         });
       });
