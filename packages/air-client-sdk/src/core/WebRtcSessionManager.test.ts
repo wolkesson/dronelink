@@ -277,9 +277,10 @@ describe("WebRtcSessionManager", () => {
       const mgr = new WebRtcSessionManager();
       const socket = makeMockSocket();
 
-      const fakeTrack = { kind: "video" } as MediaStreamTrack;
+      const fakeTrack = { kind: "video", getSettings: () => ({}) } as unknown as MediaStreamTrack;
       const fakeStream = {
         getTracks: () => [fakeTrack],
+        getVideoTracks: () => [fakeTrack],
       } as unknown as MediaStream;
 
       const connectPromise = mgr.connect(socket, false, fakeStream);
@@ -298,6 +299,88 @@ describe("WebRtcSessionManager", () => {
       const addTrackOrder = addTrack.mock.invocationCallOrder[0];
       const createOfferOrder = (pc.createOffer as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
       expect(addTrackOrder).toBeLessThan(createOfferOrder);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("WebRtcSessionManager — offer video dimensions", () => {
+  it("connect() includes videoWidth/videoHeight in offer when localStream has a video track with settings", async () => {
+    const { pc, openRef } = makeMockPc();
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const fakeTrack = {
+        kind: "video",
+        getSettings: () => ({ width: 1280, height: 720 }),
+      } as unknown as MediaStreamTrack;
+      const fakeStream = {
+        getTracks: () => [fakeTrack],
+        getVideoTracks: () => [fakeTrack],
+      } as unknown as MediaStream;
+      (pc as unknown as Record<string, unknown>).addTrack = vi.fn();
+
+      const connectPromise = mgr.connect(socket, false, fakeStream);
+
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      openRef.fn?.();
+      await connectPromise;
+
+      const offerMsg = (socket.send as ReturnType<typeof vi.fn>).mock.calls
+        .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+        .find((m) => m.type === "offer");
+
+      expect(offerMsg).toBeDefined();
+      expect(offerMsg?.videoWidth).toBe(1280);
+      expect(offerMsg?.videoHeight).toBe(720);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("connect() omits videoWidth/videoHeight when no localStream is provided", async () => {
+    const { pc, openRef } = makeMockPc();
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const connectPromise = mgr.connect(socket);
+
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      openRef.fn?.();
+      await connectPromise;
+
+      const offerMsg = (socket.send as ReturnType<typeof vi.fn>).mock.calls
+        .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+        .find((m) => m.type === "offer");
+
+      expect(offerMsg).toBeDefined();
+      expect(offerMsg).not.toHaveProperty("videoWidth");
+      expect(offerMsg).not.toHaveProperty("videoHeight");
     } finally {
       vi.unstubAllGlobals();
     }

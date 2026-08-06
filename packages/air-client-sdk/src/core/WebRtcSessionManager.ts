@@ -94,7 +94,19 @@ export class WebRtcSessionManager {
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
-    socket.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
+
+    const offerMsg: Record<string, unknown> = { type: "offer", sdp: offer.sdp };
+    if (localStream) {
+      const videoTracks = localStream.getVideoTracks();
+      if (videoTracks.length > 0) {
+        const settings = videoTracks[0].getSettings();
+        if (typeof settings.width === "number" && typeof settings.height === "number") {
+          offerMsg.videoWidth = settings.width;
+          offerMsg.videoHeight = settings.height;
+        }
+      }
+    }
+    socket.send(JSON.stringify(offerMsg));
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
