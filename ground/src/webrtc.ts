@@ -11,6 +11,8 @@ type DataChannelCloseCallback = () => void;
 interface ViewerPeer {
   pc: RTCPeerConnection;
   hasTrack: boolean;
+  isAnswered: boolean;
+  reply: (msg: unknown) => void;
 }
 
 let onDataChannelOpenCallback: DataChannelOpenCallback | null = null;
@@ -80,6 +82,17 @@ function addTrackToViewer(viewerPeer: ViewerPeer): void {
   }
 }
 
+async function sendViewerAnswer(viewerPeer: ViewerPeer): Promise<void> {
+  if (viewerPeer.isAnswered || !viewerPeer.hasTrack) {
+    return;
+  }
+
+  const answer = await viewerPeer.pc.createAnswer();
+  await viewerPeer.pc.setLocalDescription(answer);
+  viewerPeer.reply({ type: "answer", sdp: answer.sdp });
+  viewerPeer.isAnswered = true;
+}
+
 export function handleViewerSignalingMessage(
   viewerId: string,
   message: unknown,
@@ -97,6 +110,8 @@ export function handleViewerSignalingMessage(
     const viewerPeer: ViewerPeer = {
       pc,
       hasTrack: false,
+      isAnswered: false,
+      reply,
     };
     viewerPeers.set(viewerId, viewerPeer);
 
@@ -110,9 +125,8 @@ export function handleViewerSignalingMessage(
 
     pc.setRemoteDescription({ type: "offer", sdp })
       .then(async () => {
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        reply({ type: "answer", sdp: answer.sdp });
+        addTrackToViewer(viewerPeer);
+        await sendViewerAnswer(viewerPeer);
       })
       .catch((err: unknown) => {
         console.error(
@@ -208,6 +222,12 @@ export function handleSignalingMessage(
 
       for (const viewerPeer of viewerPeers.values()) {
         addTrackToViewer(viewerPeer);
+        void sendViewerAnswer(viewerPeer).catch((err: unknown) => {
+          console.warn(
+            "Failed to finalize local viewer answer:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
       }
     });
 

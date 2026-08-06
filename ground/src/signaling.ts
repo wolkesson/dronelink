@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as HttpsServer } from "node:https";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -188,7 +188,16 @@ function isViewerAuthorized(authorizationHeader: string | undefined, token: stri
 
   const username = decoded.slice(0, separatorIndex);
   const password = decoded.slice(separatorIndex + 1);
-  return username === "viewer" && password === token;
+  return username === "viewer" && isExpectedToken(password, token);
+}
+
+function isExpectedToken(value: string, expected: string): boolean {
+  const valueBuffer = Buffer.from(value, "utf8");
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  if (valueBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(valueBuffer, expectedBuffer);
 }
 
 function getListeningPort(server: HttpsServer): number {
@@ -302,7 +311,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
           return;
         }
 
-        if (signalingMessage.token !== token) {
+        if (!isExpectedToken(signalingMessage.token, token)) {
           socket.close(1008, "invalid token");
           return;
         }
@@ -358,7 +367,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
           return;
         }
 
-        if (parsed.token !== token) {
+        if (!isExpectedToken(parsed.token, token)) {
           socket.close(1008, "invalid token");
           return;
         }
