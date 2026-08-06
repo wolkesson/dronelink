@@ -21,7 +21,7 @@
                 "SIGNAL_HOST": "desktop-cradle.tail70570b.ts.net",
                 "TLS_PROVIDER": "tailscale"
             },
-            "cwd": "${workspaceFolder}/ground",
+            "cwd": "${workspaceFolder}/apps/ground-core-node",
             "skipFiles": [
                 "<node_internals>/**"
             ]
