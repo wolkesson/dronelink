@@ -5,7 +5,13 @@
     "apps/*",
     "packages/*"
   ],
+  "scripts": {
+    "lint:md": "markdownlint-cli2 README.md ARCHITECTURE.md AGENTS.md"
+  },
   "allowScripts": {
     "esbuild@0.28.1": true
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.23.2"
   }
 }

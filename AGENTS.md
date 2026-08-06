@@ -11,7 +11,7 @@ Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) befor
 ## Workspace layout
 
 | Path | Language | Role |
-|---|---|---|
+| --- | --- | --- |
 | `/packages/core-transport` | TypeScript | Shared pairing/token protocol, TLS helpers, and transport primitives |
 | `/packages/ground-client-sdk` | TypeScript | Ground-side signaling, WebRTC peer handling, TCP bridge, video sink runtime |
 | `/packages/air-client-sdk` | TypeScript | Air-side pairing/session state, QR scanning, WebRTC relay, serial transport abstractions |
@@ -104,7 +104,7 @@ Each workflow runs `npm ci` at the repo root, then the relevant workspace build/
 Do not start these until their planned phases:
 
 | Component / Feature | Deferred to |
-|---|---|
+| --- | --- |
 | `/android-shell` (foreground service, USB bridge, WebView host) | Phase 2.5 |
 | `/bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
 | Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
@@ -124,3 +124,10 @@ Do not start these until their planned phases:
 - TypeScript throughout; strict mode is enabled.
 - Use existing libraries where possible.
 - Do not add comments unless they clarify non-obvious logic or match the surrounding style.
+
+## Markdown style (AGENTS.md, ARCHITECTURE.md, README.md)
+
+- **Table formatting:** Always use spaces around table pipes: `| Header | Header |` not `|Header|Header|`.
+  Separator rows must also have spaces: `| --- | --- |` not `|---|---|`.
+  This ensures consistent MD060 compliance (markdownlint table-column-style rule).
+- Before committing markdown changes, run `npx markdownlint-cli2 README.md ARCHITECTURE.md AGENTS.md` to verify.

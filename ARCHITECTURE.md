@@ -61,7 +61,7 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 ## 4. Runtime mapping
 
 | Runtime | Packages composed |
-|---|---|
+| --- | --- |
 | `@dronelink/ground-core-node` | `@dronelink/core-transport`, `@dronelink/ground-client-sdk` |
 | `@dronelink/air-webapp` | `@dronelink/core-transport`, `@dronelink/air-client-sdk`, `@dronelink/ui-kit-shared` |
 | `@dronelink/ground-web-client` | `@dronelink/core-transport`, `@dronelink/ground-client-sdk`, `@dronelink/ui-kit-shared`, `@dronelink/ui-kit-ground` |

@@ -115,7 +115,7 @@ The air-side app still runs locally via `npm run dev --workspace @dronelink/air-
 ## What not to build yet
 
 | Component / Feature | Deferred to |
-|---|---|
+| --- | --- |
 | `android-shell` foreground service / USB bridge / WebView host | Phase 2.5 |
 | `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
 | Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
