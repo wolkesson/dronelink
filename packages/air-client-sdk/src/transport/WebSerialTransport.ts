@@ -12,7 +12,8 @@
 import type { SerialTransport } from "./SerialTransport.js";
 
 /** Baud rate used by INAV's default MSP configuration. */
-const BAUD_RATE = 115200;
+export const SERIAL_BAUD_RATE = 115200;
+const BAUD_RATE = SERIAL_BAUD_RATE;
 
 export class WebSerialTransport implements SerialTransport {
   private readonly handlers = new Set<(data: Uint8Array) => void>();

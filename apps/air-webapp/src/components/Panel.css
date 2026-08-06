@@ -1,0 +1,68 @@
+.dl-panel {
+  background: var(--dl-panel-bg);
+  border: 1px solid var(--dl-border);
+  border-radius: var(--dl-radius);
+  overflow: hidden;
+}
+
+.dl-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.dl-panel__title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--dl-green);
+  text-transform: uppercase;
+}
+
+.dl-panel__title-number {
+  color: var(--dl-green);
+  opacity: 0.85;
+}
+
+.dl-panel__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--dl-radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dl-text-faint);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.dl-panel__toggle:hover {
+  color: var(--dl-text-dim);
+}
+
+.dl-panel__toggle--active {
+  color: var(--dl-cyan);
+  border-color: var(--dl-border-active);
+  background: var(--dl-cyan-dim);
+}
+
+.dl-panel__body {
+  padding: 0 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dl-panel__body:only-child,
+.dl-panel__header:last-child {
+  padding-bottom: 14px;
+}

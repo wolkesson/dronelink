@@ -1,0 +1,28 @@
+.dl-disconnect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--dl-radius);
+  border: 1px solid var(--dl-red);
+  background: var(--dl-red-dim);
+  color: var(--dl-red);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dl-disconnect:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.18);
+}
+
+.dl-disconnect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

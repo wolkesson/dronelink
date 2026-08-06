@@ -1,0 +1,84 @@
+/*
+ * Design tokens for the DroneLink air-side HUD theme: dark, monospace,
+ * terminal-style panels. Values are tuned to match the approved Figma mock.
+ */
+:root {
+  --dl-bg: #0a0e14;
+  --dl-panel-bg: #10161f;
+  --dl-panel-bg-raised: #141b26;
+  --dl-border: #212b38;
+  --dl-border-strong: #2c3745;
+  --dl-border-active: #2dd4bf;
+
+  --dl-text: #e6edf3;
+  --dl-text-dim: #7a8699;
+  --dl-text-faint: #4c5768;
+
+  --dl-green: #34d399;
+  --dl-green-dim: rgba(52, 211, 153, 0.12);
+  --dl-red: #f87171;
+  --dl-red-dim: rgba(248, 113, 113, 0.1);
+  --dl-cyan: #2dd4bf;
+  --dl-cyan-dim: rgba(45, 212, 191, 0.12);
+  --dl-live: #ef4444;
+
+  --dl-font-mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono",
+    monospace;
+
+  --dl-radius: 10px;
+  --dl-radius-sm: 6px;
+  --dl-gap: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/*
+ * Components toggle visibility via the `hidden` attribute, but several also
+ * set `display: flex/block` on that same element's class — an author rule
+ * of equal specificity that would otherwise beat the UA's `[hidden]` default.
+ * Force it here once instead of guarding every component rule with :not([hidden]).
+ */
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--dl-bg);
+  color: var(--dl-text);
+  font-family: var(--dl-font-mono);
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dl-gap);
+}
+
+.dl-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

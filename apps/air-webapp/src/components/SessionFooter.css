@@ -1,0 +1,6 @@
+.dl-footer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--dl-text-faint);
+  letter-spacing: 0.02em;
+}
