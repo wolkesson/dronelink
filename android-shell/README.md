@@ -2,11 +2,11 @@
 
 **Status: intentionally not started yet.**
 
-This component begins in **Phase 2.5** of the development plan (see [`ARCHITECTURE.md`](../ARCHITECTURE.md#6-development-plan)).
+This component begins in **Phase 2.5** of the development plan (see [`ARCHITECTURE.md`](../ARCHITECTURE.md#6-current-implementation-state)).
 
 ## Planned scope
 
-A thin Kotlin/Android wrapper — no business logic lives here. The full air-side logic is in [`/webapp`](../webapp/README.md).
+A thin Kotlin/Android wrapper — no business logic lives here. The full air-side logic is in [`apps/air-webapp`](../apps/air-webapp).
 
 Responsibilities:
 - **Foreground service** — keeps the process alive during flight so the OS cannot kill it.
@@ -14,7 +14,7 @@ Responsibilities:
 - **Camera/mic permission passthrough** — requests `CAMERA` and `RECORD_AUDIO` runtime permissions, then grants them through `WebChromeClient.onPermissionRequest` so the PWA's `getUserMedia` call succeeds without native capture code.
 - **Wake lock** — prevents CPU/screen sleep mid-flight.
 - **Autostart** — launches the foreground service on `BOOT_COMPLETED` and `ACTION_USB_DEVICE_ATTACHED`.
-- **Localhost PWA host** — serves the bundled `/webapp` build over `http://localhost:<port>` (via a small embedded HTTP server) inside a WebView. `file://` is intentionally avoided because `getUserMedia`/WebRTC require a secure context.
+- **Localhost PWA host** — serves the bundled `apps/air-webapp` build over `http://localhost:<port>` (via a small embedded HTTP server) inside a WebView. `file://` is intentionally avoided because `getUserMedia`/WebRTC require a secure context.
 
 ## What not to add
 
