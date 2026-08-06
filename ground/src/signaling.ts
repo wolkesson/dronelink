@@ -127,7 +127,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
       }
       handleSignalingMessage(signalingMessage, (msg) => {
         socket.send(JSON.stringify(msg));
-      }, tlsProvider === "tailscale", sessionId);
+      }, tlsProvider === "tailscale");
     });
 
     socket.on("close", () => {

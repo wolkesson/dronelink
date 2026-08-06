@@ -4,6 +4,7 @@ import type { RTCDataChannel, RTCIceCandidateInit } from "werift";
 import type { MediaStreamTrack } from "werift";
 import { join } from "path";
 import { mkdirSync } from "fs";
+import { randomUUID } from "crypto";
 
 type DataChannelOpenCallback = (channel: RTCDataChannel) => void;
 type DataChannelCloseCallback = () => void;
@@ -45,7 +46,6 @@ export function handleSignalingMessage(
   message: Record<string, unknown>,
   reply: (msg: unknown) => void,
   isTailscale = false,
-  sessionId = "session",
 ): void {
   if (!isRecord(message)) return;
 
@@ -54,6 +54,13 @@ export function handleSignalingMessage(
       console.warn("WebRTC: ignoring offer — connection already active");
       return;
     }
+
+    // Fresh per-connection ID, distinct from the pairing-time session ID (which is
+    // fixed for the whole /ground process lifetime). Using the pairing session ID
+    // here meant every recording during a single `npm start` run shared the same
+    // filename — a reconnect while a previous recording's finalization was still
+    // writing could corrupt the file. Each WebRTC connection now gets its own.
+    const recordingId = randomUUID();
 
     const sdp = typeof message.sdp === "string" ? message.sdp : "";
     const pc = new RTCPeerConnection({});
@@ -81,7 +88,7 @@ export function handleSignalingMessage(
       if (stateDir) {
         mkdirSync(stateDir, { recursive: true });
       }
-      const filePath = videoFilePath(stateDir || ".", sessionId);
+      const filePath = videoFilePath(stateDir || ".", recordingId);
 
       if (typeof message.videoWidth !== "number" || typeof message.videoHeight !== "number") {
         console.warn(
@@ -101,6 +108,7 @@ export function handleSignalingMessage(
         // interrupting the WebM finalization (Duration/SegmentSize patch-up) and
         // corrupting playback.
         disableLipSync: true,
+        
       });
       activeRecorder = recorder;
       void recorder.addTrack(track)

@@ -65,8 +65,15 @@ function seedTlsMaterial(stateDir: string): void {
     },
   );
 
+  if (result.error) {
+    throw new Error(
+      `Failed to seed TLS certificate for tests: openssl could not be launched (${result.error.message}). ` +
+        "Ensure OpenSSL is installed and on PATH — run 'openssl version' in a terminal to check.",
+    );
+  }
+
   if (result.status !== 0) {
-    const details = result.stderr.trim() || result.stdout.trim() || "unknown openssl failure";
+    const details = (result.stderr ?? "").trim() || (result.stdout ?? "").trim() || "unknown openssl failure";
     throw new Error(`Failed to seed TLS certificate for tests: ${details}`);
   }
 
