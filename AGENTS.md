@@ -91,8 +91,9 @@ mkcert -install
 CI is path-scoped to package groups:
 - `ground-ci.yml` triggers on changes under `apps/ground-core-node`, `apps/ground-web-client`, `packages/core-transport`, `packages/ground-client-sdk`, `packages/ui-kit-ground`, `packages/ui-kit-shared`, and `protocol`.
 - `webapp-ci.yml` triggers on changes under `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, and `protocol`.
+- `android-ci.yml` triggers on changes under `android-shell`, `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, and `protocol`.
 
-Each workflow runs `npm ci` at the repo root, then the relevant workspace build/test commands. Lint remains advisory with `continue-on-error: true`.
+`ground-ci.yml` and `webapp-ci.yml` run `npm ci` at the repo root, then the relevant workspace build/test commands; lint is advisory with `continue-on-error: true`. `android-ci.yml` runs `npm ci` and builds the `air-webapp` PWA bundle, then builds `android-shell`'s debug APK with Gradle (JDK 17) and uploads it as a workflow artifact — no test/lint step yet, since `android-shell` has no unit tests.
 
 ## Key design constraints
 
