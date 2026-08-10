@@ -3,7 +3,6 @@ package link.dronelink.androidshell
 import android.content.res.AssetManager
 import fi.iki.elonen.NanoHTTPD
 import java.io.IOException
-import java.net.URLConnection
 
 /**
  * Serves the bundled air-webapp PWA build from Android assets over
@@ -20,8 +19,7 @@ class LocalWebAppServer(private val assets: AssetManager) : NanoHTTPD("127.0.0.1
 
         return try {
             val stream = assets.open(assetPath)
-            val mimeType = URLConnection.guessContentTypeFromName(assetPath) ?: "application/octet-stream"
-            newChunkedResponse(Response.Status.OK, mimeType, stream)
+            newChunkedResponse(Response.Status.OK, mimeTypeFor(assetPath), stream)
         } catch (e: IOException) {
             newFixedLengthResponse(
                 Response.Status.NOT_FOUND,
@@ -32,8 +30,37 @@ class LocalWebAppServer(private val assets: AssetManager) : NanoHTTPD("127.0.0.1
         }
     }
 
+    private fun mimeTypeFor(path: String): String =
+        MIME_TYPES[path.substringAfterLast('.', "")] ?: "application/octet-stream"
+
     private companion object {
         const val ASSET_ROOT = "webapp"
         const val INDEX_FILE = "index.html"
+
+        // Android's URLConnection.guessContentTypeFromName() unreliably returns null for
+        // "js" (and others), which falls back to application/octet-stream — Chrome's strict
+        // MIME checking then refuses to run it as a module script or register it as a service
+        // worker, producing a blank page with no visible error beyond the JS console. Serve
+        // an explicit table for the extensions a Vite PWA build actually emits instead.
+        val MIME_TYPES = mapOf(
+            "html" to "text/html",
+            "js" to "text/javascript",
+            "mjs" to "text/javascript",
+            "css" to "text/css",
+            "json" to "application/json",
+            "webmanifest" to "application/manifest+json",
+            "svg" to "image/svg+xml",
+            "png" to "image/png",
+            "jpg" to "image/jpeg",
+            "jpeg" to "image/jpeg",
+            "gif" to "image/gif",
+            "ico" to "image/x-icon",
+            "woff" to "font/woff",
+            "woff2" to "font/woff2",
+            "ttf" to "font/ttf",
+            "wasm" to "application/wasm",
+            "txt" to "text/plain",
+            "map" to "application/json",
+        )
     }
 }
