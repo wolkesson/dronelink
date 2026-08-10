@@ -1,11 +1,15 @@
 package link.dronelink.androidshell
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.WindowManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import java.io.IOException
 
@@ -14,9 +18,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webAppServer: LocalWebAppServer
     private val permissionBridge = WebPermissionBridge(this)
 
+    // The foreground service functions either way; this only affects whether
+    // its notification is visible (Android 13+ requires it to be granted).
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        AirShellForegroundService.start(this)
 
         webAppServer = LocalWebAppServer(assets)
         try {

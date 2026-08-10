@@ -1,6 +1,6 @@
 # android-shell
 
-**Status: Phase 2.5, Spike 1 complete; Spike 2 in progress.** See [`spikes/spike-1-webview-shell.md`](./spikes/spike-1-webview-shell.md) and [`spikes/spike-2-camera-mic-passthrough.md`](./spikes/spike-2-camera-mic-passthrough.md); spikes 3–5 are not started (see [`spikes/README.md`](./spikes/README.md)).
+**Status: Phase 2.5, Spikes 1–2 complete; Spike 3 in progress.** See [`spikes/`](./spikes/) for individual task briefs; spikes 4–5 are not started (see [`spikes/README.md`](./spikes/README.md)).
 
 This component begins in **Phase 2.5** of the development plan (see [`ARCHITECTURE.md`](../ARCHITECTURE.md#6-current-implementation-state)).
 
@@ -44,7 +44,7 @@ If a build environment can't reach `dl.google.com` (Google's Maven repo, require
 
 ## Testing on a real device
 
-An Android emulator is enough for this spike (no USB/camera hardware access is needed yet — see [`spikes/README.md`](./spikes/README.md#emulator-vs-real-device) for which later spikes require real hardware). To test on a real phone instead:
+Whether an emulator is enough depends on what you're testing — see [`spikes/README.md`](./spikes/README.md#emulator-vs-real-device) for the breakdown. Camera/mic (Spike 2) mostly works on an emulator; foreground service survival (Spike 3) needs a real device to mean anything, since it's OEM battery-management behavior that emulators don't reproduce; USB serial (Spike 4) has no emulator path at all. Steps below assume a real phone:
 
 1. **Enable Developer Options and USB debugging on the phone**: Settings → About phone → tap "Build number" 7 times → back out to Settings → Developer options → enable "USB debugging".
 2. **Connect the phone to the machine running Android Studio/adb via USB.** Accept the "Allow USB debugging?" prompt that appears on the phone (check "Always allow from this computer" to avoid repeating it).
@@ -68,4 +68,19 @@ An Android emulator is enough for this spike (no USB/camera hardware access is n
    adb uninstall link.dronelink.androidshell
    ```
 
-No flight controller, camera, or USB-OTG accessory is required for this spike — it only needs the phone itself and a USB cable to the dev machine for install/debugging.
+No flight controller is required for any of this yet (that's Spike 4) — steps 1–7 only need the phone itself and a USB cable to the dev machine.
+
+### Testing Spike 3: foreground service survival & autostart
+
+1. **Verify the notification appears.** After installing and launching (steps 1–5 above), pull down the notification shade and confirm "DroneLink air shell running" is present. If it's missing, check whether the app was granted notification permission (Settings → Apps → DroneLink Air Shell → Notifications) — the service still runs either way, but Android 13+ hides the notification without that permission.
+2. **Confirm the service and wake lock are actually held:**
+   ```sh
+   adb shell dumpsys activity services link.dronelink.androidshell
+   adb shell dumpsys power | grep -A2 flight
+   ```
+   The first should show `AirShellForegroundService` running in the foreground; the second should show a held `PARTIAL_WAKE_LOCK` tagged `...:flight`.
+3. **Disable battery optimization for the app before testing survival** — this is the OEM-specific step most likely to matter (see [`spikes/README.md`](./spikes/README.md#emulator-vs-real-device)). On stock Android: Settings → Apps → DroneLink Air Shell → Battery → set to "Unrestricted". On Xiaomi/MIUI, Samsung, OnePlus, etc. there's usually also a separate "Autostart"/"Auto-launch" toggle and a manufacturer battery-saver exception list — enable/allow both. Skipping this step is the most common reason a foreground service still gets killed despite doing everything else right.
+4. **Idle survival:** background the app (Home button), let the screen sleep, and leave the phone alone for an extended period (15–30+ minutes is a reasonable spike check). Re-run the `dumpsys` commands from step 2 — the service should still be there.
+5. **Reboot autostart:** reboot the phone (`adb reboot`, or manually) and, once it's unlocked, check the notification shade *without* opening the app. Its presence confirms `BOOT_COMPLETED` fired and started the service unattended.
+6. **USB-attach autostart:** this needs an actual USB-OTG peripheral, not the debugging cable — the adb connection uses accessory/host roles differently and won't reliably fire `ACTION_USB_DEVICE_ATTACHED` the same way. Force-stop the app first (`adb shell am force-stop link.dronelink.androidshell`), then physically attach a USB-OTG device (any generic one for this spike; Spike 4 introduces the real flight controller), and confirm the notification appears without manually launching the app.
+7. **Recreate real memory pressure (optional but closer to real conditions):** open several other apps to force the OS to look for kill candidates, or use `adb shell am kill link.dronelink.androidshell` (note: this only works if the process isn't already foreground-protected, so it's a useful negative check — it should generally *not* succeed while the foreground service is running).

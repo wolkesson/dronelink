@@ -63,8 +63,6 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
-        with:
-          build-root-directory: android-shell
 
       # ubuntu-latest runner images ship a pre-installed Android SDK (with licenses
       # already accepted) that covers current platform/build-tools versions; if
