@@ -3,6 +3,8 @@ package link.dronelink.androidshell
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.util.Log
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
 import java.io.IOException
@@ -10,6 +12,7 @@ import java.io.IOException
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webAppServer: LocalWebAppServer
+    private val permissionBridge = WebPermissionBridge(this)
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,6 +31,16 @@ class MainActivity : AppCompatActivity() {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest) {
+                permissionBridge.onPermissionRequest(request)
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                permissionBridge.onPermissionRequestCanceled(request)
+            }
+        }
 
         webView.loadUrl("http://127.0.0.1:${webAppServer.listeningPort}/")
     }

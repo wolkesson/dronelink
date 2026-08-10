@@ -6,7 +6,7 @@ This file provides orientation for AI coding agents working in this repository.
 
 DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and the ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 spikes 1–2 are complete** (air-side camera selection/live preview, ground-side video recording, and a live video GUI).
 
-**Phase 2.5 is planned but not started.** It is broken into five spikes with individual task briefs in [`android-shell/spikes/`](./android-shell/spikes/); see that directory's [README](./android-shell/spikes/README.md) for the full breakdown and device-testing notes (emulator vs. real hardware) per spike.
+**Phase 2.5 spike 1 is complete** (WebView shell + localhost PWA host); spike 2 (camera/mic permission passthrough) is in progress. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes (emulator vs. real hardware) per spike.
 
 Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making changes.
 
@@ -22,7 +22,7 @@ Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) befor
 | `/apps/ground-core-node` | Node.js + TypeScript | Headless ground runtime: signaling host + relay only |
 | `/apps/ground-web-client` | TypeScript + browser assets | Ground-side live video GUI composition |
 | `/apps/air-webapp` | TypeScript (Vite PWA) | Air-side PWA composition shell |
-| `/android-shell` | Kotlin | **Not started — do not touch until Phase 2.5.** Spike task briefs live in `android-shell/spikes/`. |
+| `/android-shell` | Kotlin | **Phase 2.5 in progress** (spike 1 complete, spike 2 underway). Spike task briefs live in `android-shell/spikes/`. |
 | `/bridge-firmware` | ESP32 | **Future work — not started** |
 | `/protocol` | Docs + JSON | Wire-format docs, schemas, and recorded byte-stream fixtures |
 | `.github/workflows/` | YAML | CI workflows scoped to ground-side and air-side package groups |

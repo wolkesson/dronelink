@@ -1,6 +1,6 @@
 # android-shell
 
-**Status: Phase 2.5, Spike 1 in progress.** See [`spikes/spike-1-webview-shell.md`](./spikes/spike-1-webview-shell.md) for that spike's scope and exit criteria; spikes 2–5 are not started (see [`spikes/README.md`](./spikes/README.md)).
+**Status: Phase 2.5, Spike 1 complete; Spike 2 in progress.** See [`spikes/spike-1-webview-shell.md`](./spikes/spike-1-webview-shell.md) and [`spikes/spike-2-camera-mic-passthrough.md`](./spikes/spike-2-camera-mic-passthrough.md); spikes 3–5 are not started (see [`spikes/README.md`](./spikes/README.md)).
 
 This component begins in **Phase 2.5** of the development plan (see [`ARCHITECTURE.md`](../ARCHITECTURE.md#6-current-implementation-state)).
 
