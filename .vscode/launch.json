@@ -10,6 +10,14 @@
             "preLaunchTask": "air-webapp: dev"
         },
         {
+            "name": "Android Shell: Install, Launch & Inspect",
+            "type": "chrome",
+            "request": "launch",
+            "url": "chrome://inspect/#devices",
+            "webRoot": "${workspaceFolder}/apps/air-webapp",
+            "preLaunchTask": "android-shell: install & launch"
+        },
+        {
             "type": "node",
             "request": "launch",
             "name": "Ground: Debug",
