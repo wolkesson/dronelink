@@ -145,7 +145,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
         return;
       }
 
-      let signalingMessage: unknown;
+      let signalingMessage: Record<string, unknown>;
       try {
         signalingMessage = JSON.parse(payloadText);
       } catch {
@@ -154,7 +154,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
       }
       handleSignalingMessage(signalingMessage, (msg) => {
         socket.send(JSON.stringify(msg));
-      }, tlsProvider === "tailscale", sessionId);
+      }, tlsProvider === "tailscale");
     });
 
     socket.on("close", () => {
