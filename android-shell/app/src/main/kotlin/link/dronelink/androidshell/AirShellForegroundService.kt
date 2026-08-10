@@ -29,7 +29,13 @@ class AirShellForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        // Guard the *call*, not a branch inside createNotificationChannel(): ART
+        // verifies bytecode per-method, and a method that references
+        // NotificationChannel (API 26) can fail to resolve on older devices even
+        // behind an in-method version check, once that method is actually invoked.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            createNotificationChannel()
+        }
         startForegroundWithNotification()
         acquireWakeLock()
     }
@@ -69,11 +75,18 @@ class AirShellForegroundService : Service() {
             .setOngoing(true)
             .build()
 
+        // Same isolate-and-gate reasoning as createNotificationChannel(): the 3-arg
+        // startForeground(int, Notification, int) overload doesn't exist before API
+        // 29, so it lives in its own method rather than an inline branch here.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+            startForegroundWithType(notification)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+    }
+
+    private fun startForegroundWithType(notification: Notification) {
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
     }
 
     companion object {
