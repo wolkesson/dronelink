@@ -11,8 +11,8 @@ android {
         applicationId = "link.dronelink.androidshell"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-spike1"
+        versionCode = 2
+        versionName = "0.2.0-spike2"
     }
 
     buildTypes {
@@ -44,6 +44,7 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 }
 
