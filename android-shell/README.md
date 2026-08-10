@@ -21,3 +21,7 @@ Responsibilities:
 - No camera or microphone capture code (the browser engine inside WebView does this via standard web APIs).
 - No telemetry parsing, flight-control logic, or UI beyond the WebView container.
 - No Kotlin project files until Phase 2.5.
+
+## Spikes
+
+This scope is broken into five independently implementable spikes — see [`spikes/README.md`](./spikes/README.md) for the breakdown, sequencing, and emulator-vs-real-device notes per spike.
