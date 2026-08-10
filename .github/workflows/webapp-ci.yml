@@ -25,7 +25,7 @@ jobs:
               - ".github/workflows/webapp-ci.yml"
 
   build-lint-test:
-    name: Build, lint, and test
+    name: Build, lint, and test (webapp)
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
