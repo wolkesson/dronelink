@@ -82,11 +82,11 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - Phase 1 thin end-to-end FC → WebRTC → TCP bridge path
 - Workspace extraction of shared transport, air SDK, ground SDK, and app shells
 - Phase 2 spikes 1–2: air-side camera source selection/live preview, ground-side video recording, and the live video GUI
-- Phase 2.5 spikes 1–2: `android-shell` WebView shell + localhost PWA host, camera/mic permission passthrough
+- Phase 2.5 spikes 1–3: `android-shell` WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart
 
 ### Deferred
 - Ground-side GUI features beyond the live video viewer
-- Phase 2.5 spikes 3–5 (foreground service/autostart, USB serial bridge, integration)
+- Phase 2.5 spikes 4–5 (USB serial bridge, integration)
 - ESP32 bridge firmware and iPhone air-side support
 - Reconnection/resilience work
 - Docker/deployment work
@@ -97,8 +97,8 @@ Phase 2.5 (`android-shell`) is broken into five independently implementable spik
 
 1. WebView shell + localhost PWA host — **complete**
 2. Camera/mic permission passthrough — **complete**
-3. Foreground service, wake lock, autostart — in progress
-4. USB host permission + serial bridge (`NativeBridgeTransport`)
+3. Foreground service, wake lock, autostart — **complete**
+4. USB host permission + serial bridge (`NativeBridgeTransport`) — in progress
 5. End-to-end integration
 
 ## 7. Validation checklist
