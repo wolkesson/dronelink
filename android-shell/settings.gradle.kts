@@ -11,6 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // usb-serial-for-android (Spike 4) is only published on JitPack, not Maven Central.
+        maven(url = "https://jitpack.io")
     }
 }
 
