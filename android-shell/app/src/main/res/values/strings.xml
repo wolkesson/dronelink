@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DroneLink Air Shell</string>
+    <string name="foreground_service_channel_name">DroneLink air shell</string>
+    <string name="foreground_service_notification_title">DroneLink air shell running</string>
+    <string name="foreground_service_notification_text">Keeping the link alive in the background.</string>
+</resources>

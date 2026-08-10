@@ -70,27 +70,6 @@
   border: 1px solid var(--dl-border-strong);
   border-radius: var(--dl-radius-sm);
   background: var(--dl-panel-bg-raised);
-  color: var(--dl-text-dim);
-}
-
-.dl-video__select-row-icon {
-  flex: none;
-  display: flex;
-}
-
-.dl-video__select {
-  flex: 1;
-  appearance: none;
-  background: transparent;
-  border: none;
-  outline: none;
-  font-size: 13px;
-  color: var(--dl-text);
-}
-
-.dl-video__select-row-chevron {
-  flex: none;
-  color: var(--dl-text-faint);
 }
 
 .dl-video__helper {

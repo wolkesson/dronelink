@@ -22,10 +22,6 @@ coverage/
 
 # ─── Kotlin / Gradle (for /android-shell — Phase 2.5) ────────────────────────
 .gradle/
-*.gradle
-gradle/
-gradlew
-gradlew.bat
 local.properties
 *.iml
 *.apk
@@ -35,6 +31,10 @@ local.properties
 *.keystore
 app/build/
 build/
+
+# air-webapp dist gets copied here at Android build time; keep out of source control
+android-shell/app/src/main/assets/webapp/*
+!android-shell/app/src/main/assets/webapp/.gitkeep
 
 # ─── Android Studio ──────────────────────────────────────────────────────────
 .idea/

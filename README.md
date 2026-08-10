@@ -12,6 +12,8 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, package b
 
 **Phase 2 spikes 1–2 are complete.** The air-side camera picker/live preview, ground-side video recording, and live video GUI are available without changing the protocol-agnostic byte relay.
 
+**Phase 2.5 spikes 1–2 are complete** (WebView shell + localhost PWA host, camera/mic permission passthrough); spike 3 (foreground service, wake lock, autostart) is in progress. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes.
+
 ---
 
 ## Workspace layout
@@ -28,7 +30,7 @@ packages/
   ui-kit-shared/       # cross-side UI-facing presentation helpers
   ui-kit-ground/       # ground-only UI-facing scaffold
 protocol/              # schemas, fixtures, wire-format docs
-android-shell/         # Phase 2.5+, do not touch yet
+android-shell/         # Phase 2.5+, do not touch yet (spikes/ has task briefs)
 bridge-firmware/       # future work, do not touch yet
 ```
 
@@ -116,7 +118,7 @@ The air-side app still runs locally via `npm run dev --workspace @dronelink/air-
 
 | Component / Feature | Deferred to |
 | --- | --- |
-| `android-shell` foreground service / USB bridge / WebView host | Phase 2.5 |
+| `android-shell` foreground service / USB bridge / WebView host | Phase 2.5 — see `android-shell/spikes/` |
 | `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
 | Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
 | Reconnection / backoff / resilience logic | Phase 3 |

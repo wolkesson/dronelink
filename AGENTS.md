@@ -6,6 +6,8 @@ This file provides orientation for AI coding agents working in this repository.
 
 DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and the ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 spikes 1–2 are complete** (air-side camera selection/live preview, ground-side video recording, and a live video GUI).
 
+**Phase 2.5 spikes 1–2 are complete** (WebView shell + localhost PWA host, camera/mic permission passthrough); spike 3 (foreground service, wake lock, autostart) is in progress. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes (emulator vs. real hardware) per spike.
+
 Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making changes.
 
 ## Workspace layout
@@ -20,7 +22,7 @@ Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) befor
 | `/apps/ground-core-node` | Node.js + TypeScript | Headless ground runtime: signaling host + relay only |
 | `/apps/ground-web-client` | TypeScript + browser assets | Ground-side live video GUI composition |
 | `/apps/air-webapp` | TypeScript (Vite PWA) | Air-side PWA composition shell |
-| `/android-shell` | Kotlin | **Not started — do not touch until Phase 2.5** |
+| `/android-shell` | Kotlin | **Phase 2.5 in progress** (spikes 1–2 complete, spike 3 underway). Spike task briefs live in `android-shell/spikes/`. |
 | `/bridge-firmware` | ESP32 | **Future work — not started** |
 | `/protocol` | Docs + JSON | Wire-format docs, schemas, and recorded byte-stream fixtures |
 | `.github/workflows/` | YAML | CI workflows scoped to ground-side and air-side package groups |
@@ -89,8 +91,9 @@ mkcert -install
 CI is path-scoped to package groups:
 - `ground-ci.yml` triggers on changes under `apps/ground-core-node`, `apps/ground-web-client`, `packages/core-transport`, `packages/ground-client-sdk`, `packages/ui-kit-ground`, `packages/ui-kit-shared`, and `protocol`.
 - `webapp-ci.yml` triggers on changes under `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, and `protocol`.
+- `android-ci.yml` triggers on changes under `android-shell`, `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, and `protocol`.
 
-Each workflow runs `npm ci` at the repo root, then the relevant workspace build/test commands. Lint remains advisory with `continue-on-error: true`.
+`ground-ci.yml` and `webapp-ci.yml` run `npm ci` at the repo root, then the relevant workspace build/test commands; lint is advisory with `continue-on-error: true`. `android-ci.yml` runs `npm ci` and builds the `air-webapp` PWA bundle, then builds `android-shell`'s debug APK with Gradle (JDK 17) and uploads it as a workflow artifact — no test/lint step yet, since `android-shell` has no unit tests.
 
 ## Key design constraints
 
@@ -105,7 +108,7 @@ Do not start these until their planned phases:
 
 | Component / Feature | Deferred to |
 | --- | --- |
-| `/android-shell` (foreground service, USB bridge, WebView host) | Phase 2.5 |
+| `/android-shell` (foreground service, USB bridge, WebView host) | Phase 2.5 — see `android-shell/spikes/` for the five-spike breakdown |
 | `/bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
 | Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
 | Reconnection / backoff / resilience | Phase 3 |
