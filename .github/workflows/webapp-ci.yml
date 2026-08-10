@@ -2,25 +2,32 @@ name: webapp CI
 
 on:
   push:
-    paths:
-      - "apps/air-webapp/**"
-      - "packages/core-transport/**"
-      - "packages/air-client-sdk/**"
-      - "packages/ui-kit-shared/**"
-      - "protocol/**"
-      - ".github/workflows/webapp-ci.yml"
   pull_request:
-    paths:
-      - "apps/air-webapp/**"
-      - "packages/core-transport/**"
-      - "packages/air-client-sdk/**"
-      - "packages/ui-kit-shared/**"
-      - "protocol/**"
-      - ".github/workflows/webapp-ci.yml"
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - "apps/air-webapp/**"
+              - "packages/core-transport/**"
+              - "packages/air-client-sdk/**"
+              - "packages/ui-kit-shared/**"
+              - "protocol/**"
+              - ".github/workflows/webapp-ci.yml"
+
   build-lint-test:
     name: Build, lint, and test
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
 
     # TODO (future — headless regression harness): add a service container or step here that
