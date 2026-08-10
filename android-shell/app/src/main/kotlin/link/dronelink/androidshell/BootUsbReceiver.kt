@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.hardware.usb.UsbManager
+import android.util.Log
 
 /**
  * Starts the foreground service unattended, so a phone mounted on a drone
@@ -13,8 +14,14 @@ import android.hardware.usb.UsbManager
 class BootUsbReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            Intent.ACTION_BOOT_COMPLETED, UsbManager.ACTION_USB_DEVICE_ATTACHED ->
+            Intent.ACTION_BOOT_COMPLETED, UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                Log.i(TAG, "Received ${intent.action}, starting AirShellForegroundService")
                 AirShellForegroundService.start(context)
+            }
         }
+    }
+
+    private companion object {
+        const val TAG = "BootUsbReceiver"
     }
 }

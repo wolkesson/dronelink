@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -29,6 +30,7 @@ class AirShellForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "onCreate")
         // Guard the *call*, not a branch inside createNotificationChannel(): ART
         // verifies bytecode per-method, and a method that references
         // NotificationChannel (API 26) can fail to resolve on older devices even
@@ -40,11 +42,15 @@ class AirShellForegroundService : Service() {
         acquireWakeLock()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.i(TAG, "onStartCommand startId=$startId")
+        return START_STICKY
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        Log.i(TAG, "onDestroy")
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         super.onDestroy()
@@ -90,6 +96,7 @@ class AirShellForegroundService : Service() {
     }
 
     companion object {
+        private const val TAG = "AirShellForegroundSvc"
         private const val CHANNEL_ID = "air_shell_foreground"
         private const val NOTIFICATION_ID = 1
 
