@@ -15,7 +15,6 @@ export interface GroundConnectionPanelOptions {
 
 export interface GroundConnectionPanelHandle {
   el: HTMLElement;
-  qrVideoEl: HTMLVideoElement;
   setMode(mode: GroundConnectionMode): void;
   setConnected(connected: boolean): void;
   setPairing(pairing: boolean): void;
@@ -101,14 +100,6 @@ export function createGroundConnectionPanel(
   pairButton.textContent = "Pair";
   pairButton.addEventListener("click", () => options.onPair(bundleInput.value));
 
-  const qrWrap = document.createElement("div");
-  qrWrap.className = "dl-ground__qr-wrap";
-  const qrVideoEl = document.createElement("video");
-  qrVideoEl.className = "dl-ground__qr-video";
-  qrVideoEl.autoplay = true;
-  qrVideoEl.playsInline = true;
-  qrWrap.appendChild(qrVideoEl);
-
   const helper = document.createElement("p");
   helper.className = "dl-ground__helper";
 
@@ -124,7 +115,6 @@ export function createGroundConnectionPanel(
     tabs,
     bundleInput,
     pairButton,
-    qrWrap,
     helper,
     errorEl,
   );
@@ -133,11 +123,10 @@ export function createGroundConnectionPanel(
     const scanning = tab === "scan";
     bundleInput.hidden = scanning;
     pairButton.hidden = scanning;
-    qrWrap.hidden = !scanning;
     pasteTabBtn.classList.toggle("dl-ground__tab--active", !scanning);
     scanTabBtn?.classList.toggle("dl-ground__tab--active", scanning);
     helper.textContent = scanning
-      ? "Point the camera at the ground station's QR code."
+      ? "Point the camera at the ground station's QR code — see the video feed panel above."
       : "Paste the pairing bundle JSON printed by the ground station.";
   }
 
@@ -164,7 +153,6 @@ export function createGroundConnectionPanel(
     if (showView) {
       bundleInput.hidden = true;
       pairButton.hidden = true;
-      qrWrap.hidden = true;
       helper.hidden = true;
     } else {
       renderTab();
@@ -187,7 +175,6 @@ export function createGroundConnectionPanel(
 
   return {
     el: panel.el,
-    qrVideoEl,
     setMode,
     setConnected(connected: boolean) {
       signalIcon.classList.toggle("dl-ground__signal--active", connected);
