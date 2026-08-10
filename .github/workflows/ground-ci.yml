@@ -2,29 +2,34 @@ name: ground CI
 
 on:
   push:
-    paths:
-      - "apps/ground-core-node/**"
-      - "apps/ground-web-client/**"
-      - "packages/core-transport/**"
-      - "packages/ground-client-sdk/**"
-      - "packages/ui-kit-ground/**"
-      - "packages/ui-kit-shared/**"
-      - "protocol/**"
-      - ".github/workflows/ground-ci.yml"
   pull_request:
-    paths:
-      - "apps/ground-core-node/**"
-      - "apps/ground-web-client/**"
-      - "packages/core-transport/**"
-      - "packages/ground-client-sdk/**"
-      - "packages/ui-kit-ground/**"
-      - "packages/ui-kit-shared/**"
-      - "protocol/**"
-      - ".github/workflows/ground-ci.yml"
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - "apps/ground-core-node/**"
+              - "apps/ground-web-client/**"
+              - "packages/core-transport/**"
+              - "packages/ground-client-sdk/**"
+              - "packages/ui-kit-ground/**"
+              - "packages/ui-kit-shared/**"
+              - "protocol/**"
+              - ".github/workflows/ground-ci.yml"
+
   build-lint-test:
-    name: Build, lint, and test
+    name: Build, lint, and test (ground)
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
 
     # TODO (Phase 0/1 SITL integration): add an INAV SITL service container here.

@@ -1,6 +1,7 @@
 import "./VideoFeedPanel.css";
 import { createPanel } from "./Panel.js";
 import { createStatusPill } from "./StatusPill.js";
+import { createDropdown } from "./Dropdown.js";
 import { icons } from "./icons.js";
 
 export type VideoFeedMode = "view" | "select";
@@ -91,23 +92,13 @@ export function createVideoFeedPanel(options: VideoFeedPanelOptions): VideoFeedP
   const selectRow = document.createElement("div");
   selectRow.className = "dl-video__select-row";
 
-  const rowIcon = document.createElement("span");
-  rowIcon.className = "dl-video__select-row-icon";
-  rowIcon.innerHTML = icons.camera;
+  const dropdown = createDropdown({
+    icon: icons.camera,
+    onChange: (value) => options.onDeviceChange(value),
+  });
+  dropdown.setOptions([{ value: NO_VIDEO_VALUE, label: "No Video (Data Only)" }]);
 
-  const select = document.createElement("select");
-  select.className = "dl-video__select";
-  const noVideoOption = document.createElement("option");
-  noVideoOption.value = NO_VIDEO_VALUE;
-  noVideoOption.textContent = "No Video (Data Only)";
-  select.appendChild(noVideoOption);
-  select.addEventListener("change", () => options.onDeviceChange(select.value));
-
-  const rowChevron = document.createElement("span");
-  rowChevron.className = "dl-video__select-row-chevron";
-  rowChevron.innerHTML = icons.chevronDown;
-
-  selectRow.append(rowIcon, select, rowChevron);
+  selectRow.append(dropdown.el);
 
   const helper = document.createElement("p");
   helper.className = "dl-video__helper";
@@ -144,17 +135,15 @@ export function createVideoFeedPanel(options: VideoFeedPanelOptions): VideoFeedP
     videoEl,
     setMode,
     populateDevices(devices: MediaDeviceInfo[]) {
-      const previous = select.value;
-      while (select.options.length > 1) {
-        select.remove(1);
-      }
-      devices.forEach((device, index) => {
-        const option = document.createElement("option");
-        option.value = device.deviceId;
-        option.textContent = device.label || `Camera ${index + 1}`;
-        select.appendChild(option);
-      });
-      select.value = previous;
+      const previous = dropdown.getValue();
+      dropdown.setOptions([
+        { value: NO_VIDEO_VALUE, label: "No Video (Data Only)" },
+        ...devices.map((device, index) => ({
+          value: device.deviceId,
+          label: device.label || `Camera ${index + 1}`,
+        })),
+      ]);
+      dropdown.setValue(previous);
     },
     setStreaming(next: boolean) {
       streaming = next;

@@ -71,7 +71,8 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - The repo root is an npm workspace containing `apps/*` and `packages/*`.
 - `ground-ci.yml` runs root `npm ci`, then builds/tests the ground-side and shared workspaces.
 - `webapp-ci.yml` runs root `npm ci`, then builds/tests the air-side and shared workspaces.
-- Lint remains advisory in both workflows.
+- `android-ci.yml` runs root `npm ci` to build the `air-webapp` PWA bundle, then builds `android-shell`'s debug APK with Gradle (JDK 17) and uploads it as a workflow artifact.
+- Lint remains advisory in the npm-based workflows; `android-ci.yml` has no lint/test step yet (see the workflow file).
 - Local development TLS still uses `mkcert` for the air app and either `mkcert` or `tailscale cert` for the ground runtime.
 
 ## 6. Current implementation state
@@ -88,6 +89,16 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - ESP32 bridge firmware and iPhone air-side support
 - Reconnection/resilience work
 - Docker/deployment work
+
+### Planned: Phase 2.5 spikes
+
+Phase 2.5 (`android-shell`) is broken into five independently implementable spikes, sequenced from no-hardware-needed to real-flight-controller-needed. Task briefs live in `android-shell/spikes/`; see `android-shell/spikes/README.md` for the full breakdown, including which spikes require a real Android device (the USB host serial bridge cannot be validated on an emulator at all).
+
+1. WebView shell + localhost PWA host
+2. Camera/mic permission passthrough
+3. Foreground service, wake lock, autostart
+4. USB host permission + serial bridge (`NativeBridgeTransport`)
+5. End-to-end integration
 
 ## 7. Validation checklist
 
