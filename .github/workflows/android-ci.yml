@@ -1,0 +1,76 @@
+name: android CI
+
+on:
+  push:
+    paths:
+      - "android-shell/**"
+      - "apps/air-webapp/**"
+      - "packages/core-transport/**"
+      - "packages/air-client-sdk/**"
+      - "packages/ui-kit-shared/**"
+      - "protocol/**"
+      - ".github/workflows/android-ci.yml"
+  pull_request:
+    paths:
+      - "android-shell/**"
+      - "apps/air-webapp/**"
+      - "packages/core-transport/**"
+      - "packages/air-client-sdk/**"
+      - "packages/ui-kit-shared/**"
+      - "protocol/**"
+      - ".github/workflows/android-ci.yml"
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+
+    # No unit/instrumented tests exist under android-shell/app/src yet (Phase 2.5,
+    # spike 1). Add a `test`/`lint` step here once spikes add Kotlin unit tests or
+    # Android Lint is configured to fail the build rather than being advisory.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build PWA bundle (embedded by android-shell's Gradle copyWebapp task)
+        run: |
+          npm run build --workspace @dronelink/core-transport
+          npm run build --workspace @dronelink/air-client-sdk
+          npm run build --workspace @dronelink/ui-kit-shared
+          npm run build --workspace @dronelink/air-webapp
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: android-shell
+
+      # ubuntu-latest runner images ship a pre-installed Android SDK (with licenses
+      # already accepted) that covers current platform/build-tools versions; if
+      # compileSdk/targetSdk 34 ever falls outside that range, the Android Gradle
+      # Plugin will auto-download the missing SDK packages from dl.google.com.
+      - name: Build debug APK
+        working-directory: android-shell
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-shell-debug-apk
+          path: android-shell/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

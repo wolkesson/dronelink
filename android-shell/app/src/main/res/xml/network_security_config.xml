@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 9+ blocks cleartext (plain HTTP) traffic by default. The WebView
+  shell loads the PWA over http://127.0.0.1, not file://, because
+  getUserMedia/WebRTC require a secure context — Chrome treats 127.0.0.1
+  and localhost as trustworthy origins regardless of scheme. Scope the
+  cleartext exception to just those hosts rather than allowing it globally.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>
