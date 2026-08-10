@@ -6,15 +6,23 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!--
-      The service exists to keep the process alive while bridging a USB-connected
-      flight controller (Spike 4) and streaming its video out — connectedDevice is
-      the FGS type that matches that purpose across the whole component, even
-      though this spike alone doesn't open the USB device yet.
+      The service exists to keep the process alive while bridging the USB-connected
+      flight controller and streaming its video out — connectedDevice is the FGS type
+      matching that purpose.
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      required="false": USB host mode isn't universal (see spikes/README.md
+      "Emulator vs. real device"), and we don't want to block installation on
+      devices that lack it -- Spikes 1-3 still function without it.
+    -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
 
     <application
         android:allowBackup="false"
