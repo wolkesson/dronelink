@@ -11,8 +11,8 @@ android {
         applicationId = "link.dronelink.androidshell"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0-spike2"
+        versionCode = 3
+        versionName = "0.3.0-spike3"
     }
 
     buildTypes {
