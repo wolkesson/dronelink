@@ -25,7 +25,6 @@ export function mountApp(root: HTMLElement): void {
 
   let transport: WebSerialTransport | null = null;
   let videoStream: MediaStream | null = null;
-  let scanStream: MediaStream | null = null;
   let connectedAt: number | null = null;
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
   let currentActivity: LinkActivitySnapshot = {
@@ -95,6 +94,21 @@ export function mountApp(root: HTMLElement): void {
     videoPanel.setBitrate(null);
   }
 
+  function bindVideoStream(stream: MediaStream): void {
+    videoStream = stream;
+    videoPanel.videoEl.srcObject = stream;
+    videoPanel.setStreaming(true);
+
+    const [track] = stream.getVideoTracks();
+    const settings = track?.getSettings();
+    if (settings?.height) {
+      videoPanel.setResolution(`${settings.height}P`);
+    }
+    if (settings?.frameRate) {
+      videoPanel.setFps(`${Math.round(settings.frameRate)} FPS`);
+    }
+  }
+
   async function handleDeviceChange(deviceId: string): Promise<void> {
     stopVideoStream();
     videoPanel.setError("");
@@ -104,18 +118,7 @@ export function mountApp(root: HTMLElement): void {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
       });
-      videoStream = stream;
-      videoPanel.videoEl.srcObject = stream;
-      videoPanel.setStreaming(true);
-
-      const [track] = stream.getVideoTracks();
-      const settings = track?.getSettings();
-      if (settings?.height) {
-        videoPanel.setResolution(`${settings.height}P`);
-      }
-      if (settings?.frameRate) {
-        videoPanel.setFps(`${Math.round(settings.frameRate)} FPS`);
-      }
+      bindVideoStream(stream);
     } catch (err) {
       videoPanel.setError(err instanceof Error ? err.message : "Failed to open camera.");
     }
@@ -160,6 +163,10 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
+  // Scanning reuses the video-feed panel's own preview rather than opening a
+  // second camera stream: if a camera is already bound, the reticle overlays
+  // straight onto it; otherwise a stream is acquired and bound the same way a
+  // manual device-dropdown pick would be, so it doubles as the selected feed.
   function handleStartScan(): void {
     const onResult = (bundleText: string) => {
       handleCancelScan();
@@ -167,15 +174,17 @@ export function mountApp(root: HTMLElement): void {
     };
 
     if (videoStream) {
-      qrScanner.start(groundPanel.qrVideoEl, videoStream, onResult);
+      videoPanel.setScanning(true);
+      qrScanner.start(videoPanel.videoEl, videoStream, onResult);
       return;
     }
 
     void navigator.mediaDevices
       .getUserMedia({ video: { facingMode: { ideal: "environment" } } })
       .then((stream) => {
-        scanStream = stream;
-        qrScanner.start(groundPanel.qrVideoEl, stream, onResult);
+        bindVideoStream(stream);
+        videoPanel.setScanning(true);
+        qrScanner.start(videoPanel.videoEl, stream, onResult);
       })
       .catch((err: unknown) => {
         groundPanel.setError(err instanceof Error ? err.message : "Camera access denied.");
@@ -184,11 +193,7 @@ export function mountApp(root: HTMLElement): void {
 
   function handleCancelScan(): void {
     qrScanner.stop();
-    if (scanStream) {
-      scanStream.getTracks().forEach((t) => t.stop());
-      scanStream = null;
-    }
-    groundPanel.qrVideoEl.srcObject = null;
+    videoPanel.setScanning(false);
   }
 
   // --- flight controller --------------------------------------------------
