@@ -89,6 +89,16 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - Reconnection/resilience work
 - Docker/deployment work
 
+### Planned: Phase 2.5 spikes
+
+Phase 2.5 (`android-shell`) is broken into five independently implementable spikes, sequenced from no-hardware-needed to real-flight-controller-needed. Task briefs live in `android-shell/spikes/`; see `android-shell/spikes/README.md` for the full breakdown, including which spikes require a real Android device (the USB host serial bridge cannot be validated on an emulator at all).
+
+1. WebView shell + localhost PWA host
+2. Camera/mic permission passthrough
+3. Foreground service, wake lock, autostart
+4. USB host permission + serial bridge (`NativeBridgeTransport`)
+5. End-to-end integration
+
 ## 7. Validation checklist
 
 - `@dronelink/ground-core-node` starts standalone and resolves TLS material through `core-transport`.
