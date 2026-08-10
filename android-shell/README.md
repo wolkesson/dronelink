@@ -1,6 +1,6 @@
 # android-shell
 
-**Status: Phase 2.5, Spikes 1–2 complete; Spike 3 in progress.** See [`spikes/`](./spikes/) for individual task briefs; spikes 4–5 are not started (see [`spikes/README.md`](./spikes/README.md)).
+**Status: Phase 2.5, Spikes 1–3 complete; Spike 4 in progress.** See [`spikes/`](./spikes/) for individual task briefs; spike 5 is not started (see [`spikes/README.md`](./spikes/README.md)).
 
 This component begins in **Phase 2.5** of the development plan (see [`ARCHITECTURE.md`](../ARCHITECTURE.md#6-current-implementation-state)).
 
@@ -84,3 +84,20 @@ No flight controller is required for any of this yet (that's Spike 4) — steps 
 5. **Reboot autostart:** reboot the phone (`adb reboot`, or manually) and, once it's unlocked, check the notification shade *without* opening the app. Its presence confirms `BOOT_COMPLETED` fired and started the service unattended.
 6. **USB-attach autostart:** this needs an actual USB-OTG peripheral, not the debugging cable — the adb connection uses accessory/host roles differently and won't reliably fire `ACTION_USB_DEVICE_ATTACHED` the same way. Force-stop the app first (`adb shell am force-stop link.dronelink.androidshell`), then physically attach a USB-OTG device (any generic one for this spike; Spike 4 introduces the real flight controller), and confirm the notification appears without manually launching the app.
 7. **Recreate real memory pressure (optional but closer to real conditions):** open several other apps to force the OS to look for kill candidates, or use `adb shell am kill link.dronelink.androidshell` (note: this only works if the process isn't already foreground-protected, so it's a useful negative check — it should generally *not* succeed while the foreground service is running).
+
+### Testing Spike 4: USB serial bridge
+
+**Unverified dependency versions:** this spike adds `androidx.webkit:webkit:1.11.0` and `com.github.mik3y:usb-serial-for-android:3.4.3` (JitPack). Neither could be checked against the real Maven Central/JitPack registries from the sandbox that wrote this code (both `dl.google.com`-adjacent hosts were network-blocked there — see the "Building" section above). If `./gradlew` fails to resolve either dependency, check for a newer/correct version number before assuming something else is wrong.
+
+1. **Attach a USB-serial device before launching the app** — either a bench USB-to-serial adapter (FTDI/CP2102/CH340/etc.) for initial wiring checks, or the real flight controller, connected via a USB-OTG adapter/cable to the phone. This spike's controller only looks for an already-attached device when the WebView finishes loading; it doesn't retry if one shows up later (see `NativeSerialBridgeController.start()`'s doc comment).
+2. **Confirm the USB permission dialog appears** the first time a given device is attached, and grant it. Subsequent launches with the same already-permitted device should skip straight to opening it.
+3. **Watch logcat for the bridge's own tags:**
+   ```sh
+   adb logcat -s UsbSerialBridge:* NativeSerialBridge:*
+   ```
+   Look for `USB read error` / `USB permission denied` / `Failed to configure USB-serial port` messages if something's wrong, or silence (no errors) once connected.
+4. **Verify bytes actually flow**, using the existing PWA UI rather than a separate test harness: pair with a ground station (`npm start --workspace @dronelink/ground-core-node` on a PC on the same network/Tailscale), click **Connect FC** in the Android app, and confirm the flight controller panel shows a connection and non-zero TX/RX rates — then connect INAV Configurator to the ground runtime's TCP bridge port and confirm it can actually talk to the FC, the same end-to-end check used for Phase 1.
+5. **Confirm the transport selection actually took the native path**, not silently falling back to attempting `WebSerialTransport` (which would just fail, since `navigator.serial` doesn't exist in WebView): open `chrome://inspect#devices` (see the Spike 1 steps above) and check the console for `NativeBridgeTransport`-related activity, or add a temporary `console.log(navigator.userAgent)` — it should contain `DroneLinkAndroidShell`.
+6. **Disconnect/error handling:** physically unplug the USB device mid-session and confirm the FC panel reflects a disconnect (mirrors `WebSerialTransport`'s zero-length-chunk disconnect signal — see `UsbSerialBridge.Listener.onError`).
+
+**Known limitation:** the USB connection is owned by `MainActivity`, not `AirShellForegroundService` — killing/backgrounding the Activity (as opposed to the whole process) can tear down the WebView along with it. Moving USB ownership fully into the foreground service's lifecycle, so it survives independently of the Activity, is called out as a Spike 5 integration concern in the task brief rather than solved here.
