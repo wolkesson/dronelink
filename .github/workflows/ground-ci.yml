@@ -27,7 +27,7 @@ jobs:
               - ".github/workflows/ground-ci.yml"
 
   build-lint-test:
-    name: Build, lint, and test
+    name: Build, lint, and test (ground)
     needs: changes
     if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest

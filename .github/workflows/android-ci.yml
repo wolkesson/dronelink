@@ -2,27 +2,33 @@ name: android CI
 
 on:
   push:
-    paths:
-      - "android-shell/**"
-      - "apps/air-webapp/**"
-      - "packages/core-transport/**"
-      - "packages/air-client-sdk/**"
-      - "packages/ui-kit-shared/**"
-      - "protocol/**"
-      - ".github/workflows/android-ci.yml"
   pull_request:
-    paths:
-      - "android-shell/**"
-      - "apps/air-webapp/**"
-      - "packages/core-transport/**"
-      - "packages/air-client-sdk/**"
-      - "packages/ui-kit-shared/**"
-      - "protocol/**"
-      - ".github/workflows/android-ci.yml"
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - "android-shell/**"
+              - "apps/air-webapp/**"
+              - "packages/core-transport/**"
+              - "packages/air-client-sdk/**"
+              - "packages/ui-kit-shared/**"
+              - "protocol/**"
+              - ".github/workflows/android-ci.yml"
+
   build:
     name: Build debug APK
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
 
     # No unit/instrumented tests exist under android-shell/app/src yet (Phase 2.5,
