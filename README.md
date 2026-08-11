@@ -114,6 +114,33 @@ The air-side app still runs locally via `npm run dev --workspace @dronelink/air-
 
 ---
 
+## Testing on a real Android device over LAN
+
+Tailscale requires Android 8+; older devices need the LAN + mkcert path instead. This needs two extra steps beyond the desktop workflow above, because self-signed dev certificates aren't trusted automatically outside of the machine that ran `mkcert -install`:
+
+1. Start the ground runtime bound to this machine's LAN IP (not `localhost`), so the phone can reach it:
+
+   ```sh
+   SIGNAL_HOST=<lan-ip> npm start --workspace @dronelink/ground-core-node
+   ```
+
+2. Run `air-webapp` with `--host` so its dev server is reachable from other devices on the LAN:
+
+   ```sh
+   npm run dev --workspace @dronelink/air-webapp -- --host
+   ```
+
+3. Install the mkcert root CA on the phone so both origins (the `air-webapp` dev server and the ground runtime) are trusted. A browser's per-tab "proceed anyway" click-through does **not** carry over to an installed PWA or to `android-shell`'s WebView — only a full CA install does:
+
+   - On the machine that ran `mkcert -install`, find the root cert: `mkcert -CAROOT` prints the folder; the file is `rootCA.pem` inside it.
+   - Transfer `rootCA.pem` to the phone (email it to yourself, a cloud drive, or `adb push rootCA.pem /sdcard/Download/`).
+   - On the phone: **Settings → Security → Encryption & credentials → Install a certificate → CA certificate**, then select `rootCA.pem`. Android requires a screen lock (PIN/pattern) to be set before it allows installing a user CA. A "Network may be monitored" banner afterward is expected — Android flagging that a non-OS-trusted root is active, not an error.
+   - Confirm it installed under **Settings → Security → Trusted credentials → User**.
+
+Once installed, the same CA is trusted by Chrome tabs, installed PWAs, and `android-shell`'s WebView alike, so no further per-visit click-through is needed.
+
+---
+
 ## What not to build yet
 
 | Component / Feature | Deferred to |
