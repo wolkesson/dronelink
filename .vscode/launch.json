@@ -20,7 +20,7 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Ground: Debug",
+            "name": "Ground: Debug (Tailscale)",
             "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
             "program": "${workspaceFolder}/apps/ground-core-node/src/index.ts",
             "console": "integratedTerminal",
@@ -28,6 +28,22 @@
             "env": {
                 "SIGNAL_HOST": "desktop-cradle.tail70570b.ts.net",
                 "TLS_PROVIDER": "tailscale"
+            },
+            "cwd": "${workspaceFolder}/apps/ground-core-node",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Ground: Debug (Local)",
+            "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
+            "program": "${workspaceFolder}/apps/ground-core-node/src/index.ts",
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "env": {
+                "SIGNAL_HOST": "192.168.0.150",
             },
             "cwd": "${workspaceFolder}/apps/ground-core-node",
             "skipFiles": [
