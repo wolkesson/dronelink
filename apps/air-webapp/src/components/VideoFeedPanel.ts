@@ -20,6 +20,7 @@ export interface VideoFeedPanelHandle {
   setFps(text: string | null): void;
   setBitrate(text: string | null): void;
   setError(message: string): void;
+  setScanning(scanning: boolean): void;
 }
 
 const NO_VIDEO_VALUE = "";
@@ -33,6 +34,7 @@ const NO_VIDEO_VALUE = "";
 export function createVideoFeedPanel(options: VideoFeedPanelOptions): VideoFeedPanelHandle {
   let mode: VideoFeedMode = "select";
   let streaming = false;
+  let scanning = false;
 
   const panel = createPanel({
     number: "01",
@@ -85,7 +87,23 @@ export function createVideoFeedPanel(options: VideoFeedPanelOptions): VideoFeedP
   rightTags.append(bitrateTag);
 
   tags.append(leftTags, rightTags);
-  videoWrap.append(videoEl, placeholder, livePill, tags);
+
+  const qrReticle = document.createElement("div");
+  qrReticle.className = "dl-video__qr-reticle";
+  qrReticle.hidden = true;
+  qrReticle.innerHTML = `
+    <span class="dl-video__qr-corner dl-video__qr-corner--tl"></span>
+    <span class="dl-video__qr-corner dl-video__qr-corner--tr"></span>
+    <span class="dl-video__qr-corner dl-video__qr-corner--bl"></span>
+    <span class="dl-video__qr-corner dl-video__qr-corner--br"></span>
+  `;
+
+  const qrHint = document.createElement("p");
+  qrHint.className = "dl-video__qr-hint";
+  qrHint.hidden = true;
+  qrHint.textContent = "Point camera at ground station QR code";
+
+  videoWrap.append(videoEl, placeholder, livePill, tags, qrReticle, qrHint);
 
   // --- select mode ---
 
@@ -117,13 +135,16 @@ export function createVideoFeedPanel(options: VideoFeedPanelOptions): VideoFeedP
     helper.hidden = showView;
     placeholder.hidden = !showView || streaming;
     videoEl.hidden = !showView || !streaming;
-    livePill.hidden = !showView || !streaming;
-    tags.hidden = !showView || !streaming;
+    livePill.hidden = !showView || !streaming || scanning;
+    tags.hidden = !showView || !streaming || scanning;
+    qrReticle.hidden = !showView || !scanning;
+    qrHint.hidden = !showView || !scanning;
     panel.setTitle(showView ? "VIDEO FEED STATUS" : "VIDEO SOURCE");
     panel.setToggleActive(!showView);
   }
 
   function setMode(next: VideoFeedMode) {
+    if (scanning) return;
     mode = next;
     render();
   }
@@ -168,6 +189,13 @@ export function createVideoFeedPanel(options: VideoFeedPanelOptions): VideoFeedP
     setError(message: string) {
       errorEl.hidden = message.length === 0;
       errorEl.textContent = message;
+    },
+    setScanning(next: boolean) {
+      scanning = next;
+      if (next) {
+        mode = "view";
+      }
+      render();
     },
   };
 }
