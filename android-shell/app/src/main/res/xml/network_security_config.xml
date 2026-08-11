@@ -5,8 +5,24 @@
   getUserMedia/WebRTC require a secure context — Chrome treats 127.0.0.1
   and localhost as trustworthy origins regardless of scheme. Scope the
   cleartext exception to just those hosts rather than allowing it globally.
+
+  The ground station's host (SIGNAL_HOST — a LAN IP or Tailscale hostname
+  chosen at deploy time, see README "Running over Tailscale") is served
+  over TLS with an mkcert or Tailscale-issued cert. WebView, unlike Chrome
+  itself, trusts only system CAs by default on API 24+, so a WebViewClient
+  with no override rejects mkcert's user-installed root CA even after it's
+  been added in Settings. Since the ground host isn't fixed, this opts the
+  whole app into the OS-wide user CA trust store (matching what a normal
+  browser tab already does) rather than trying to enumerate every possible
+  ground host as its own domain-config.
 -->
 <network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
