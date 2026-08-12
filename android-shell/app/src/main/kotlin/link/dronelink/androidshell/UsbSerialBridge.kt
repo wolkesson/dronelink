@@ -70,18 +70,57 @@ class UsbSerialBridge(private val context: Context) {
      * (an STM32's built-in USB peripheral, for instance) present as a generic CDC-ACM
      * virtual COM port under a custom VID/PID that's very unlikely to be in that table,
      * so the table lookup alone silently finds nothing for exactly the device this
-     * bridge cares most about. Fall back to forcing CdcAcmSerialDriver for any attached
-     * device whose interface descriptors look like CDC-ACM (a COMM-class interface),
-     * regardless of VID/PID — the driver classes themselves don't care about VID/PID,
-     * only the ProbeTable-based lookup does.
+     * bridge cares most about. Falls back to:
+     *   1. Forcing CdcAcmSerialDriver for any attached device whose interface
+     *      descriptors look like CDC-ACM (a COMM-class interface), regardless of
+     *      VID/PID — the driver classes themselves don't care about VID/PID, only the
+     *      ProbeTable-based lookup does.
+     *   2. KNOWN_SERIAL_DEVICES below, for devices that don't expose a standard
+     *      COMM-class interface either (e.g. a vendor-specific class).
+     * If neither finds anything, logs every attached device's vendorId/productId and
+     * interface classes so a KNOWN_SERIAL_DEVICES entry can be added for it.
      */
     private fun findDriver(): UsbSerialDriver? {
         UsbSerialProber.getDefaultProber().findAllDrivers(usbManager).firstOrNull()?.let { return it }
-        return usbManager.deviceList.values.firstOrNull(::looksLikeCdcAcm)?.let { CdcAcmSerialDriver(it) }
+
+        val devices = usbManager.deviceList.values
+        devices.firstOrNull(::looksLikeCdcAcm)?.let { return CdcAcmSerialDriver(it) }
+        devices.firstOrNull { (it.vendorId to it.productId) in KNOWN_SERIAL_DEVICES }?.let { return CdcAcmSerialDriver(it) }
+
+        logUnrecognizedDevices(devices)
+        return null
     }
 
     private fun looksLikeCdcAcm(device: UsbDevice): Boolean =
         (0 until device.interfaceCount).any { device.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_COMM }
+
+    private fun logUnrecognizedDevices(devices: Collection<UsbDevice>) {
+        if (devices.isEmpty()) {
+            Log.w(TAG, "No USB devices attached at all.")
+            return
+        }
+        Log.w(TAG, "No recognized USB-serial device among ${devices.size} attached device(s):")
+        for (device in devices) {
+            val interfaces = (0 until device.interfaceCount).joinToString { i ->
+                val iface = device.getInterface(i)
+                "class=0x%02x sub=0x%02x proto=0x%02x".format(
+                    iface.interfaceClass,
+                    iface.interfaceSubclass,
+                    iface.interfaceProtocol,
+                )
+            }
+            Log.w(
+                TAG,
+                "  vendorId=0x%04x productId=0x%04x name=%s interfaces=[%s]".format(
+                    device.vendorId,
+                    device.productId,
+                    device.deviceName,
+                    interfaces,
+                ),
+            )
+        }
+        Log.w(TAG, "If one of these is really a serial device, add its (vendorId, productId) to KNOWN_SERIAL_DEVICES.")
+    }
 
     /**
      * Queues bytes for write via SerialInputOutputManager's own internal write queue —
@@ -198,5 +237,19 @@ class UsbSerialBridge(private val context: Context) {
 
         /** Matches INAV's default MSP configuration, same as WebSerialTransport.SERIAL_BAUD_RATE. */
         const val SERIAL_BAUD_RATE = 115200
+
+        /**
+         * (vendorId, productId) pairs to force-treat as CdcAcmSerialDriver when neither
+         * usb-serial-for-android's built-in whitelist nor the COMM-class interface
+         * heuristic in looksLikeCdcAcm() recognizes the device — e.g. a flight
+         * controller that exposes its serial port under a vendor-specific interface
+         * class instead of a standard CDC-ACM one.
+         *
+         * Find the values to add here from a "No recognized USB-serial device..."
+         * logcat line (see findDriver()/logUnrecognizedDevices()), which prints every
+         * attached device's vendorId/productId and interface classes. Example:
+         *   0x0483 to 0x5740, // STMicroelectronics Virtual COM Port
+         */
+        private val KNOWN_SERIAL_DEVICES: Set<Pair<Int, Int>> = setOf()
     }
 }
