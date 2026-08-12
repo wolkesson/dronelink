@@ -33,6 +33,9 @@ import java.util.concurrent.Executors
 class UsbSerialBridge(private val context: Context) {
 
     interface Listener {
+        /** Fired once the port is open and configured, before any data has necessarily arrived. */
+        fun onConnected()
+
         fun onData(data: ByteArray)
 
         /** Fired for any USB-side failure, including physical disconnection. */
@@ -253,6 +256,7 @@ class UsbSerialBridge(private val context: Context) {
         manager.setReadTimeout(SERIAL_READ_TIMEOUT_MS)
         ioManager = manager
         ioExecutor.execute(manager)
+        listener.onConnected()
     }
 
     private fun requestPermission(device: UsbDevice, onResult: (Boolean) -> Unit) {

@@ -1,9 +1,14 @@
 package link.dronelink.androidshell
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.hardware.usb.UsbManager
 import android.net.Uri
 import android.util.Log
 import android.webkit.WebView
+import androidx.core.content.ContextCompat
 import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebMessagePortCompat
 import androidx.webkit.WebViewCompat
@@ -25,14 +30,18 @@ class NativeSerialBridgeController(
 ) {
     private val usbBridge = UsbSerialBridge(context)
     private var nativePort: WebMessagePortCompat? = null
+    private var connected = false
+    private var connecting = false
+    private var reattachReceiver: BroadcastReceiver? = null
 
     /**
      * Attempts to find and open an already-attached USB-serial device and hand a
-     * MessagePort to the page. Does not retry if no device is attached yet — the
-     * expected flow is BootUsbReceiver/AirShellForegroundService keeping the device
-     * connected before the WebView (and this controller) starts. See spikes/
-     * spike-4-usb-serial-bridge.md "Depends on" for why this is in MainActivity, not
-     * the foreground service, for now.
+     * MessagePort to the page, then keeps watching for a live USB reattach (FC unplugged
+     * and replugged, or first attached after this controller already started) so a later
+     * "Connect FC" retry isn't stuck waiting on a port that will never arrive -- both the
+     * WebMessageChannel port and NativeBridgeTransport's pendingNativePort buffer on the
+     * JS side are otherwise consumed after the first connect (confirmed hanging on real
+     * hardware while validating Phase 2.5 spike 5).
      */
     fun start() {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.CREATE_WEB_MESSAGE_CHANNEL) ||
@@ -43,6 +52,35 @@ class NativeSerialBridgeController(
             return
         }
 
+        attemptConnect()
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context, intent: Intent) {
+                if (intent.action != UsbManager.ACTION_USB_DEVICE_ATTACHED || connected || connecting) return
+                Log.i(TAG, "USB device (re)attached, attempting reconnect.")
+                attemptConnect()
+            }
+        }
+        reattachReceiver = receiver
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    /**
+     * Creates a fresh WebMessageChannel and posts its page-side port, mirroring the "may
+     * push the MessagePort before Connect FC is ever clicked" eager behavior app.ts
+     * expects (see its window "message" listener) -- both for the very first connect and
+     * for every later reattach. The previous channel's ports (if any) are simply
+     * abandoned; MessageChannel/MessagePort has no explicit close-and-replace API, and
+     * the old page-side port is already unusable once its NativeBridgeTransport instance
+     * disconnected.
+     */
+    private fun attemptConnect() {
+        connecting = true
         val channel = WebViewCompat.createWebMessageChannel(webView)
         val pageSidePort = channel[0]
         val nativeSidePort = channel[1]
@@ -61,6 +99,11 @@ class NativeSerialBridgeController(
 
         usbBridge.connect(
             object : UsbSerialBridge.Listener {
+                override fun onConnected() {
+                    connecting = false
+                    connected = true
+                }
+
                 override fun onData(data: ByteArray) {
                     Log.d(TAG, "-> WebView ${data.size}B")
                     nativePort?.postMessage(WebMessageCompat(data))
@@ -68,10 +111,16 @@ class NativeSerialBridgeController(
 
                 override fun onError(message: String) {
                     Log.e(TAG, "USB serial bridge error: $message")
+                    connecting = false
+                    connected = false
                     // Mirrors WebSerialTransport's disconnect signal: a zero-length chunk
                     // dispatched to subscribers, so higher layers don't need a separate
                     // native-only error channel to detect this.
                     nativePort?.postMessage(WebMessageCompat(ByteArray(0)))
+                    // Fully tears down the dead port/ioManager so a future reattach's
+                    // attemptConnect() -> usbBridge.connect() starts clean rather than
+                    // layering a new connection on top of stale state.
+                    usbBridge.disconnect()
                 }
             },
         )
@@ -84,8 +133,12 @@ class NativeSerialBridgeController(
     }
 
     fun stop() {
+        reattachReceiver?.let { context.unregisterReceiver(it) }
+        reattachReceiver = null
         usbBridge.disconnect()
         nativePort = null
+        connected = false
+        connecting = false
     }
 
     companion object {

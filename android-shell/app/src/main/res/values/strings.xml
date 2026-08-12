@@ -4,4 +4,7 @@
     <string name="foreground_service_channel_name">DroneLink air shell</string>
     <string name="foreground_service_notification_title">DroneLink air shell running</string>
     <string name="foreground_service_notification_text">Keeping the link alive in the background.</string>
+    <string name="foreground_service_launch_channel_name">DroneLink autostart</string>
+    <string name="foreground_service_launch_notification_title">DroneLink Air Shell needs to be opened</string>
+    <string name="foreground_service_launch_notification_text">Tap to resume the FC and camera link after an unattended start.</string>
 </resources>
