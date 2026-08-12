@@ -14,6 +14,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      Lets AirShellForegroundService's full-screen intent actually launch MainActivity
+      unattended after BOOT_COMPLETED (see AirShellForegroundService.startForegroundWithNotification).
+      Auto-granted below API 34; on API 34+ this is restricted to alarm/calling-style
+      apps by default and may need the user to enable "Full screen notifications" for
+      this app under Settings — a real-device check for spike 5, not something a manifest
+      declaration alone guarantees.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!--
       required="false": USB host mode isn't universal (see spikes/README.md
@@ -38,6 +47,24 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+              Lets attaching a matching USB device (see xml/device_filter) launch
+              MainActivity directly even while the app isn't running — this is a
+              system-level exemption from the usual background-activity-start
+              restrictions, distinct from (and in addition to) BootUsbReceiver's
+              plain broadcast handling of the same action, which only starts the
+              foreground service and can't itself start an Activity from the
+              background. Covers "USB attached while the phone is already
+              unlocked/running"; BOOT_COMPLETED-with-USB-already-attached (no live
+              attach event) is covered instead by the foreground service's
+              full-screen intent.
+            -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
         </activity>
 
         <service

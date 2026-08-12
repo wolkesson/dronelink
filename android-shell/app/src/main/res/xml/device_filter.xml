@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Matches any USB device exposing a CDC-ACM (Communications-class) interface — the
+  same broad heuristic UsbSerialBridge.looksLikeCdcAcm() uses to recognize flight
+  controllers whose custom VID/PID isn't in usb-serial-for-android's built-in
+  whitelist (see UsbSerialBridge.kt). This only controls whether attaching the
+  device auto-launches MainActivity; a device that instead matches via
+  KNOWN_SERIAL_DEVICES or the prober's own VID/PID whitelist (e.g. a bench
+  FTDI/CH340 adapter used for spike-4 bring-up) won't trigger this launch path but
+  remains fully usable once the app is opened manually.
+-->
+<resources>
+    <usb-interface class="2" />
+</resources>
