@@ -91,6 +91,12 @@ class UsbSerialBridge(private val context: Context) {
         return null
     }
 
+    /** First 16 bytes as hex, for spotting whether traffic looks like a real MSP frame (e.g. "24 4d 3c ..." / "$M<") vs garbage. */
+    private fun ByteArray.toHexPreview(maxBytes: Int = 16): String {
+        val hex = take(maxBytes).joinToString(" ") { "%02x".format(it) }
+        return if (size > maxBytes) "$hex …" else hex
+    }
+
     private fun looksLikeCdcAcm(device: UsbDevice): Boolean =
         (0 until device.interfaceCount).any { device.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_COMM }
 
@@ -134,6 +140,7 @@ class UsbSerialBridge(private val context: Context) {
             Log.w(TAG, "write() called with no open USB port; dropping ${data.size} byte(s).")
             return
         }
+        Log.d(TAG, "-> USB ${data.size}B: ${data.toHexPreview()}")
         manager.writeAsync(data)
     }
 
@@ -211,11 +218,16 @@ class UsbSerialBridge(private val context: Context) {
             return
         }
 
+        Log.i(TAG, "USB-serial port open: ${driver.javaClass.simpleName} on ${driver.device.deviceName}")
+
         port = serialPort
         val manager = SerialInputOutputManager(
             serialPort,
             object : SerialInputOutputManager.Listener {
-                override fun onNewData(data: ByteArray) = listener.onData(data)
+                override fun onNewData(data: ByteArray) {
+                    Log.d(TAG, "<- USB ${data.size}B: ${data.toHexPreview()}")
+                    listener.onData(data)
+                }
 
                 override fun onRunError(e: Exception) {
                     listener.onError("USB read error: ${e.message}")

@@ -50,7 +50,11 @@ class NativeSerialBridgeController(
 
         nativeSidePort.setWebMessageCallback(object : WebMessagePortCompat.WebMessageCallbackCompat() {
             override fun onMessage(port: WebMessagePortCompat, message: WebMessageCompat?) {
-                if (message?.type != WebMessageCompat.TYPE_ARRAY_BUFFER) return
+                if (message?.type != WebMessageCompat.TYPE_ARRAY_BUFFER) {
+                    Log.w(TAG, "Ignoring non-ArrayBuffer WebMessage from page (type=${message?.type})")
+                    return
+                }
+                Log.d(TAG, "<- WebView ${message.arrayBuffer.size}B")
                 usbBridge.write(message.arrayBuffer)
             }
         })
@@ -58,6 +62,7 @@ class NativeSerialBridgeController(
         usbBridge.connect(
             object : UsbSerialBridge.Listener {
                 override fun onData(data: ByteArray) {
+                    Log.d(TAG, "-> WebView ${data.size}B")
                     nativePort?.postMessage(WebMessageCompat(data))
                 }
 
