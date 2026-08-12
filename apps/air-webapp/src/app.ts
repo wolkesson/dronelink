@@ -236,11 +236,6 @@ export function mountApp(root: HTMLElement): void {
 
   function handleConnectFc(): void {
     if (transport) return;
-
-    if (sessionManager.state !== "CONNECTED") {
-      fcPanel.setError("Connect to the ground station before pairing a flight controller.");
-      return;
-    }
     fcPanel.setError("");
 
     // On desktop, open() must be called synchronously here — WebSerialTransport's
@@ -273,6 +268,12 @@ export function mountApp(root: HTMLElement): void {
             handleFcDisconnect();
             return;
           }
+          // The FC can now be connected before the ground station is paired, so bytes
+          // may arrive with no data channel to relay them over yet -- sendBytes() throws
+          // in that case. Drop them rather than crash the serial read loop; there's
+          // nothing meaningful to buffer towards (MSP telemetry is a live stream, not a
+          // queue), so relaying resumes cleanly once the ground link comes up.
+          if (sessionManager.state !== "CONNECTED") return;
           activityTracker.recordTransmit(bytes.length);
           sessionManager.sendBytes(bytes);
         });
