@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -19,6 +20,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webAppServer: LocalWebAppServer
     private var serialBridgeController: NativeSerialBridgeController? = null
+
+    // Nullable (not lateinit) so onDestroy() can safely no-op if onCreate() returned
+    // early (e.g. webAppServer failed to start) before this was ever assigned.
+    private var webView: WebView? = null
+
     private val permissionBridge = WebPermissionBridge(this)
 
     // The foreground service functions either way; this only affects whether
@@ -47,6 +53,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val webView = WebView(this).also { setContentView(it) }
+        this.webView = webView
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         // Lets apps/air-webapp's platform.ts pick NativeBridgeTransport over
@@ -84,6 +91,19 @@ class MainActivity : AppCompatActivity() {
         serialBridgeController?.stop()
         serialBridgeController = null
         webAppServer.stop()
+
+        // AirShellForegroundService deliberately keeps the process alive independent
+        // of this Activity, so — unlike a normal app, where process death implicitly
+        // frees everything — a WebView left undestroyed here can leak native resources
+        // (notably an open camera from getUserMedia) across an Activity restart within
+        // that same still-running process, breaking getUserMedia the next time this
+        // Activity is created.
+        webView?.let { view ->
+            (view.parent as? ViewGroup)?.removeView(view)
+            view.destroy()
+        }
+        webView = null
+
         super.onDestroy()
     }
 
