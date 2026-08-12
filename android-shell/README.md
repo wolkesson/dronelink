@@ -87,10 +87,10 @@ No flight controller is required for any of this yet (that's Spike 4) — steps 
 
 ### Testing Spike 4: USB serial bridge
 
-**Unverified dependency versions:** this spike adds `androidx.webkit:webkit:1.11.0` and `com.github.mik3y:usb-serial-for-android:3.4.3` (JitPack). Neither could be checked against the real Maven Central/JitPack registries from the sandbox that wrote this code (both `dl.google.com`-adjacent hosts were network-blocked there — see the "Building" section above). If `./gradlew` fails to resolve either dependency, check for a newer/correct version number before assuming something else is wrong.
+This spike adds `androidx.webkit:webkit:1.11.0` and `com.github.mik3y:usb-serial-for-android:3.4.3` (JitPack) — both resolve and build cleanly in CI.
 
 1. **Attach a USB-serial device before launching the app** — either a bench USB-to-serial adapter (FTDI/CP2102/CH340/etc.) for initial wiring checks, or the real flight controller, connected via a USB-OTG adapter/cable to the phone. This spike's controller only looks for an already-attached device when the WebView finishes loading; it doesn't retry if one shows up later (see `NativeSerialBridgeController.start()`'s doc comment).
-2. **Confirm the USB permission dialog appears** the first time a given device is attached, and grant it. Subsequent launches with the same already-permitted device should skip straight to opening it.
+2. **Confirm the USB permission dialog appears** the first time a given device is attached, and grant it. Subsequent launches with the same already-permitted device should skip straight to opening it. **If no dialog appears at all**, the device most likely isn't in `usb-serial-for-android`'s hardcoded VID/PID whitelist — `UsbSerialBridge.findDriver()` falls back to forcing a CDC-ACM driver for any attached device whose interface descriptors look like CDC-ACM (which covers most flight controllers, since their MCU's USB peripheral typically presents a generic CDC-ACM virtual COM port under a custom VID/PID the whitelist doesn't know about), so this should be rare — but if it still doesn't show a dialog, check the logcat tags in the next step for "No recognized USB-serial device attached."
 3. **Watch logcat for the bridge's own tags:**
    ```sh
    adb logcat -s UsbSerialBridge:* NativeSerialBridge:*

@@ -5,10 +5,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.hoho.android.usbserial.driver.CdcAcmSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
@@ -45,7 +47,7 @@ class UsbSerialBridge(private val context: Context) {
 
     /** Finds the first recognized USB-serial device, requests permission if needed, and opens it. */
     fun connect(listener: Listener) {
-        val driver = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager).firstOrNull()
+        val driver = findDriver()
         if (driver == null) {
             listener.onError("No recognized USB-serial device attached.")
             return
@@ -60,6 +62,26 @@ class UsbSerialBridge(private val context: Context) {
             }
         }
     }
+
+    /**
+     * UsbSerialProber.getDefaultProber() only matches a hardcoded VID/PID whitelist
+     * (FTDI, CP210x, PL2303, CH34x, and a handful of specific CDC-ACM boards) — it does
+     * NOT recognize arbitrary CDC-ACM devices by USB class. Most flight controllers
+     * (an STM32's built-in USB peripheral, for instance) present as a generic CDC-ACM
+     * virtual COM port under a custom VID/PID that's very unlikely to be in that table,
+     * so the table lookup alone silently finds nothing for exactly the device this
+     * bridge cares most about. Fall back to forcing CdcAcmSerialDriver for any attached
+     * device whose interface descriptors look like CDC-ACM (a COMM-class interface),
+     * regardless of VID/PID — the driver classes themselves don't care about VID/PID,
+     * only the ProbeTable-based lookup does.
+     */
+    private fun findDriver(): UsbSerialDriver? {
+        UsbSerialProber.getDefaultProber().findAllDrivers(usbManager).firstOrNull()?.let { return it }
+        return usbManager.deviceList.values.firstOrNull(::looksLikeCdcAcm)?.let { CdcAcmSerialDriver(it) }
+    }
+
+    private fun looksLikeCdcAcm(device: UsbDevice): Boolean =
+        (0 until device.interfaceCount).any { device.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_COMM }
 
     /**
      * Queues bytes for write via SerialInputOutputManager's own internal write queue —
