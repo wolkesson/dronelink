@@ -241,6 +241,16 @@ class UsbSerialBridge(private val context: Context) {
                 }
             },
         )
+        // SerialInputOutputManager's step() loop does one blocking read, then flushes
+        // the writeAsync() queue, on a single thread -- with the default readTimeout=0
+        // (infinite), a read blocks forever whenever the other side hasn't sent
+        // anything yet, so a write queued via write() never actually reaches the wire
+        // until a read happens to return first. The library's own docs call this out:
+        // "when using writeAsync, it is recommended to use readTimeout != 0, else the
+        // write will be delayed until read data is available." Must be set before
+        // ioExecutor.execute(manager) below -- SerialInputOutputManager throws if
+        // changed after it starts running.
+        manager.setReadTimeout(SERIAL_READ_TIMEOUT_MS)
         ioManager = manager
         ioExecutor.execute(manager)
     }
@@ -284,6 +294,13 @@ class UsbSerialBridge(private val context: Context) {
 
         /** Matches INAV's default MSP configuration, same as WebSerialTransport.SERIAL_BAUD_RATE. */
         const val SERIAL_BAUD_RATE = 115200
+
+        /**
+         * Short enough that a queued write is never stuck behind a blocking read for
+         * long (see the comment at setReadTimeout() above), long enough to avoid
+         * busy-looping the read call when the FC is idle.
+         */
+        private const val SERIAL_READ_TIMEOUT_MS = 500
 
         /**
          * (vendorId, productId) pairs to force-treat as CdcAcmSerialDriver when neither
