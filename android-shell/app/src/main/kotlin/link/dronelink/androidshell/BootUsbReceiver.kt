@@ -16,7 +16,7 @@ class BootUsbReceiver : BroadcastReceiver() {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED, UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
                 Log.i(TAG, "Received ${intent.action}, starting AirShellForegroundService")
-                AirShellForegroundService.start(context)
+                AirShellForegroundService.startUnattended(context)
             }
         }
     }
