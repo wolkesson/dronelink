@@ -89,6 +89,19 @@ No flight controller is required for any of this yet (that's Spike 4) — steps 
 
 This spike adds `androidx.webkit:webkit:1.11.0` and `com.github.mik3y:usb-serial-for-android:3.4.3` (JitPack) — both resolve and build cleanly in CI.
 
+**Set up wireless adb first if your phone has only one USB port** (most do): steps 3 and 5 below both need `adb` (logcat, `chrome://inspect`), but that same port is where the FC or bench adapter has to plug in via USB-OTG — you can't have both a USB debugging cable and a USB-OTG device in one port at once. Switch to wireless adb *before* attaching the serial device:
+
+```sh
+# 1. With the phone connected via USB and no FC/adapter attached yet:
+adb tcpip 5555
+# 2. Find the phone's IP address (Settings -> About phone -> Status, or:)
+adb shell ip addr show wlan0
+# 3. Disconnect the USB cable, then connect over WiFi (phone and PC must be on the same network):
+adb connect <phone-ip>:5555
+```
+
+This works on any Android version (it's not the same thing as the "Wireless debugging" toggle under Developer options on Android 11+, which is a separate, newer pairing flow you can use instead if your device has it). Once `adb devices` shows the phone over WiFi, disconnect the cable and attach the FC/adapter to the now-free port — `adb logcat` and `chrome://inspect` both keep working exactly as before.
+
 1. **Attach a USB-serial device before launching the app** — either a bench USB-to-serial adapter (FTDI/CP2102/CH340/etc.) for initial wiring checks, or the real flight controller, connected via a USB-OTG adapter/cable to the phone. This spike's controller only looks for an already-attached device when the WebView finishes loading; it doesn't retry if one shows up later (see `NativeSerialBridgeController.start()`'s doc comment).
 2. **Confirm the USB permission dialog appears** the first time a given device is attached, and grant it. Subsequent launches with the same already-permitted device should skip straight to opening it. **If no dialog appears at all**, the device most likely isn't in `usb-serial-for-android`'s hardcoded VID/PID whitelist — `UsbSerialBridge.findDriver()` falls back to forcing a CDC-ACM driver for any attached device whose interface descriptors look like CDC-ACM (which covers most flight controllers, since their MCU's USB peripheral typically presents a generic CDC-ACM virtual COM port under a custom VID/PID the whitelist doesn't know about), so this should be rare — but if it still doesn't show a dialog, check the logcat tags in the next step for "No recognized USB-serial device attached."
 3. **Watch logcat for the bridge's own tags:**
