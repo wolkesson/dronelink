@@ -22,6 +22,18 @@ function getMkcertHosts(tlsTarget: string): string[] {
   return Array.from(hosts);
 }
 
+// Tracks which provider+target pairing-cert.pem/pairing-key.pem were last issued for, so
+// switching between mkcert and Tailscale (which write the same file paths) is detected as a
+// change even when the target string alone is unchanged — otherwise the stale certificate from
+// the previous provider would keep being served indefinitely.
+function readMarker(markerPath: string): string {
+  return existsSync(markerPath) ? readFileSync(markerPath, "utf8").trim() : "";
+}
+
+function writeMarker(markerPath: string, marker: string): void {
+  writeFileSync(markerPath, `${marker}\n`, "utf8");
+}
+
 export function ensureTlsMaterial(stateDir: string, tlsTarget: string): TlsMaterial {
   mkdirSync(stateDir, { recursive: true });
 
@@ -29,10 +41,10 @@ export function ensureTlsMaterial(stateDir: string, tlsTarget: string): TlsMater
   const certPath = join(stateDir, "pairing-cert.pem");
   const tlsTargetPath = join(stateDir, "pairing-cert-target.txt");
   const normalizedTlsTarget = normalizeTlsTarget(tlsTarget);
+  const marker = `mkcert:${normalizedTlsTarget}`;
 
-  const previousTlsTarget = existsSync(tlsTargetPath) ? readFileSync(tlsTargetPath, "utf8").trim() : "";
-  const shouldIssueCert =
-    !existsSync(keyPath) || !existsSync(certPath) || previousTlsTarget !== normalizedTlsTarget;
+  const previousMarker = readMarker(tlsTargetPath);
+  const shouldIssueCert = !existsSync(keyPath) || !existsSync(certPath) || previousMarker !== marker;
 
   if (shouldIssueCert) {
     const result = spawnSync(
@@ -55,7 +67,7 @@ export function ensureTlsMaterial(stateDir: string, tlsTarget: string): TlsMater
       throw new Error(`Failed to generate TLS certificate with mkcert: ${details}`);
     }
 
-    writeFileSync(tlsTargetPath, `${normalizedTlsTarget}\n`, "utf8");
+    writeMarker(tlsTargetPath, marker);
   }
 
   const cert = readFileSync(certPath, "utf8");
@@ -95,6 +107,7 @@ export function ensureTailscaleTlsMaterial(stateDir: string, tlsTarget: string):
 
   const keyPath = join(stateDir, "pairing-key.pem");
   const certPath = join(stateDir, "pairing-cert.pem");
+  const tlsTargetPath = join(stateDir, "pairing-cert-target.txt");
 
   // `tailscale cert <domain>` writes <domain>.crt and <domain>.key into the current working
   // directory. Run it with cwd set to stateDir, then copy the result to the fixed
@@ -133,6 +146,7 @@ export function ensureTailscaleTlsMaterial(stateDir: string, tlsTarget: string):
 
   writeFileSync(certPath, readFileSync(issuedCertPath, "utf8"), "utf8");
   writeFileSync(keyPath, readFileSync(issuedKeyPath, "utf8"), "utf8");
+  writeMarker(tlsTargetPath, `tailscale:${normalizedTlsTarget}`);
 
   const cert = readFileSync(certPath, "utf8");
   const key = readFileSync(keyPath, "utf8");
