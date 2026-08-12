@@ -67,6 +67,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   const token = generateToken();
 
   setStateDir(stateDir);
+  console.log(`Signaling server state directory: ${stateDir}`);
 
   const tlsMaterial =
     tlsProvider === "tailscale"
