@@ -3,6 +3,7 @@ package link.dronelink.androidshell
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -74,11 +75,28 @@ class AirShellForegroundService : Service() {
     }
 
     private fun startForegroundWithNotification() {
+        // Reaches MainActivity (WebView + USB bridge + camera passthrough) after
+        // BOOT_COMPLETED with the FC already attached, where no live
+        // USB_DEVICE_ATTACHED event fires to trigger MainActivity's own
+        // device_filter-based auto-launch (see AndroidManifest.xml) -- a plain
+        // BroadcastReceiver like BootUsbReceiver can't start an Activity from the
+        // background on its own. setFullScreenIntent() is the standard exemption for
+        // this (same mechanism alarm/incoming-call apps use); setContentIntent() also
+        // makes a manual notification tap open the app, which fullScreenIntent alone
+        // doesn't guarantee on every OEM/launcher.
+        val launchIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.foreground_service_notification_title))
             .setContentText(getString(R.string.foreground_service_notification_text))
             .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
+            .setContentIntent(launchIntent)
+            .setFullScreenIntent(launchIntent, true)
             .build()
 
         // Same isolate-and-gate reasoning as createNotificationChannel(): the 3-arg
