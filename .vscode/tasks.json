@@ -31,6 +31,61 @@
         "cwd": "${workspaceFolder}"
       },
       "isBackground": true
+    },
+    {
+      "label": "android-shell: build PWA",
+      "type": "shell",
+      "command": "npm run build --workspace @dronelink/air-webapp",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "android-shell: check device",
+      "type": "shell",
+      "command": "adb devices",
+      "options": {
+        "cwd": "${workspaceFolder}/android-shell"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "android-shell: installDebug",
+      "type": "shell",
+      "command": "./gradlew installDebug",
+      "windows": {
+        "command": ".\\gradlew.bat installDebug"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/android-shell"
+      },
+      "dependsOn": "android-shell: build PWA",
+      "problemMatcher": []
+    },
+    {
+      "label": "android-shell: launch app",
+      "type": "shell",
+      "command": "adb shell am start -n link.dronelink.androidshell/.MainActivity",
+      "options": {
+        "cwd": "${workspaceFolder}/android-shell"
+      },
+      "dependsOn": "android-shell: installDebug",
+      "problemMatcher": []
+    },
+    {
+      "label": "android-shell: install & launch",
+      "dependsOn": "android-shell: launch app",
+      "problemMatcher": []
+    },
+    {
+      "label": "android-shell: uninstall",
+      "type": "shell",
+      "command": "adb uninstall link.dronelink.androidshell",
+      "options": {
+        "cwd": "${workspaceFolder}/android-shell"
+      },
+      "problemMatcher": []
     }
   ]
 }
