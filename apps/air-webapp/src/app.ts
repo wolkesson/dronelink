@@ -1,11 +1,15 @@
 import {
+  NATIVE_BRIDGE_PORT_MESSAGE,
+  NativeBridgeTransport,
   PairingSession,
   QrPairingScanner,
   SERIAL_BAUD_RATE,
   WebRtcSessionManager,
   WebSerialTransport,
+  type SerialTransport,
 } from "@dronelink/air-client-sdk";
 import { LinkActivityTracker, type LinkActivitySnapshot } from "@dronelink/ui-kit-shared";
+import { isAndroidShell } from "./platform.js";
 import { createAppHeader } from "./components/AppHeader.js";
 import { createVideoFeedPanel } from "./components/VideoFeedPanel.js";
 import { createFlightControllerPanel } from "./components/FlightControllerPanel.js";
@@ -23,7 +27,7 @@ export function mountApp(root: HTMLElement): void {
   const activityTracker = new LinkActivityTracker();
   const qrScanner = new QrPairingScanner();
 
-  let transport: WebSerialTransport | null = null;
+  let transport: SerialTransport | null = null;
   let videoStream: MediaStream | null = null;
   let connectedAt: number | null = null;
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
@@ -74,7 +78,12 @@ export function mountApp(root: HTMLElement): void {
     try {
       const unlock = await navigator.mediaDevices.getUserMedia({ video: true });
       unlock.getTracks().forEach((t) => t.stop());
-    } catch {
+    } catch (err) {
+      // Was silently swallowed before -- an empty device list and a failed
+      // permission/getUserMedia call look identical to the user otherwise.
+      videoPanel.setError(
+        err instanceof Error ? `Camera list unavailable: ${err.message}` : "Camera list unavailable.",
+      );
       return;
     }
 
@@ -198,18 +207,47 @@ export function mountApp(root: HTMLElement): void {
 
   // --- flight controller --------------------------------------------------
 
+  // The native shell may push the MessagePort before "Connect FC" is ever clicked (it's
+  // established as soon as the shell's USB bridge is ready), so this listener is wired up
+  // unconditionally at mount time rather than inside handleConnectFc — otherwise a port
+  // arriving early would have no NativeBridgeTransport yet to hand it to and be lost.
+  let nativeBridgeTransport: NativeBridgeTransport | null = null;
+  let pendingNativePort: MessagePort | null = null;
+
+  if (isAndroidShell()) {
+    window.addEventListener("message", (event) => {
+      if (event.data !== NATIVE_BRIDGE_PORT_MESSAGE || event.ports.length === 0) return;
+      const [port] = event.ports;
+      if (nativeBridgeTransport) {
+        nativeBridgeTransport.receivePort(port);
+      } else {
+        pendingNativePort = port;
+      }
+    });
+  }
+
+  function createSerialTransport(): SerialTransport {
+    if (!isAndroidShell()) {
+      return new WebSerialTransport();
+    }
+    const t = new NativeBridgeTransport();
+    if (pendingNativePort) {
+      t.receivePort(pendingNativePort);
+      pendingNativePort = null;
+    }
+    nativeBridgeTransport = t;
+    return t;
+  }
+
   function handleConnectFc(): void {
     if (transport) return;
-
-    if (sessionManager.state !== "CONNECTED") {
-      fcPanel.setError("Connect to the ground station before pairing a flight controller.");
-      return;
-    }
     fcPanel.setError("");
 
-    // open() must be called synchronously here — requestPort() requires a transient
-    // user activation that expires after the first await.
-    const t = new WebSerialTransport();
+    // On desktop, open() must be called synchronously here — WebSerialTransport's
+    // requestPort() requires a transient user activation that expires after the first
+    // await. NativeBridgeTransport has no such requirement (no browser permission API
+    // involved), so it's safe to construct here too even though it isn't time-critical.
+    const t = createSerialTransport();
     fcPanel.setConnecting(true);
 
     void t
@@ -235,6 +273,12 @@ export function mountApp(root: HTMLElement): void {
             handleFcDisconnect();
             return;
           }
+          // The FC can now be connected before the ground station is paired, so bytes
+          // may arrive with no data channel to relay them over yet -- sendBytes() throws
+          // in that case. Drop them rather than crash the serial read loop; there's
+          // nothing meaningful to buffer towards (MSP telemetry is a live stream, not a
+          // queue), so relaying resumes cleanly once the ground link comes up.
+          if (sessionManager.state !== "CONNECTED") return;
           activityTracker.recordTransmit(bytes.length);
           sessionManager.sendBytes(bytes);
         });
