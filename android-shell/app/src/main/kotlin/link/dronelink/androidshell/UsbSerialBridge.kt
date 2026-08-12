@@ -84,11 +84,34 @@ class UsbSerialBridge(private val context: Context) {
         UsbSerialProber.getDefaultProber().findAllDrivers(usbManager).firstOrNull()?.let { return it }
 
         val devices = usbManager.deviceList.values
-        devices.firstOrNull(::looksLikeCdcAcm)?.let { return CdcAcmSerialDriver(it) }
-        devices.firstOrNull { (it.vendorId to it.productId) in KNOWN_SERIAL_DEVICES }?.let { return CdcAcmSerialDriver(it) }
+        devices.firstOrNull(::looksLikeCdcAcm)?.let { return cdcAcmDriverFor(it) }
+        devices.firstOrNull { (it.vendorId to it.productId) in KNOWN_SERIAL_DEVICES }?.let { return cdcAcmDriverFor(it) }
 
         logUnrecognizedDevices(devices)
         return null
+    }
+
+    /**
+     * Prefers explicit control/data interface indices over CdcAcmSerialDriver(device)'s
+     * auto-detection, to rule out any interface-pairing ambiguity for composite devices —
+     * falls back to auto-detect if this device doesn't have the standard two-interface
+     * (COMM control + CDC-Data) shape looksLikeCdcAcm() already confirmed exists for the
+     * COMM side.
+     */
+    private fun cdcAcmDriverFor(device: UsbDevice): CdcAcmSerialDriver {
+        val controlInterface = (0 until device.interfaceCount).firstOrNull {
+            device.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_COMM
+        }
+        val dataInterface = (0 until device.interfaceCount).firstOrNull {
+            device.getInterface(it).interfaceClass == USB_CLASS_CDC_DATA
+        }
+        return if (controlInterface != null && dataInterface != null) {
+            Log.i(TAG, "Using explicit CDC-ACM interfaces: control=$controlInterface data=$dataInterface")
+            CdcAcmSerialDriver(device, controlInterface, dataInterface)
+        } else {
+            Log.i(TAG, "No separate CDC-Data interface found; falling back to CdcAcmSerialDriver auto-detection")
+            CdcAcmSerialDriver(device)
+        }
     }
 
     /** First 16 bytes as hex, for spotting whether traffic looks like a real MSP frame (e.g. "24 4d 3c ..." / "$M<") vs garbage. */
@@ -274,6 +297,9 @@ class UsbSerialBridge(private val context: Context) {
     companion object {
         private const val TAG = "UsbSerialBridge"
         private const val ACTION_USB_PERMISSION = "link.dronelink.androidshell.USB_PERMISSION"
+
+        /** Not in android.hardware.usb.UsbConstants, which only defines a handful of classes. */
+        private const val USB_CLASS_CDC_DATA = 0x0A
 
         /** Matches INAV's default MSP configuration, same as WebSerialTransport.SERIAL_BAUD_RATE. */
         const val SERIAL_BAUD_RATE = 115200
