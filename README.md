@@ -12,7 +12,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, package b
 
 **Phase 2 spikes 1–2 are complete.** The air-side camera picker/live preview, ground-side video recording, and live video GUI are available without changing the protocol-agnostic byte relay.
 
-**Phase 2.5 spikes 1–3 are complete** (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart); spike 4 (USB host serial bridge) is in progress. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes.
+**Phase 2.5 spikes 1–4 are complete** (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge); spike 5 (end-to-end integration) is not started. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes.
 
 ---
 
@@ -30,7 +30,7 @@ packages/
   ui-kit-shared/       # cross-side UI-facing presentation helpers
   ui-kit-ground/       # ground-only UI-facing scaffold
 protocol/              # schemas, fixtures, wire-format docs
-android-shell/         # Phase 2.5+, do not touch yet (spikes/ has task briefs)
+android-shell/         # Phase 2.5, spikes 1-4 complete (spikes/ has task briefs)
 bridge-firmware/       # future work, do not touch yet
 ```
 
