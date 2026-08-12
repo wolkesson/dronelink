@@ -213,15 +213,31 @@ export function mountApp(root: HTMLElement): void {
   // arriving early would have no NativeBridgeTransport yet to hand it to and be lost.
   let nativeBridgeTransport: NativeBridgeTransport | null = null;
   let pendingNativePort: MessagePort | null = null;
+  let connectingFc = false;
+  // Set once the pilot has explicitly connected the FC at least once. After that,
+  // a dropped-and-replugged FC (e.g. a brownout mid-flight) reconnects on its own
+  // when the native shell reposts a fresh port -- nobody's there to tap "Connect
+  // FC" again on a phone mounted on a drone. The very first connect still requires
+  // an explicit tap, same as WebSerialTransport's picker on desktop.
+  let hasConnectedFcOnce = false;
 
   if (isAndroidShell()) {
     window.addEventListener("message", (event) => {
       if (event.data !== NATIVE_BRIDGE_PORT_MESSAGE || event.ports.length === 0) return;
       const [port] = event.ports;
-      if (nativeBridgeTransport) {
-        nativeBridgeTransport.receivePort(port);
-      } else {
-        pendingNativePort = port;
+      // Always buffer as the latest pending port, in addition to forwarding to
+      // whichever transport instance is current: the native shell reposts a fresh
+      // port on every USB (re)connect (see NativeSerialBridgeController.kt), which
+      // can arrive before the next "Connect FC" tap creates a new transport, not
+      // just before the first one. nativeBridgeTransport keeps pointing at
+      // whichever instance createSerialTransport() built most recently, which may
+      // already be closed/disconnected -- receivePort() on a dead instance is a
+      // harmless no-op (see NativeBridgeTransport.receivePort()), so the buffer is
+      // what actually rescues a fresh "Connect FC" tap from hanging forever.
+      pendingNativePort = port;
+      nativeBridgeTransport?.receivePort(port);
+      if (hasConnectedFcOnce && !transport && !connectingFc) {
+        handleConnectFc();
       }
     });
   }
@@ -240,7 +256,8 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function handleConnectFc(): void {
-    if (transport) return;
+    if (transport || connectingFc) return;
+    connectingFc = true;
     fcPanel.setError("");
 
     // On desktop, open() must be called synchronously here — WebSerialTransport's
@@ -253,6 +270,8 @@ export function mountApp(root: HTMLElement): void {
     void t
       .open()
       .then(() => {
+        connectingFc = false;
+        hasConnectedFcOnce = true;
         transport = t;
         fcPanel.setConnecting(false);
         fcPanel.setConnected(true);
@@ -288,6 +307,7 @@ export function mountApp(root: HTMLElement): void {
         });
       })
       .catch((err: unknown) => {
+        connectingFc = false;
         fcPanel.setConnecting(false);
         fcPanel.setError(err instanceof Error ? err.message : "Failed to open serial port.");
       });
