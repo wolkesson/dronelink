@@ -78,7 +78,12 @@ export function mountApp(root: HTMLElement): void {
     try {
       const unlock = await navigator.mediaDevices.getUserMedia({ video: true });
       unlock.getTracks().forEach((t) => t.stop());
-    } catch {
+    } catch (err) {
+      // Was silently swallowed before -- an empty device list and a failed
+      // permission/getUserMedia call look identical to the user otherwise.
+      videoPanel.setError(
+        err instanceof Error ? `Camera list unavailable: ${err.message}` : "Camera list unavailable.",
+      );
       return;
     }
 
