@@ -194,6 +194,18 @@ class UsbSerialBridge(private val context: Context) {
                 UsbSerialPort.STOPBITS_1,
                 UsbSerialPort.PARITY_NONE,
             )
+            // Many CDC-ACM firmwares (including most flight controllers) gate whether
+            // they actively respond on the DTR line, the same way a real serial
+            // terminal signals "I'm connected and listening" on open -- without this,
+            // writes reach the device fine but it never talks back. Not every chipset
+            // supports control lines, so that failure alone isn't fatal to the
+            // connection.
+            try {
+                serialPort.setDTR(true)
+                serialPort.setRTS(true)
+            } catch (e: UnsupportedOperationException) {
+                Log.w(TAG, "Device doesn't support DTR/RTS control lines: ${e.message}")
+            }
         } catch (e: IOException) {
             listener.onError("Failed to configure USB-serial port: ${e.message}")
             return
