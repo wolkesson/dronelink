@@ -138,14 +138,30 @@ class UsbSerialBridge(private val context: Context) {
     }
 
     fun disconnect() {
-        ioManager?.stop()
+        val manager = ioManager
+        val portToClose = port
         ioManager = null
-        try {
-            port?.close()
-        } catch (e: IOException) {
-            Log.w(TAG, "Error closing USB serial port", e)
-        }
         port = null
+        manager?.stop()
+
+        // stop() only *requests* the read loop stop -- it doesn't wait for the
+        // background thread to actually exit, which might currently be mid blocking
+        // read/control-transfer call. Closing the port right away, from this (a
+        // different) thread, can null out the connection that in-flight call is still
+        // using -- exactly how "invoke virtual method ... controlTransfer(...) on a
+        // null object reference" crashes happen. Queuing close() behind the manager's
+        // own run() task on the same single-thread executor guarantees it only runs
+        // once that loop has actually returned. portToClose is captured explicitly
+        // (rather than reading the port field from inside the closure) so a
+        // hypothetical fast disconnect-then-reconnect can't end up closing whatever
+        // new port a later open() has since assigned to that field.
+        ioExecutor.execute {
+            try {
+                portToClose?.close()
+            } catch (e: IOException) {
+                Log.w(TAG, "Error closing USB serial port", e)
+            }
+        }
 
         permissionReceiver?.let {
             try {
