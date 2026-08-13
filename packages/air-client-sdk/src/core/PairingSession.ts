@@ -105,7 +105,6 @@ export class PairingSession {
       const socket = this.socketFactory(`wss://${bundle.host}:${String(bundle.port)}`);
       this._socket = socket;
       let settled = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
 
       const fail = (message: string) => {
         if (settled) {
@@ -113,9 +112,7 @@ export class PairingSession {
         }
 
         settled = true;
-        if (timeout) {
-          clearTimeout(timeout);
-        }
+        clearTimeout(timeout);
         this._state = "FAILED";
         this._error = message;
         this._socket = null;
@@ -128,14 +125,12 @@ export class PairingSession {
         }
 
         settled = true;
-        if (timeout) {
-          clearTimeout(timeout);
-        }
+        clearTimeout(timeout);
         this._state = "PAIRED";
         resolve();
       };
 
-      timeout = setTimeout(() => {
+      const timeout = setTimeout(() => {
         socket.close(1008, "pairing timeout");
         fail("Pairing failed: timed out waiting for the ground station.");
       }, this.handshakeTimeoutMs);

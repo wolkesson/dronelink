@@ -140,7 +140,7 @@ For Tailscale instead of LAN, set `SIGNAL_HOST`, `SIGNAL_TLS_TARGET`, and `TLS_P
 
 ## CI
 
-Path-scoped GitHub Actions, all running root `npm ci` then the relevant workspace build/test commands (lint is advisory, `continue-on-error: true`):
+Path-scoped GitHub Actions, all running root `npm ci` then the relevant workspace build/lint/test commands:
 
 - `ground-ci.yml` — triggers on `apps/ground-core-node`, `apps/ground-web-client`, `packages/core-transport`, `packages/ground-client-sdk`, `packages/ui-kit-ground`, `packages/ui-kit-shared`, `protocol`.
 - `webapp-ci.yml` — triggers on `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`.

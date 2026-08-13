@@ -63,7 +63,6 @@ jobs:
           npm run lint --workspace @dronelink/air-client-sdk
           npm run lint --workspace @dronelink/ui-kit-shared
           npm run lint --workspace @dronelink/air-webapp
-        continue-on-error: true  # lint is advisory until ESLint config is finalized
 
       - name: Test
         run: |

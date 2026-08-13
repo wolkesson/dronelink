@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
 import { WebRtcSessionManager } from "./WebRtcSessionManager.js";
 import type { PairingSocket } from "./PairingSession.js";
