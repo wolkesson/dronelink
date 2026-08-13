@@ -21,14 +21,15 @@ import java.util.concurrent.Executors
 
 /**
  * Owns the USB-serial connection to the flight controller (or, for initial wiring, a bench
- * USB-serial adapter — see spikes/spike-4-usb-serial-bridge.md). Requests USB host permission,
- * opens the port via usb-serial-for-android (covers FTDI/CP210x/CH340/PL2303/CDC-ACM chipsets,
- * not just the vendor a specific FC happens to use), and exposes plain byte callbacks. No
- * protocol parsing — bytes stay opaque, same rule as the rest of the transport layer.
+ * USB-serial adapter — see android-shell/README.md "Testing the USB serial bridge"). Requests
+ * USB host permission, opens the port via usb-serial-for-android (covers
+ * FTDI/CP210x/CH340/PL2303/CDC-ACM chipsets, not just the vendor a specific FC happens to use),
+ * and exposes plain byte callbacks. No protocol parsing — bytes stay opaque, same rule as the
+ * rest of the transport layer.
  *
  * No device_filter is used (see BootUsbReceiver): this just takes whatever recognized
- * USB-serial device is attached, matching this spike's assumption that the only thing on the
- * drone's USB-OTG port is the FC (or, during bring-up, a bench adapter).
+ * USB-serial device is attached, on the assumption that the only thing on the drone's USB-OTG
+ * port is the FC (or, during bring-up, a bench adapter).
  */
 class UsbSerialBridge(private val context: Context) {
 

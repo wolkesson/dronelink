@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = 4
-        versionName = "0.4.0-spike4"
+        versionName = "0.4.0"
     }
 
     buildTypes {
@@ -46,15 +46,14 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-    // WebMessageCompat/WebViewCompat (Spike 4: ArrayBuffer WebMessageChannel bridging).
+    // WebMessageCompat/WebViewCompat (ArrayBuffer WebMessageChannel bridging to the USB serial bridge).
     implementation("androidx.webkit:webkit:1.11.0")
-    // Multi-chipset (FTDI/CP210x/CH340/PL2303/CDC-ACM) USB-serial driver (Spike 4).
+    // Multi-chipset (FTDI/CP210x/CH340/PL2303/CDC-ACM) USB-serial driver.
     implementation("com.github.mik3y:usb-serial-for-android:3.4.3")
 }
 
-// Spike 1: embed the built air-webapp PWA bundle as Android assets so
-// MainActivity can serve it over http://127.0.0.1:<port> inside the WebView.
-// See spikes/spike-1-webview-shell.md and ../README.md "Android (Phase 2.5)".
+// Embed the built air-webapp PWA bundle as Android assets so MainActivity
+// can serve it over http://127.0.0.1:<port> inside the WebView. See ../README.md.
 val webappDist = file("$rootDir/../apps/air-webapp/dist")
 val webappAssets = file("src/main/assets/webapp")
 

@@ -56,7 +56,7 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - **Pairing/authentication stays QR/manual token based.** The WebSocket token exchange is the enforceable authorization gate.
 - **TLS trust remains out-of-band.** `mkcert` or Tailscale-issued certs are still the supported trust paths; browser-side cert pinning is still not possible.
 - **Byte relay stays protocol-agnostic.** MSP/MAVLink parsing does not belong in `core-transport`.
-- **Air serial access remains abstracted.** `WebSerialTransport` is the current desktop implementation; `NativeBridgeTransport` remains the Android WebView path for Phase 2.5.
+- **Air serial access stays abstracted.** `WebSerialTransport` is the desktop implementation; `NativeBridgeTransport` is the Android WebView path, backed by `android-shell`'s native USB bridge.
 
 ## 4. Runtime mapping
 
@@ -78,11 +78,15 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 ## 6. Current implementation state
 
 ### Complete
-- Phase 0 pairing/token flow
-- Phase 1 thin end-to-end FC → WebRTC → TCP bridge path
-- Workspace extraction of shared transport, air SDK, ground SDK, and app shells
-- Phase 2 spikes 1–2: air-side camera source selection/live preview, ground-side video recording, and the live video GUI
-- Phase 2.5 (all five spikes): `android-shell` WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge (`NativeBridgeTransport`), and end-to-end integration — validated on real hardware (unattended reboot autostart, the FC/camera/WebRTC pipeline, ground pairing, INAV Configurator over the TCP bridge, and a 45+ minute soak session)
+- Pairing/token flow and the WebRTC data channel
+- End-to-end FC → WebRTC → TCP bridge path
+- Workspace split into shared transport, air SDK, ground SDK, and app shells
+- Air-side camera source selection/live preview, ground-side video recording, and the live video GUI
+- `android-shell`: WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, and the USB host serial bridge (`NativeBridgeTransport`) — validated end-to-end on real hardware (unattended reboot autostart, the FC/camera/WebRTC pipeline, ground pairing, INAV Configurator over the TCP bridge, and a 45+ minute soak session)
+
+### Known limitation
+
+`android-shell`'s USB connection is owned by `MainActivity`, not `AirShellForegroundService` — backgrounding/killing the Activity tears down the WebView (and the USB bridge) even though the service and process keep running. Moving USB ownership into the foreground service's lifecycle is not yet done; see `android-shell/README.md`.
 
 ### Deferred
 - Ground-side GUI features beyond the live video viewer
@@ -90,20 +94,10 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - Reconnection/resilience work
 - Docker/deployment work
 
-### Reference: Phase 2.5 spikes
-
-Phase 2.5 (`android-shell`) was broken into five independently implementable spikes, sequenced from no-hardware-needed to real-flight-controller-needed. Task briefs live in `android-shell/spikes/`; see `android-shell/spikes/README.md` for the full breakdown, including which spikes required a real Android device (the USB host serial bridge has no emulator path at all).
-
-1. WebView shell + localhost PWA host — **complete**
-2. Camera/mic permission passthrough — **complete**
-3. Foreground service, wake lock, autostart — **complete**
-4. USB host permission + serial bridge (`NativeBridgeTransport`) — **complete**
-5. End-to-end integration — **complete**
-
 ## 7. Validation checklist
 
 - `@dronelink/ground-core-node` starts standalone and resolves TLS material through `core-transport`.
 - Existing pairing QR/token flow stays unchanged.
-- Existing Phase 1 relay path remains protocol-agnostic.
+- The relay path remains protocol-agnostic.
 - `TLS_PROVIDER=tailscale` still flows through `ensureTailscaleTlsMaterial()` at startup.
 - Cert/key files remain ignored.

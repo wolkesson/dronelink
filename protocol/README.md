@@ -1,15 +1,15 @@
 # protocol
 
-Shared wire-format documentation, signaling message JSON schemas, and recorded byte-stream fixtures used by both `/ground` and `/webapp` test suites.
+Shared wire-format documentation, signaling message JSON schemas, and recorded byte-stream fixtures used by both the ground and air-side packages test suites.
 
 ## Purpose
 
-- **`schemas/`** — JSON Schema definitions for signaling messages (including the Phase 0 pairing bundle in `schemas/pairing-bundle.schema.json`). Both `/ground` and `/webapp` validate messages against these schemas.
+- **`schemas/`** — JSON Schema definitions for signaling messages (including the pairing bundle in `schemas/pairing-bundle.schema.json`). Both the ground and air-side packages validate messages against these schemas.
 - **`fixtures/`** — Recorded raw serial byte-stream captures (e.g., real INAV/MAVLink telemetry bursts). Used by `/ground` integration tests and `/webapp` unit tests so neither test suite needs a real flight controller or SITL running.
 
 ## Signaling message format
 
-Phase 0 defines the pairing bundle JSON shape in `schemas/pairing-bundle.schema.json`:
+The pairing bundle JSON shape is defined in `schemas/pairing-bundle.schema.json`:
 
 - `sessionId` — random session identifier for the ground-side pairing session
 - `token` — random 128-bit base64url token the client must send in its first signaling message

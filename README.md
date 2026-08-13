@@ -6,13 +6,11 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, package b
 
 ---
 
-## Current phase
+## Status
 
-**Phase 1 is complete.** The real FC → WebRTC → TCP bridge path works end-to-end over both LAN and Tailscale.
+The real FC → WebRTC → TCP bridge path works end-to-end over both LAN and Tailscale. The air-side camera picker/live preview, ground-side video recording, and live video GUI are available without changing the protocol-agnostic byte relay. `android-shell` (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge) has been validated end-to-end on real hardware: unattended reboot autostart, the FC/camera/WebRTC pipeline, ground pairing, INAV Configurator over the TCP bridge, and a 45+ minute soak session. See [`android-shell/README.md`](./android-shell/README.md) for Android-specific setup and device-testing notes.
 
-**Phase 2 spikes 1–2 are complete.** The air-side camera picker/live preview, ground-side video recording, and live video GUI are available without changing the protocol-agnostic byte relay.
-
-**Phase 2.5 is complete.** `android-shell` (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge) has been validated end-to-end on real hardware: unattended reboot autostart, the FC/camera/WebRTC pipeline, ground pairing, INAV Configurator over the TCP bridge, and a 45+ minute soak session. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes.
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md#6-current-implementation-state) for the full implementation-state breakdown, including known limitations.
 
 ---
 
@@ -30,7 +28,7 @@ packages/
   ui-kit-shared/       # cross-side UI-facing presentation helpers
   ui-kit-ground/       # ground-only UI-facing scaffold
 protocol/              # schemas, fixtures, wire-format docs
-android-shell/         # Phase 2.5, spikes 1-4 complete (spikes/ has task briefs)
+android-shell/         # native Android WebView shell (see android-shell/README.md)
 bridge-firmware/       # future work, do not touch yet
 ```
 
@@ -45,7 +43,7 @@ The split is by **concern**, not simply by ground vs air. Shared transport/pairi
 
 ---
 
-## Getting started (Phase 1 / Phase 2 desktop workflow)
+## Getting started (desktop workflow)
 
 **Prerequisites:** Node.js 22+, npm, desktop Chrome, `mkcert`.
 
@@ -143,11 +141,8 @@ Once installed, the same CA is trusted by Chrome tabs, installed PWAs, and `andr
 
 ## What not to build yet
 
-| Component / Feature | Deferred to |
-| --- | --- |
-| `android-shell` foreground service / USB bridge / WebView host | Phase 2.5 — see `android-shell/spikes/` |
-| `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
-| Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
-| Reconnection / backoff / resilience logic | Phase 3 |
-| Docker Compose / containerized deployment | Phase 4 |
-| iPhone air-side app | Future work |
+- `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone)
+- Ground-side GUI features beyond the live video viewer
+- Reconnection / backoff / resilience logic
+- Docker Compose / containerized deployment
+- iPhone air-side app

@@ -6,9 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DroneLink is a drone command-and-control (C2) and video link system: the air side reads FC telemetry/control over USB serial and captures phone/desktop camera media, forwarding both to the ground over WebRTC; the ground side terminates signaling/WebRTC, bridges the serial byte stream to TCP for INAV Configurator/GCS, and records or re-serves video. The byte path stays protocol-agnostic end-to-end (no MSP/MAVLink parsing in shared transport layers).
 
-Read [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design and phased plan before making structural changes.
-
-**Phase 1 is complete** (pairing, WebRTC data channel, ground-side TCP bridge, tested end-to-end over LAN and Tailscale). **Phase 2 spikes 1–2 are complete** (air-side camera selection/live preview, ground-side video recording, live video GUI).
+Read [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design before making structural changes; see its "Current implementation state" section for what's built.
 
 ## Workspace layout
 
@@ -25,7 +23,7 @@ This is an npm workspaces monorepo (`apps/*`, `packages/*`).
 | `apps/ground-web-client` | TypeScript + browser | Ground-side live video GUI composition |
 | `apps/air-webapp` | TypeScript (Vite PWA) | Air-side PWA composition shell |
 | `protocol/` | Docs + JSON | Wire-format docs, signaling JSON schemas, recorded byte-stream fixtures |
-| `android-shell/` | Kotlin | **Not started — do not touch until Phase 2.5** |
+| `android-shell/` | Kotlin | Native Android WebView shell: USB serial bridge, camera/mic passthrough, foreground service/autostart. See `android-shell/README.md`. |
 | `bridge-firmware/` | ESP32 | **Future work — not started** |
 
 ### Dependency direction (enforced by convention, not tooling)
@@ -107,20 +105,17 @@ For Tailscale instead of LAN, set `SIGNAL_HOST`, `SIGNAL_TLS_TARGET`, and `TLS_P
 ## Key design constraints
 
 - **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end; MSP/MAVLink parsing belongs only in ground-specific higher layers.
-- **`SerialTransport` stays behind the air SDK abstraction.** Desktop Chrome uses `WebSerialTransport`; Android WebView will later use `NativeBridgeTransport` (Phase 2.5).
+- **`SerialTransport` stays behind the air SDK abstraction.** Desktop Chrome uses `WebSerialTransport`; Android WebView uses `NativeBridgeTransport`, backed by `android-shell`'s native USB bridge.
 - **Signaling stays inside the ground runtime.** There is no separate signaling service.
 - **TLS trust stays out-of-band.** Do not add in-browser cert pinning; `mkcert` or Tailscale-issued certs are the only supported trust paths.
 
 ## What not to build yet
 
-| Component / Feature | Deferred to |
-| --- | --- |
-| `android-shell` (foreground service, USB bridge, WebView host) | Phase 2.5 |
-| `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
-| Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
-| Reconnection / backoff / resilience logic | Phase 3 |
-| Docker Compose / containerized deployment | Phase 4 |
-| iPhone air-side app | Future work |
+- `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone)
+- Ground-side GUI features beyond the live video viewer
+- Reconnection / backoff / resilience logic
+- Docker Compose / containerized deployment
+- iPhone air-side app
 
 ## Testing
 
