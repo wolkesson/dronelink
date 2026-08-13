@@ -42,7 +42,26 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape">
+            <!--
+              launchMode="singleTask": without this, a matching Intent for the
+              USB_DEVICE_ATTACHED filter below stacks a brand-new MainActivity
+              instance (fresh WebView, no live WebRTC/USB session) on top of the
+              running one instead of reusing it — confirmed on real hardware, where
+              a live FC USB reconnect mid-session spawned two separate MainActivity
+              windows seconds apart and silently orphaned the original, still-live
+              session underneath. singleTask instead routes the Intent to
+              onNewIntent() on the existing instance.
+
+              screenOrientation="landscape": a phone mounted on a drone is fixed in
+              one orientation anyway, and MainActivity has no onSaveInstanceState/
+              restore path — without a screen-orientation lock, a physical rotation
+              (or an accidental one mid-flight) destroys and recreates the Activity
+              like any other config change, discarding the live WebView/USB
+              bridge/WebRTC session the same way the missing singleTask did.
+            -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
