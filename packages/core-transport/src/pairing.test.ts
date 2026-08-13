@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   TOKEN_PATTERN,
-  FINGERPRINT_PATTERN,
   generateSessionId,
   generateToken,
   createPairingBundle,
@@ -11,15 +10,12 @@ import {
   type PairingBundle,
 } from "./pairing.js";
 
-const VALID_FINGERPRINT = Array.from({ length: 32 }, () => "AB").join(":");
-
 function validBundle(): PairingBundle {
   return {
     sessionId: "session-1",
     token: generateToken(),
     host: "192.168.1.10",
     port: 5761,
-    certFingerprint: VALID_FINGERPRINT,
   };
 }
 
@@ -43,31 +39,6 @@ describe("generateToken", () => {
 
   it("returns a different value on each call", () => {
     expect(generateToken()).not.toBe(generateToken());
-  });
-});
-
-describe("FINGERPRINT_PATTERN", () => {
-  it("matches a well-formed 32-octet colon-separated fingerprint", () => {
-    expect(FINGERPRINT_PATTERN.test(VALID_FINGERPRINT)).toBe(true);
-  });
-
-  it("accepts lowercase hex", () => {
-    expect(FINGERPRINT_PATTERN.test(VALID_FINGERPRINT.toLowerCase())).toBe(true);
-  });
-
-  it("rejects a fingerprint with too few octets", () => {
-    const short = Array.from({ length: 31 }, () => "AB").join(":");
-    expect(FINGERPRINT_PATTERN.test(short)).toBe(false);
-  });
-
-  it("rejects a fingerprint with too many octets", () => {
-    const long = Array.from({ length: 33 }, () => "AB").join(":");
-    expect(FINGERPRINT_PATTERN.test(long)).toBe(false);
-  });
-
-  it("rejects non-hex characters", () => {
-    const bad = Array.from({ length: 31 }, () => "AB").join(":") + ":ZZ";
-    expect(FINGERPRINT_PATTERN.test(bad)).toBe(false);
   });
 });
 
@@ -124,10 +95,6 @@ describe("isPairingBundle", () => {
   it("accepts the boundary ports 1 and 65535", () => {
     expect(isPairingBundle({ ...validBundle(), port: 1 })).toBe(true);
     expect(isPairingBundle({ ...validBundle(), port: 65535 })).toBe(true);
-  });
-
-  it("rejects a malformed certFingerprint", () => {
-    expect(isPairingBundle({ ...validBundle(), certFingerprint: "not-a-fingerprint" })).toBe(false);
   });
 });
 

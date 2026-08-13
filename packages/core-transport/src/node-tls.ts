@@ -1,12 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { X509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface TlsMaterial {
   key: string;
   cert: string;
-  certFingerprint: string;
   keyPath: string;
   certPath: string;
 }
@@ -72,12 +70,10 @@ export function ensureTlsMaterial(stateDir: string, tlsTarget: string): TlsMater
 
   const cert = readFileSync(certPath, "utf8");
   const key = readFileSync(keyPath, "utf8");
-  const certFingerprint = new X509Certificate(cert).fingerprint256;
 
   return {
     key,
     cert,
-    certFingerprint,
     keyPath,
     certPath,
   };
@@ -150,12 +146,10 @@ export function ensureTailscaleTlsMaterial(stateDir: string, tlsTarget: string):
 
   const cert = readFileSync(certPath, "utf8");
   const key = readFileSync(keyPath, "utf8");
-  const certFingerprint = new X509Certificate(cert).fingerprint256;
 
   return {
     key,
     cert,
-    certFingerprint,
     keyPath,
     certPath,
   };

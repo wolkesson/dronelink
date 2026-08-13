@@ -70,8 +70,6 @@ function createBundle(overrides: Partial<PairingBundle> = {}): PairingBundle {
     token: "1234567890abcdefABCDEF",
     host: "localhost",
     port: 8443,
-    certFingerprint:
-      "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
     ...overrides,
   };
 }

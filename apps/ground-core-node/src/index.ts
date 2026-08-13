@@ -37,7 +37,6 @@ void signalingServer
   .then((bundle) => {
     console.log(`Signaling server listening on wss://${bundle.host}:${bundle.port}`);
     console.log(`Ground video GUI: https://${bundle.host}:${bundle.port}/gui`);
-    console.log(`TLS certificate fingerprint (SHA-256): ${bundle.certFingerprint}`);
     console.log("Pairing bundle JSON:");
     console.log(JSON.stringify(bundle, null, 2));
     qrcodeTerminal.generate(JSON.stringify(bundle), { small: true }, (qr) => console.log(qr));

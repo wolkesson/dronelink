@@ -40,7 +40,6 @@ export interface SignalingServerRuntime {
   httpsServer: HttpsServer;
   wss: WebSocketServer;
   guiWss: WebSocketServer;
-  certFingerprint: string;
   start(): Promise<PairingBundle>;
   getPairingBundle(): PairingBundle;
   close(): Promise<void>;
@@ -208,7 +207,6 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
     httpsServer,
     wss,
     guiWss,
-    certFingerprint: tlsMaterial.certFingerprint,
     async start(): Promise<PairingBundle> {
       if (!startPromise) {
         startPromise = new Promise<PairingBundle>((resolve, reject) => {
@@ -224,7 +222,6 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
               token,
               host,
               port: getListeningPort(httpsServer),
-              certFingerprint: tlsMaterial.certFingerprint,
             });
             resolve(bundle);
           };

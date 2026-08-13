@@ -195,9 +195,6 @@ export class PairingSession {
       throw new Error("Invalid pairing bundle JSON.");
     }
 
-    return {
-      ...parsed,
-      certFingerprint: parsed.certFingerprint.toUpperCase(),
-    };
+    return parsed;
   }
 }
