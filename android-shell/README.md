@@ -1,8 +1,8 @@
 # android-shell
 
-**Status: Phase 2.5, Spikes 1–4 complete.** See [`spikes/`](./spikes/) for individual task briefs; spike 5 is not started (see [`spikes/README.md`](./spikes/README.md)).
+**Status: Phase 2.5 complete** — all five spikes, including end-to-end integration, validated on real hardware. See [`spikes/`](./spikes/) for individual task briefs (see [`spikes/README.md`](./spikes/README.md)).
 
-This component begins in **Phase 2.5** of the development plan (see [`ARCHITECTURE.md`](../ARCHITECTURE.md#6-current-implementation-state)).
+This component was built in **Phase 2.5** of the development plan (see [`ARCHITECTURE.md`](../ARCHITECTURE.md#6-current-implementation-state)).
 
 ## Planned scope
 
