@@ -6,7 +6,7 @@ This file provides orientation for AI coding agents working in this repository.
 
 DroneLink is a drone command-and-control (C2) and video link system. **Phase 1 is complete** (pairing, WebRTC data channel, and the ground-side TCP bridge tested end-to-end against a real FC over LAN and Tailscale); **Phase 2 spikes 1–2 are complete** (air-side camera selection/live preview, ground-side video recording, and a live video GUI).
 
-**Phase 2.5 spikes 1–4 are complete** (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge); spike 5 (end-to-end integration) is not started. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes (emulator vs. real hardware) per spike.
+**Phase 2.5 is complete** (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge, and end-to-end integration — validated on real hardware: unattended reboot autostart, FC/camera/WebRTC pipeline, ground pairing, INAV Configurator over the TCP bridge, and a 45+ minute soak session). See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes (emulator vs. real hardware) per spike.
 
 Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) before making changes.
 
@@ -22,7 +22,7 @@ Read [`ARCHITECTURE.md`](./ARCHITECTURE.md) and [`README.md`](./README.md) befor
 | `/apps/ground-core-node` | Node.js + TypeScript | Headless ground runtime: signaling host + relay only |
 | `/apps/ground-web-client` | TypeScript + browser assets | Ground-side live video GUI composition |
 | `/apps/air-webapp` | TypeScript (Vite PWA) | Air-side PWA composition shell |
-| `/android-shell` | Kotlin | **Phase 2.5 in progress** (spikes 1–4 complete, spike 5 not started). Spike task briefs live in `android-shell/spikes/`. |
+| `/android-shell` | Kotlin | **Phase 2.5 complete.** Spike task briefs live in `android-shell/spikes/`. |
 | `/bridge-firmware` | ESP32 | **Future work — not started** |
 | `/protocol` | Docs + JSON | Wire-format docs, schemas, and recorded byte-stream fixtures |
 | `.github/workflows/` | YAML | CI workflows scoped to ground-side and air-side package groups |
@@ -108,7 +108,6 @@ Do not start these until their planned phases:
 
 | Component / Feature | Deferred to |
 | --- | --- |
-| `/android-shell` (foreground service, USB bridge, WebView host) | Phase 2.5 — see `android-shell/spikes/` for the five-spike breakdown |
 | `/bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone) | Future work |
 | Ground-side GUI features beyond the live video viewer | Phase 2 spikes 3–4 |
 | Reconnection / backoff / resilience | Phase 3 |

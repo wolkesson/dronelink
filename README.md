@@ -12,7 +12,7 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full system design, package b
 
 **Phase 2 spikes 1–2 are complete.** The air-side camera picker/live preview, ground-side video recording, and live video GUI are available without changing the protocol-agnostic byte relay.
 
-**Phase 2.5 spikes 1–4 are complete** (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge); spike 5 (end-to-end integration) is not started. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes.
+**Phase 2.5 is complete.** `android-shell` (WebView shell + localhost PWA host, camera/mic permission passthrough, foreground service/wake lock/autostart, USB host serial bridge) has been validated end-to-end on real hardware: unattended reboot autostart, the FC/camera/WebRTC pipeline, ground pairing, INAV Configurator over the TCP bridge, and a 45+ minute soak session. See [`android-shell/spikes/`](./android-shell/spikes/) for individual task briefs and device-testing notes.
 
 ---
 
