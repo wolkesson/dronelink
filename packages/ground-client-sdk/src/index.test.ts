@@ -74,7 +74,7 @@ function seedTlsMaterial(stateDir: string): void {
     throw new Error(`Failed to seed TLS certificate for tests: ${details}`);
   }
 
-  writeFileSync(tlsTargetPath, "localhost\n", "utf8");
+  writeFileSync(tlsTargetPath, "mkcert:localhost\n", "utf8");
 }
 
 function openClient(url: string): Promise<WebSocket> {
