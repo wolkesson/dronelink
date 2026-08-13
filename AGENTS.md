@@ -47,9 +47,10 @@ npm install
 Per-package scripts (run from repo root via `--workspace`, or `cd` into the package):
 
 ```sh
-npm run build --workspace @dronelink/<pkg>   # tsc --noEmit (air-webapp also runs vite build)
-npm run lint  --workspace @dronelink/<pkg>   # eslint src --ext .ts[,.tsx]
-npm test      --workspace @dronelink/<pkg>   # vitest run (core-transport, ground-client-sdk, air-client-sdk, ui-kit-shared only)
+npm run build          --workspace @dronelink/<pkg>   # tsc --noEmit (air-webapp also runs vite build)
+npm run lint           --workspace @dronelink/<pkg>   # eslint src --ext .ts[,.tsx]
+npm test               --workspace @dronelink/<pkg>   # vitest run (core-transport, ground-client-sdk, air-client-sdk, ui-kit-shared only)
+npm run test:coverage  --workspace @dronelink/<pkg>   # vitest run --coverage (same four packages)
 ```
 
 Run a single test file with vitest directly, e.g.:

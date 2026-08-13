@@ -1,8 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { join } from "path";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
 import { MediaStreamTrack } from "werift";
-import { forwardRtpTrack, videoFilePath } from "./webrtc.js";
+import {
+  forwardRtpTrack,
+  videoFilePath,
+  handleSignalingMessage,
+  handleGuiSignalingMessage,
+  handleSocketClose,
+  handleGuiSocketClose,
+} from "./webrtc.js";
 
 describe("isTailscaleCandidate", () => {
   it("matches addresses in 100.64.0.0/10 (second octet 64–127)", () => {
@@ -49,5 +56,124 @@ describe("forwardRtpTrack", () => {
     forwarder.stop();
     source.onReceiveRtp.execute(packet as never);
     expect(received).toHaveLength(1);
+  });
+});
+
+describe("handleSignalingMessage", () => {
+  afterEach(() => {
+    handleSocketClose();
+    handleGuiSocketClose();
+    vi.restoreAllMocks();
+  });
+
+  it("ignores non-object messages", () => {
+    const reply = vi.fn();
+    handleSignalingMessage(null as never, reply);
+    handleSignalingMessage(undefined as never, reply);
+    handleSignalingMessage("offer" as never, reply);
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("ignores messages with an unrecognized type", () => {
+    const reply = vi.fn();
+    handleSignalingMessage({ type: "unknown" }, reply);
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("ignores a second offer while a connection is already active", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const reply1 = vi.fn();
+    const reply2 = vi.fn();
+
+    handleSignalingMessage({ type: "offer", sdp: "" }, reply1);
+    handleSignalingMessage({ type: "offer", sdp: "" }, reply2);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("ignoring offer — connection already active"),
+    );
+    expect(reply2).not.toHaveBeenCalled();
+  });
+
+  it("buffers an ice-candidate received before any offer, without replying or throwing", () => {
+    const reply = vi.fn();
+    expect(() =>
+      handleSignalingMessage(
+        { type: "ice-candidate", candidate: { candidate: "candidate:1 1 UDP 1 10.0.0.1 5000 typ host" } },
+        reply,
+      ),
+    ).not.toThrow();
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("ignores an ice-candidate with a malformed candidate payload", () => {
+    const reply = vi.fn();
+    handleSignalingMessage({ type: "ice-candidate", candidate: "not-an-object" }, reply);
+    handleSignalingMessage({ type: "ice-candidate", candidate: { candidate: 123 } }, reply);
+    handleSignalingMessage({ type: "ice-candidate" }, reply);
+    expect(reply).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleGuiSignalingMessage", () => {
+  afterEach(() => {
+    handleSocketClose();
+    handleGuiSocketClose();
+    vi.restoreAllMocks();
+  });
+
+  it("ignores non-object messages", () => {
+    const reply = vi.fn();
+    handleGuiSignalingMessage(null, reply);
+    handleGuiSignalingMessage("offer", reply);
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("ignores messages with an unrecognized type", () => {
+    const reply = vi.fn();
+    handleGuiSignalingMessage({ type: "unknown" }, reply);
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("replies with an error when no incoming video is available yet", () => {
+    const reply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "" }, reply);
+    expect(reply).toHaveBeenCalledWith({
+      type: "error",
+      message: "No incoming video is available yet.",
+    });
+  });
+
+  it("buffers an ice-candidate received before any GUI offer, without replying or throwing", () => {
+    const reply = vi.fn();
+    expect(() =>
+      handleGuiSignalingMessage(
+        { type: "ice-candidate", candidate: { candidate: "candidate:1 1 UDP 1 10.0.0.1 5000 typ host" } },
+        reply,
+      ),
+    ).not.toThrow();
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("ignores an ice-candidate with a malformed candidate payload", () => {
+    const reply = vi.fn();
+    handleGuiSignalingMessage({ type: "ice-candidate", candidate: "not-an-object" }, reply);
+    handleGuiSignalingMessage({ type: "ice-candidate", candidate: { candidate: 123 } }, reply);
+    handleGuiSignalingMessage({ type: "ice-candidate" }, reply);
+    expect(reply).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleSocketClose / handleGuiSocketClose", () => {
+  it("are safe to call when no connection is active", () => {
+    expect(() => handleSocketClose()).not.toThrow();
+    expect(() => handleGuiSocketClose()).not.toThrow();
+  });
+
+  it("are idempotent when called repeatedly", () => {
+    handleSocketClose();
+    expect(() => handleSocketClose()).not.toThrow();
+    handleGuiSocketClose();
+    expect(() => handleGuiSocketClose()).not.toThrow();
   });
 });
