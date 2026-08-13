@@ -77,7 +77,6 @@ jobs:
           npm run lint --workspace @dronelink/ui-kit-ground
           npm run lint --workspace @dronelink/ground-core-node
           npm run lint --workspace @dronelink/ground-web-client
-        continue-on-error: true  # lint is advisory until ESLint config is finalized
 
       - name: Test
         run: |

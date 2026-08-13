@@ -117,7 +117,6 @@ export class WebRtcSessionManager {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
       const succeed = () => {
         if (settled) return;
@@ -135,7 +134,7 @@ export class WebRtcSessionManager {
         reject(new Error(reason));
       };
 
-      timeoutId = setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         fail("WebRTC connection timed out");
       }, this.connectTimeoutMs);
 
