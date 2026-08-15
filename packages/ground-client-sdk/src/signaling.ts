@@ -34,6 +34,8 @@ export interface SignalingServerOptions {
   handshakeTimeoutMs?: number;
   logger?: Pick<Console, "log" | "warn" | "error">;
   guiAssets?: GuiAssets;
+  sessionId?: string;
+  token?: string;
 }
 
 export interface SignalingServerRuntime {
@@ -62,8 +64,8 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
   const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
   const logger = options.logger ?? console;
   const guiAssets = options.guiAssets;
-  const sessionId = generateSessionId();
-  const token = generateToken();
+  const sessionId = options.sessionId ?? generateSessionId();
+  const token = options.token ?? generateToken();
 
   setStateDir(stateDir);
   console.log(`Signaling server state directory: ${stateDir}`);

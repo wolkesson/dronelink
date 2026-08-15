@@ -11,8 +11,8 @@ Shared wire-format documentation, signaling message JSON schemas, and recorded b
 
 The pairing bundle JSON shape is defined in `schemas/pairing-bundle.schema.json`:
 
-- `sessionId` — random session identifier for the ground-side pairing session
-- `token` — random 128-bit base64url token the client must send in its first signaling message
+- `sessionId` — session identifier for the ground-side pairing session, randomly generated per process start unless pinned via `PAIRING_SESSION_ID`
+- `token` — 128-bit base64url token the client must send in its first signaling message, randomly generated per process start unless pinned via `PAIRING_TOKEN`
 - `host` / `port` — the ground-side `wss://` endpoint
 
 ## Adding fixtures

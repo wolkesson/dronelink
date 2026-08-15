@@ -10,6 +10,7 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "@dronelink/core-transport": "file:../../packages/core-transport",
     "@dronelink/ground-client-sdk": "file:../../packages/ground-client-sdk",
     "qrcode-terminal": "^0.12.0"
   },

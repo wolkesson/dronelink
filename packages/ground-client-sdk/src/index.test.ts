@@ -267,6 +267,33 @@ describe("signaling server", () => {
     );
   });
 
+  it("uses a fixed sessionId/token when provided instead of generating random ones", async () => {
+    const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
+    tempDirs.push(stateDir);
+    seedTlsMaterial(stateDir);
+
+    const fixedSessionId = "fixed-session-id";
+    const fixedToken = "AAAAAAAAAAAAAAAAAAAAAA";
+
+    const runtime = createSignalingServer({
+      port: 0,
+      host: "127.0.0.1",
+      stateDir,
+      sessionId: fixedSessionId,
+      token: fixedToken,
+      logger: {
+        log: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+    });
+    runtimes.push(runtime);
+
+    const bundle = await runtime.start();
+    expect(bundle.sessionId).toBe(fixedSessionId);
+    expect(bundle.token).toBe(fixedToken);
+  });
+
   it("reuses the persisted TLS certificate across restarts", async () => {
     const stateDir = mkdtempSync(resolve(tmpdir(), "dronelink-ground-test-"));
     tempDirs.push(stateDir);
