@@ -127,6 +127,23 @@ export function mountApp(root: HTMLElement): void {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
       });
+
+      if (sessionManager.state === "CONNECTED") {
+        const [newTrack] = stream.getVideoTracks();
+        try {
+          // In-place swap via RTCRtpSender.replaceTrack -- no renegotiation, the
+          // live session (data channel, ICE) is untouched. Only same-resolution
+          // swaps are supported today: the ground side sized its recorder from the
+          // original offer and won't notice a resolution change, which can corrupt
+          // the recording (see WebRtcSessionManager.replaceVideoTrack).
+          if (newTrack) await sessionManager.replaceVideoTrack(newTrack);
+        } catch {
+          videoPanel.setError(
+            "Camera switched locally, but this session was paired without video -- reconnect to send it.",
+          );
+        }
+      }
+
       bindVideoStream(stream);
     } catch (err) {
       videoPanel.setError(err instanceof Error ? err.message : "Failed to open camera.");

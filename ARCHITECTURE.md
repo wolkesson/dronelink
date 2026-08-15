@@ -88,6 +88,8 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 
 `android-shell`'s USB connection is owned by `MainActivity`, not `AirShellForegroundService` — backgrounding/killing the Activity tears down the WebView (and the USB bridge) even though the service and process keep running. Moving USB ownership into the foreground service's lifecycle is not yet done; see `android-shell/README.md`.
 
+Mid-session video source switching (`WebRtcSessionManager.replaceVideoTrack`, air-webapp's device picker while connected) swaps the outbound `MediaStreamTrack` in place via `RTCRtpSender.replaceTrack` and skips renegotiation entirely. The ground side has no way to learn about the swap: its `MediaRecorder` is sized once from the `videoWidth`/`videoHeight` signaled in the original SDP offer (`ground-client-sdk`'s `webrtc.ts`) and never re-reads dimensions afterward. Switching to a source with a different resolution mid-session will desync the recorder from the actual frame size and can corrupt the recording — only same-resolution swaps are safe today. Fixing this needs a new signaling message so the ground side can resize or restart the recorder when the source changes.
+
 ### Deferred
 - Ground-side GUI features beyond the live video viewer
 - ESP32 bridge firmware and iPhone air-side support

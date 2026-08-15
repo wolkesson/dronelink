@@ -89,6 +89,12 @@ export function handleSignalingMessage(
 
     // Use dimensions signaled in the offer. If missing or invalid, fall back to 320x240
     // (werift's MediaRecorder default is 640x360 which causes shearing artifacts).
+    // These are read once here and never revisited: the air side can swap its outbound
+    // video track in place post-connect (WebRtcSessionManager.replaceVideoTrack) without
+    // renegotiating, so a source switch to a different resolution will desync the
+    // recorder below from the actual frame size and can corrupt the recording. Only
+    // same-resolution swaps are safe until this reads dimensions from a live signal
+    // instead of the original offer.
     const videoWidth: number = typeof message.videoWidth === "number" ? message.videoWidth : 320;
     const videoHeight: number = typeof message.videoHeight === "number" ? message.videoHeight : 240;
 

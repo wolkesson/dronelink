@@ -22,6 +22,7 @@ export class WebRtcSessionManager {
   private _state: SessionState = "IDLE";
   private pc: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
+  private videoSender: RTCRtpSender | null = null;
   private readonly handlers = new Set<(data: Uint8Array) => void>();
   private readonly connectTimeoutMs: number;
 
@@ -95,7 +96,10 @@ export class WebRtcSessionManager {
 
     if (localStream) {
       for (const track of localStream.getTracks()) {
-        this.pc.addTrack(track, localStream);
+        const sender = this.pc.addTrack(track, localStream);
+        if (track.kind === "video") {
+          this.videoSender = sender;
+        }
       }
     }
 
@@ -151,6 +155,27 @@ export class WebRtcSessionManager {
         }
       };
     });
+  }
+
+  /**
+   * Swap the outbound video track in place via RTCRtpSender.replaceTrack, without
+   * renegotiating the peer connection (no new offer/answer, no ICE restart, and the
+   * data channel stays open). Only valid once a video track was already bound at
+   * connect() time -- that's what negotiates the video m= line this reuses. Throws
+   * if no video was bound at connect(), since adding video to a session that started
+   * data-only needs a real renegotiation this method doesn't perform.
+   *
+   * The ground side keeps recording at the resolution it read from the original
+   * offer (see WebRtcSessionManager's videoWidth/videoHeight side-channel and
+   * ground-client-sdk's webrtc.ts), so replacing with a track of a different
+   * resolution will desync the recorder from the actual frame size and can corrupt
+   * the recording. Callers should only swap between sources of the same resolution.
+   */
+  async replaceVideoTrack(track: MediaStreamTrack): Promise<void> {
+    if (!this.videoSender) {
+      throw new Error("No active video sender to replace -- video was not bound at connect() time.");
+    }
+    await this.videoSender.replaceTrack(track);
   }
 
   /**
@@ -224,6 +249,7 @@ export class WebRtcSessionManager {
     this.pc?.close();
     this.dataChannel = null;
     this.pc = null;
+    this.videoSender = null;
     this._state = "IDLE";
   }
 }
