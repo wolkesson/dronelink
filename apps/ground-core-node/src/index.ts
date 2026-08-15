@@ -39,6 +39,7 @@ void signalingServer
     console.log(`Ground video GUI: https://${bundle.host}:${bundle.port}/gui`);
     console.log("Pairing bundle JSON:");
     console.log(JSON.stringify(bundle, null, 2));
+    qrcodeTerminal.setErrorLevel("M");
     qrcodeTerminal.generate(JSON.stringify(bundle), { small: true }, (qr) => console.log(qr));
   })
   .catch((error: unknown) => {
