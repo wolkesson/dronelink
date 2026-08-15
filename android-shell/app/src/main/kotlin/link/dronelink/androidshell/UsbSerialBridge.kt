@@ -45,6 +45,15 @@ class UsbSerialBridge(private val context: Context) {
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /**
+     * Dedicated thread for writes, separate from ioExecutor's blocking read loop. Calling
+     * UsbSerialPort.write() here concurrently with a read in progress on ioExecutor is safe
+     * -- reads and writes use separate USB bulk IN/OUT endpoints -- and it decouples write
+     * latency from read timing entirely, unlike SerialInputOutputManager.writeAsync() (see
+     * write() below).
+     */
+    private val writeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var port: UsbSerialPort? = null
     private var ioManager: SerialInputOutputManager? = null
     private var permissionReceiver: BroadcastReceiver? = null
@@ -140,19 +149,29 @@ class UsbSerialBridge(private val context: Context) {
     }
 
     /**
-     * Queues bytes for write via SerialInputOutputManager's own internal write queue —
-     * NOT a raw blocking port.write() dispatched onto ioExecutor, which is permanently
-     * occupied running that same manager's read loop once connected; a separately
-     * queued write task there would never get a turn to run.
+     * Writes bytes directly to the port on writeExecutor, a thread dedicated to writes and
+     * separate from ioExecutor's blocking read loop -- NOT via SerialInputOutputManager's
+     * writeAsync() queue, which only flushes queued writes when the manager's read-then-flush
+     * step() loop next returns from its blocking read() call (bounded by
+     * SERIAL_READ_TIMEOUT_MS, so a write could sit queued for up to that long whenever the FC
+     * was momentarily quiet). Reading `port` synchronously here (rather than inside the
+     * executor task) means a write issued after disconnect() has already nulled it is dropped
+     * immediately instead of being queued behind a port that's going away.
      */
     fun write(data: ByteArray) {
-        val manager = ioManager
-        if (manager == null) {
+        val openPort = port
+        if (openPort == null) {
             Log.w(TAG, "write() called with no open USB port; dropping ${data.size} byte(s).")
             return
         }
-        Log.d(TAG, "-> USB ${data.size}B: ${data.toHexPreview()}")
-        manager.writeAsync(data)
+        writeExecutor.execute {
+            Log.d(TAG, "-> USB ${data.size}B: ${data.toHexPreview()}")
+            try {
+                openPort.write(data, WRITE_TIMEOUT_MS)
+            } catch (e: IOException) {
+                Log.w(TAG, "Error writing to USB serial port", e)
+            }
+        }
     }
 
     fun disconnect() {
@@ -167,17 +186,23 @@ class UsbSerialBridge(private val context: Context) {
         // read/control-transfer call. Closing the port right away, from this (a
         // different) thread, can null out the connection that in-flight call is still
         // using -- exactly how "invoke virtual method ... controlTransfer(...) on a
-        // null object reference" crashes happen. Queuing close() behind the manager's
-        // own run() task on the same single-thread executor guarantees it only runs
-        // once that loop has actually returned. portToClose is captured explicitly
-        // (rather than reading the port field from inside the closure) so a
-        // hypothetical fast disconnect-then-reconnect can't end up closing whatever
-        // new port a later open() has since assigned to that field.
-        ioExecutor.execute {
-            try {
-                portToClose?.close()
-            } catch (e: IOException) {
-                Log.w(TAG, "Error closing USB serial port", e)
+        // null object reference" crashes happen. The same risk now applies to
+        // writeExecutor, which may have an in-flight or queued port.write() call at
+        // the moment disconnect() runs (write() above reads `port` before this method
+        // nulls it, so a write racing this call can still get queued). Chaining the
+        // close behind writeExecutor first, then ioExecutor, guarantees writeExecutor's
+        // queue has fully drained before the port actually closes, and still only
+        // closes once ioExecutor's manager run() task has actually returned. portToClose
+        // is captured explicitly (rather than reading the port field from inside the
+        // closure) so a hypothetical fast disconnect-then-reconnect can't end up closing
+        // whatever new port a later open() has since assigned to that field.
+        writeExecutor.execute {
+            ioExecutor.execute {
+                try {
+                    portToClose?.close()
+                } catch (e: IOException) {
+                    Log.w(TAG, "Error closing USB serial port", e)
+                }
             }
         }
 
@@ -245,15 +270,15 @@ class UsbSerialBridge(private val context: Context) {
                 }
             },
         )
-        // SerialInputOutputManager's step() loop does one blocking read, then flushes
-        // the writeAsync() queue, on a single thread -- with the default readTimeout=0
-        // (infinite), a read blocks forever whenever the other side hasn't sent
-        // anything yet, so a write queued via write() never actually reaches the wire
-        // until a read happens to return first. The library's own docs call this out:
-        // "when using writeAsync, it is recommended to use readTimeout != 0, else the
-        // write will be delayed until read data is available." Must be set before
-        // ioExecutor.execute(manager) below -- SerialInputOutputManager throws if
-        // changed after it starts running.
+        // Writes no longer go through this manager (see write() above, which uses
+        // writeExecutor + a direct port.write() instead of writeAsync()), so this timeout
+        // no longer gates write latency. It still bounds how long the read loop's blocking
+        // read() call can run before returning control to step(), which matters for how
+        // promptly manager.stop() (called from disconnect()) actually takes effect -- with
+        // the default readTimeout=0 (infinite), a read blocks forever whenever the other
+        // side hasn't sent anything yet, so stop() wouldn't be noticed until the FC next
+        // sends data. Must be set before ioExecutor.execute(manager) below --
+        // SerialInputOutputManager throws if changed after it starts running.
         manager.setReadTimeout(SERIAL_READ_TIMEOUT_MS)
         ioManager = manager
         ioExecutor.execute(manager)
@@ -301,11 +326,18 @@ class UsbSerialBridge(private val context: Context) {
         const val SERIAL_BAUD_RATE = 115200
 
         /**
-         * Short enough that a queued write is never stuck behind a blocking read for
-         * long (see the comment at setReadTimeout() above), long enough to avoid
-         * busy-looping the read call when the FC is idle.
+         * Bounds how long the read loop's blocking read() call can run before manager.stop()
+         * (see disconnect()) is noticed; long enough to avoid busy-looping the read call when
+         * the FC is idle. No longer affects write latency -- see write()'s doc comment.
          */
         private const val SERIAL_READ_TIMEOUT_MS = 500
+
+        /**
+         * Safety ceiling for a single blocking port.write() call on writeExecutor (see
+         * write()), not a normal-path delay -- just bounds how long a wedged/unresponsive
+         * device can hang the write executor for.
+         */
+        private const val WRITE_TIMEOUT_MS = 500
 
         /**
          * (vendorId, productId) pairs to force-treat as CdcAcmSerialDriver when neither
