@@ -92,7 +92,7 @@ export function createGroundConnectionPanel(
   bundleInput.className = "dl-ground__bundle-input";
   bundleInput.rows = 5;
   bundleInput.placeholder =
-    '{"sessionId":"...","token":"...","host":"localhost","port":8443,"certFingerprint":"AA:BB:..."}';
+    '{"sessionId":"...","token":"...","host":"localhost","port":8443}';
 
   const pairButton = document.createElement("button");
   pairButton.type = "button";

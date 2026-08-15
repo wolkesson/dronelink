@@ -14,7 +14,6 @@ The pairing bundle JSON shape is defined in `schemas/pairing-bundle.schema.json`
 - `sessionId` — random session identifier for the ground-side pairing session
 - `token` — random 128-bit base64url token the client must send in its first signaling message
 - `host` / `port` — the ground-side `wss://` endpoint
-- `certFingerprint` — SHA-256 fingerprint of the self-signed TLS certificate served by `/ground`
 
 ## Adding fixtures
 

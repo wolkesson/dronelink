@@ -296,7 +296,9 @@ describe("signaling server", () => {
 
     runtimes.push(first, second);
 
-    const [firstBundle, secondBundle] = await Promise.all([first.start(), second.start()]);
-    expect(firstBundle.certFingerprint).toBe(secondBundle.certFingerprint);
+    const certPath = join(stateDir, "pairing-cert.pem");
+    const certBeforeSecondStart = readFileSync(certPath, "utf8");
+    await Promise.all([first.start(), second.start()]);
+    expect(readFileSync(certPath, "utf8")).toBe(certBeforeSecondStart);
   });
 });

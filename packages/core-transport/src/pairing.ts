@@ -1,5 +1,4 @@
 export const TOKEN_PATTERN = /^[A-Za-z0-9_-]{22}$/u;
-export const FINGERPRINT_PATTERN = /^(?:[A-Fa-f0-9]{2}:){31}[A-Fa-f0-9]{2}$/u;
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -31,7 +30,6 @@ export interface PairingBundle {
   token: string;
   host: string;
   port: number;
-  certFingerprint: string;
 }
 
 export interface PairingRequest {
@@ -78,9 +76,7 @@ export function isPairingBundle(value: unknown): value is PairingBundle {
     typeof value.port === "number" &&
     Number.isInteger(value.port) &&
     value.port >= 1 &&
-    value.port <= 65535 &&
-    typeof value.certFingerprint === "string" &&
-    FINGERPRINT_PATTERN.test(value.certFingerprint)
+    value.port <= 65535
   );
 }
 
