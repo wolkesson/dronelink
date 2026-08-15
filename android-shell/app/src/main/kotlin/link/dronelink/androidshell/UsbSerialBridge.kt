@@ -157,6 +157,18 @@ class UsbSerialBridge(private val context: Context) {
      * was momentarily quiet). Reading `port` synchronously here (rather than inside the
      * executor task) means a write issued after disconnect() has already nulled it is dropped
      * immediately instead of being queued behind a port that's going away.
+     *
+     * The `port !== openPort` re-check inside the executor task guards a different window:
+     * several writes can get queued in the brief gap between a physical unplug and the read
+     * loop actually noticing (onRunError firing, which is what triggers disconnect()). Without
+     * it, every one of those already-queued writes would still attempt a real blocking
+     * port.write() against a device that's already gone, and on some devices/kernels a
+     * bulkTransfer to a vanished device doesn't fail fast -- it blocks for the full
+     * WRITE_TIMEOUT_MS before giving up. Several of those stacking up on this single-thread
+     * executor is exactly what produced the "degraded performance after disconnect/replug"
+     * symptom seen on real hardware: writeExecutor stayed busy working through a backlog of
+     * timed-out writes to the dead port instead of servicing the new connection's writes. The
+     * re-check turns each stale queued write into a same-microsecond no-op instead.
      */
     fun write(data: ByteArray) {
         val openPort = port
@@ -165,6 +177,10 @@ class UsbSerialBridge(private val context: Context) {
             return
         }
         writeExecutor.execute {
+            if (port !== openPort) {
+                Log.w(TAG, "Dropping stale queued write (${data.size}B); USB port changed before this write's turn.")
+                return@execute
+            }
             Log.d(TAG, "-> USB ${data.size}B: ${data.toHexPreview()}")
             try {
                 openPort.write(data, WRITE_TIMEOUT_MS)
@@ -335,9 +351,14 @@ class UsbSerialBridge(private val context: Context) {
         /**
          * Safety ceiling for a single blocking port.write() call on writeExecutor (see
          * write()), not a normal-path delay -- just bounds how long a wedged/unresponsive
-         * device can hang the write executor for.
+         * device can hang the write executor for. A real write at this baud rate completes
+         * in well under a millisecond, so this only matters for a device that's wedged or
+         * has just vanished (the write()'s `port !== openPort` re-check catches most of that
+         * window, but not the narrow gap before the read loop has noticed the disconnect
+         * yet). Kept short, unlike SERIAL_READ_TIMEOUT_MS, so that gap can't stack up a
+         * multi-second backlog on writeExecutor if several writes land in it.
          */
-        private const val WRITE_TIMEOUT_MS = 500
+        private const val WRITE_TIMEOUT_MS = 100
 
         /**
          * (vendorId, productId) pairs to force-treat as CdcAcmSerialDriver when neither
