@@ -43,6 +43,15 @@ function seedTlsMaterial(stateDir: string): void {
   const keyPath = join(stateDir, "pairing-key.pem");
   const certPath = join(stateDir, "pairing-cert.pem");
   const tlsTargetPath = join(stateDir, "pairing-cert-target.txt");
+  // Explicit minimal config avoids the system openssl.cnf's default [req]
+  // x509_extensions (v3_ca), which some Windows OpenSSL distributions ship
+  // with a broken authorityKeyIdentifier value (keyid:nonss).
+  const opensslConfigPath = join(stateDir, "openssl.cnf");
+  writeFileSync(
+    opensslConfigPath,
+    "[req]\ndistinguished_name = req_distinguished_name\n[req_distinguished_name]\n",
+    "utf8",
+  );
   const result = spawnSync(
     "openssl",
     [
@@ -62,6 +71,8 @@ function seedTlsMaterial(stateDir: string): void {
       "/CN=localhost",
       "-addext",
       "subjectAltName=DNS:localhost,IP:127.0.0.1",
+      "-config",
+      opensslConfigPath,
     ],
     {
       encoding: "utf8",
