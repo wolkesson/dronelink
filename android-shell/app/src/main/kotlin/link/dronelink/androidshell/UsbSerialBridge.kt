@@ -112,12 +112,12 @@ class UsbSerialBridge(private val context: Context) {
     private fun cdcAcmDriverFor(device: UsbDevice): CdcAcmSerialDriver = CdcAcmSerialDriver(device)
 
     /** First 16 bytes as hex, for spotting whether traffic looks like a real MSP frame (e.g. "24 4d 3c ..." / "$M<") vs garbage. */
-    private fun ByteArray.toHexPreview(maxBytes: Int = 16): String {
+    internal fun ByteArray.toHexPreview(maxBytes: Int = 16): String {
         val hex = take(maxBytes).joinToString(" ") { "%02x".format(it) }
         return if (size > maxBytes) "$hex …" else hex
     }
 
-    private fun looksLikeCdcAcm(device: UsbDevice): Boolean =
+    internal fun looksLikeCdcAcm(device: UsbDevice): Boolean =
         (0 until device.interfaceCount).any { device.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_COMM }
 
     private fun logUnrecognizedDevices(devices: Collection<UsbDevice>) {

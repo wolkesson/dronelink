@@ -144,7 +144,7 @@ Path-scoped GitHub Actions, all running root `npm ci` then the relevant workspac
 
 - `ground-ci.yml` — triggers on `apps/ground-core-node`, `apps/ground-web-client`, `packages/core-transport`, `packages/ground-client-sdk`, `packages/ui-kit-ground`, `packages/ui-kit-shared`, `protocol`.
 - `webapp-ci.yml` — triggers on `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`.
-- `android-ci.yml` — triggers on `android-shell`, `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`. Builds the `air-webapp` PWA bundle via `npm ci`, then builds `android-shell`'s debug APK with Gradle (JDK 17) and uploads it as a workflow artifact. No lint/test step yet — `android-shell` has no unit tests.
+- `android-ci.yml` — triggers on `android-shell`, `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`. Builds the `air-webapp` PWA bundle via `npm ci`, runs `android-shell`'s Kotlin unit tests (`./gradlew testDebugUnitTest`), then builds the debug APK with Gradle (JDK 17) and uploads both the test report and the APK as workflow artifacts. No lint step yet.
 
 ## Code style
 

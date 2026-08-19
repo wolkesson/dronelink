@@ -31,10 +31,6 @@ jobs:
     if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
 
-    # No unit/instrumented tests exist under android-shell/app/src yet (Phase 2.5,
-    # spike 1). Add a `test`/`lint` step here once spikes add Kotlin unit tests or
-    # Android Lint is configured to fail the build rather than being advisory.
-
     steps:
       - uses: actions/checkout@v5
 
@@ -68,6 +64,18 @@ jobs:
       # already accepted) that covers current platform/build-tools versions; if
       # compileSdk/targetSdk 34 ever falls outside that range, the Android Gradle
       # Plugin will auto-download the missing SDK packages from dl.google.com.
+      - name: Run unit tests
+        working-directory: android-shell
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-shell-test-results
+          path: android-shell/app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+
       - name: Build debug APK
         working-directory: android-shell
         run: ./gradlew assembleDebug --stacktrace

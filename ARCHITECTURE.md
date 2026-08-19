@@ -71,8 +71,8 @@ This mirrors the Android-shell principle: keep shells thin and keep durable logi
 - The repo root is an npm workspace containing `apps/*` and `packages/*`.
 - `ground-ci.yml` runs root `npm ci`, then builds/tests the ground-side and shared workspaces.
 - `webapp-ci.yml` runs root `npm ci`, then builds/tests the air-side and shared workspaces.
-- `android-ci.yml` runs root `npm ci` to build the `air-webapp` PWA bundle, then builds `android-shell`'s debug APK with Gradle (JDK 17) and uploads it as a workflow artifact.
-- Lint remains advisory in the npm-based workflows; `android-ci.yml` has no lint/test step yet (see the workflow file).
+- `android-ci.yml` runs root `npm ci` to build the `air-webapp` PWA bundle, runs `android-shell`'s Kotlin unit tests with Gradle (JDK 17), then builds the debug APK and uploads both the test report and the APK as workflow artifacts.
+- Lint remains advisory in the npm-based workflows; `android-ci.yml` has no lint step yet (see the workflow file).
 - Local development TLS still uses `mkcert` for the air app and either `mkcert` or `tailscale cert` for the ground runtime.
 
 ## 6. Current implementation state
