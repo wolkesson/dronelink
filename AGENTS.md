@@ -53,6 +53,8 @@ npm test               --workspace @dronelink/<pkg>   # vitest run (core-transpo
 npm run test:coverage  --workspace @dronelink/<pkg>   # vitest run --coverage (same four packages)
 ```
 
+Each package's `vitest.config.ts` sets `coverage.reporter` to `[["text", { skipFull: false }], "html", "clover", "json"]`. This overrides Vitest's own default of hiding 100%-covered files from the text report when it detects it's running under an AI agent (`std-env`'s `isAgent`, triggered by env vars like `CLAUDECODE`/`AI_AGENT`). Don't remove `skipFull: false` to "clean up" verbose coverage output — a hidden row is indistinguishable from a file that isn't measured at all, which is misleading when verifying that a file reached full coverage.
+
 Run a single test file with vitest directly, e.g.:
 
 ```sh
