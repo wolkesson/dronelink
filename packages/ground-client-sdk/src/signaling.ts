@@ -132,7 +132,7 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
         }
 
         if (parsed.sessionId !== sessionId) {
-          socket.close(1008, "invalid session");
+          socket.close(1008, "invalid session id");
           return;
         }
 
