@@ -7,7 +7,11 @@
  * instead of a stand-in that might not behave the same way a browser's would.
  */
 import { describe, it, expect } from "vitest";
-import { NativeBridgeTransport, NATIVE_BRIDGE_PORT_MESSAGE } from "./NativeBridgeTransport.js";
+import {
+  NativeBridgeTransport,
+  NATIVE_BRIDGE_PORT_MESSAGE,
+  NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE,
+} from "./NativeBridgeTransport.js";
 
 function wait(ms = 10): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -16,6 +20,11 @@ function wait(ms = 10): Promise<void> {
 describe("NativeBridgeTransport", () => {
   it("exports the window-message payload constant used for the port handoff", () => {
     expect(NATIVE_BRIDGE_PORT_MESSAGE).toBe("dronelink:native-bridge-port");
+  });
+
+  it("exports a distinct payload constant for reconnect ports", () => {
+    expect(NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE).toBe("dronelink:native-bridge-port-reconnect");
+    expect(NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE).not.toBe(NATIVE_BRIDGE_PORT_MESSAGE);
   });
 
   // -- open() / receivePort() ordering ----------------------------------------

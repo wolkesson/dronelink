@@ -16,9 +16,19 @@ import type { SerialTransport } from "./SerialTransport.js";
 
 /**
  * Window-message payload the Android native shell posts, alongside a transferred
- * MessagePort, once its USB serial bridge is ready to exchange bytes.
+ * MessagePort, the first time its USB serial session ever connects a device.
  */
 export const NATIVE_BRIDGE_PORT_MESSAGE = "dronelink:native-bridge-port";
+
+/**
+ * Window-message payload the native shell posts instead of NATIVE_BRIDGE_PORT_MESSAGE
+ * whenever the port is for a USB session that has already connected at least once before
+ * — either a live replug, or (since android-shell moved USB ownership into
+ * AirShellForegroundService) a WebView re-attaching to a session that kept running across
+ * an Activity recreation. The app layer treats this as safe to auto-connect on without
+ * requiring the pilot's initial explicit "Connect FC" gesture again.
+ */
+export const NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE = "dronelink:native-bridge-port-reconnect";
 
 export class NativeBridgeTransport implements SerialTransport {
   private readonly handlers = new Set<(data: Uint8Array) => void>();
