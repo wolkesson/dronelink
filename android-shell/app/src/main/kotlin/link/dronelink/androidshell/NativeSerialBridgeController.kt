@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbManager
 import android.net.Uri
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.Log
 import android.webkit.WebView
 import androidx.core.content.ContextCompat
@@ -33,6 +35,24 @@ class NativeSerialBridgeController(
     private var connected = false
     private var connecting = false
     private var reattachReceiver: BroadcastReceiver? = null
+
+    /**
+     * Runs the page->native WebMessage callback (see attemptConnect()'s
+     * setWebMessageCallback below) off the main/UI thread. The default (no-Handler)
+     * overload dispatches onMessage() on the UI thread -- the same thread the WebView
+     * uses for compositing and, when a video track is active, frame capture/encoding
+     * scheduling. A burst of reconnect activity landing there (USB device enumeration,
+     * tearing down/recreating the WebMessageChannel) can introduce send-side jitter that
+     * WebRTC's delay-based bandwidth estimator (GCC) misreads as network congestion,
+     * cutting the video/data-channel bitrate and then ramping it back up slowly over
+     * tens of seconds -- confirmed on real hardware as elevated MSP round-trip time for
+     * about a minute after a USB replug, even though the WebRTC connection's own RTT
+     * stayed flat throughout (ruling out an actual network-path issue). Isolating this
+     * callback onto its own thread keeps USB/serial JS-bridge traffic from contending
+     * with the UI thread at all.
+     */
+    private val callbackThread = HandlerThread("NativeSerialBridge-Callback").apply { start() }
+    private val callbackHandler = Handler(callbackThread.looper)
 
     /**
      * Attempts to find and open an already-attached USB-serial device and hand a
@@ -86,16 +106,19 @@ class NativeSerialBridgeController(
         val nativeSidePort = channel[1]
         nativePort = nativeSidePort
 
-        nativeSidePort.setWebMessageCallback(object : WebMessagePortCompat.WebMessageCallbackCompat() {
-            override fun onMessage(port: WebMessagePortCompat, message: WebMessageCompat?) {
-                if (message?.type != WebMessageCompat.TYPE_ARRAY_BUFFER) {
-                    Log.w(TAG, "Ignoring non-ArrayBuffer WebMessage from page (type=${message?.type})")
-                    return
+        nativeSidePort.setWebMessageCallback(
+            callbackHandler,
+            object : WebMessagePortCompat.WebMessageCallbackCompat() {
+                override fun onMessage(port: WebMessagePortCompat, message: WebMessageCompat?) {
+                    if (message?.type != WebMessageCompat.TYPE_ARRAY_BUFFER) {
+                        Log.w(TAG, "Ignoring non-ArrayBuffer WebMessage from page (type=${message?.type})")
+                        return
+                    }
+                    Log.d(TAG, "<- WebView ${message.arrayBuffer.size}B")
+                    usbBridge.write(message.arrayBuffer)
                 }
-                Log.d(TAG, "<- WebView ${message.arrayBuffer.size}B")
-                usbBridge.write(message.arrayBuffer)
-            }
-        })
+            },
+        )
 
         usbBridge.connect(
             object : UsbSerialBridge.Listener {
@@ -139,6 +162,11 @@ class NativeSerialBridgeController(
         nativePort = null
         connected = false
         connecting = false
+        // quitSafely() lets any WebMessage callback already dispatched to this thread
+        // finish before the thread exits, rather than cutting it off mid-callback.
+        // This controller instance is one-shot (see MainActivity.onDestroy()), so the
+        // thread never needs to come back after this.
+        callbackThread.quitSafely()
     }
 
     companion object {
