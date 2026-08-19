@@ -116,6 +116,8 @@ Then: open the air-webapp URL in desktop Chrome, paste/scan the pairing bundle p
 
 For Tailscale instead of LAN, set `SIGNAL_HOST`, `SIGNAL_TLS_TARGET`, and `TLS_PROVIDER=tailscale` before starting `ground-core-node`.
 
+By default `sessionId`/`token` are regenerated every time `ground-core-node` starts, so a printed QR code goes stale on restart. To print a pairing QR code once and reuse it, set `PAIRING_SESSION_ID` and `PAIRING_TOKEN` (22 base64url characters, e.g. from `node -e "console.log(require('crypto').randomBytes(16).toString('base64url'))"`) before starting `ground-core-node` — the process fails fast at startup if `PAIRING_TOKEN` is malformed. This pins the pairing credential instead of rotating it per run, so only do this on a trusted network.
+
 ## Key design constraints
 
 - **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end; MSP/MAVLink parsing belongs only in ground-specific higher layers.
