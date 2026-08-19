@@ -49,6 +49,24 @@
             "skipFiles": [
                 "<node_internals>/**"
             ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Ground: Debug (Local) with fixed QR",
+            "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/tsx",
+            "program": "${workspaceFolder}/apps/ground-core-node/src/index.ts",
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "env": {
+                "SIGNAL_HOST": "192.168.0.150",
+                "PAIRING_SESSION_ID": "43f857cb-9b86-4ce2-95af-c9d728a0a70d",
+                "PAIRING_TOKEN": "-PgWRYm65AHGh_-bWvzn0Q",
+            },
+            "cwd": "${workspaceFolder}/apps/ground-core-node",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
         }
     ]
 }
