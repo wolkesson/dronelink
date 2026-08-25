@@ -1,0 +1,61 @@
+name: android release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-attach:
+    name: Build and attach APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build PWA bundle (embedded by android-shell's Gradle copyWebapp task)
+        run: |
+          npm run build --workspace @dronelink/core-transport
+          npm run build --workspace @dronelink/air-client-sdk
+          npm run build --workspace @dronelink/ui-kit-shared
+          npm run build --workspace @dronelink/air-webapp
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build debug APK
+        working-directory: android-shell
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK for release
+        run: |
+          mkdir -p release-out
+          cp android-shell/app/build/outputs/apk/debug/app-debug.apk \
+            "release-out/dronelink-android-${{ github.event.release.tag_name }}.apk"
+
+      - name: Attach APK to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "release-out/dronelink-android-${{ github.event.release.tag_name }}.apk" \
+            --clobber
