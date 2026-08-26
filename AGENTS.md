@@ -53,6 +53,8 @@ npm test               --workspace @dronelink/<pkg>   # vitest run (core-transpo
 npm run test:coverage  --workspace @dronelink/<pkg>   # vitest run --coverage (same four packages)
 ```
 
+Each package's `vitest.config.ts` sets `coverage.reporter` to `[["text", { skipFull: false }], "html", "clover", "json"]`. This overrides Vitest's own default of hiding 100%-covered files from the text report when it detects it's running under an AI agent (`std-env`'s `isAgent`, triggered by env vars like `CLAUDECODE`/`AI_AGENT`). Don't remove `skipFull: false` to "clean up" verbose coverage output — a hidden row is indistinguishable from a file that isn't measured at all, which is misleading when verifying that a file reached full coverage.
+
 Run a single test file with vitest directly, e.g.:
 
 ```sh
@@ -147,6 +149,7 @@ Path-scoped GitHub Actions, all running root `npm ci` then the relevant workspac
 - `ground-ci.yml` — triggers on `apps/ground-core-node`, `apps/ground-web-client`, `packages/core-transport`, `packages/ground-client-sdk`, `packages/ui-kit-ground`, `packages/ui-kit-shared`, `protocol`.
 - `webapp-ci.yml` — triggers on `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`.
 - `android-ci.yml` — triggers on `android-shell`, `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`. Builds the `air-webapp` PWA bundle via `npm ci`, runs `android-shell`'s Kotlin unit tests (`./gradlew testDebugUnitTest`), then builds the debug APK with Gradle (JDK 17) and uploads both the test report and the APK as workflow artifacts. No lint step yet.
+- `android-release.yml` — triggers when a GitHub Release (including a pre-release) is published, or manually via `workflow_dispatch` with a `tag` input (needed to backfill an existing release, since re-publishing one via draft-toggle does not fire the `release` trigger). Rebuilds the same debug-signed APK as `android-ci.yml` at the given tag and attaches it to that release as `dronelink-android-<tag>.apk` via `gh release upload`. The APK is debug-signed (no dedicated release keystore exists yet); it doesn't touch the release's title, body, or prerelease flag.
 
 ## Code style
 

@@ -254,6 +254,75 @@ describe("WebRtcSessionManager", () => {
     }
   });
 
+  it("buffers ICE candidates that arrive before the answer's remote description is set, then flushes them", async () => {
+    const { pc, openRef } = makeMockPc();
+    const resolveRemoteDescriptionRef: { fn: (() => void) | null } = { fn: null };
+    const setRemoteDescription = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRemoteDescriptionRef.fn = resolve;
+        }),
+    );
+    const addIceCandidate = vi.fn(async () => {});
+    (pc as unknown as Record<string, unknown>).setRemoteDescription = setRemoteDescription;
+    (pc as unknown as Record<string, unknown>).addIceCandidate = addIceCandidate;
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+      (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+        onMessageRef.fn = cb;
+      });
+
+      const connectPromise = mgr.connect(socket);
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      const candidateA = { candidate: "candidate:1 1 UDP 1 100.100.10.5 51820 typ host" };
+      const candidateB = { candidate: "candidate:2 1 UDP 1 100.100.10.6 51820 typ host" };
+
+      // Candidates arrive over signaling before the answer -- addIceCandidate must not
+      // be called yet, since RTCPeerConnection rejects it without a remote description.
+      onMessageRef.fn?.(JSON.stringify({ type: "ice-candidate", candidate: candidateA }));
+      onMessageRef.fn?.(JSON.stringify({ type: "ice-candidate", candidate: candidateB }));
+      expect(addIceCandidate).not.toHaveBeenCalled();
+
+      // The answer arrives and setRemoteDescription resolves -- buffered candidates
+      // should now flush in order.
+      onMessageRef.fn?.(JSON.stringify({ type: "answer", sdp: "v=0\r\n" }));
+      resolveRemoteDescriptionRef.fn?.();
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      expect(addIceCandidate).toHaveBeenCalledTimes(2);
+      expect(addIceCandidate).toHaveBeenNthCalledWith(1, candidateA);
+      expect(addIceCandidate).toHaveBeenNthCalledWith(2, candidateB);
+
+      // A candidate arriving after the remote description is set flushes immediately.
+      const candidateC = { candidate: "candidate:3 1 UDP 1 100.100.10.7 51820 typ host" };
+      onMessageRef.fn?.(JSON.stringify({ type: "ice-candidate", candidate: candidateC }));
+      await Promise.resolve();
+      expect(addIceCandidate).toHaveBeenCalledTimes(3);
+      expect(addIceCandidate).toHaveBeenNthCalledWith(3, candidateC);
+
+      openRef.fn?.();
+      await connectPromise;
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("connect() calls addTrack() for each stream track before createOffer when localStream provided", async () => {
     const { pc, openRef } = makeMockPc();
     const addTrack = vi.fn();

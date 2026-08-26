@@ -8,7 +8,9 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "lint": "eslint src --ext .ts,.tsx"
+    "lint": "eslint src --ext .ts,.tsx",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@dronelink/air-client-sdk": "file:../../packages/air-client-sdk",
@@ -20,9 +22,11 @@
     "@types/w3c-web-serial": "^1.0.8",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.0.0",
     "typescript": "^5.9.2",
     "vite": "^8.1.5",
-    "vite-plugin-mkcert": "^2.1.0"
+    "vite-plugin-mkcert": "^2.1.0",
+    "vitest": "^4.1.10"
   }
 }
