@@ -25,12 +25,16 @@ class MainActivity : AppCompatActivity() {
     // early (e.g. webAppServer failed to start) before this was ever assigned.
     private var webView: WebView? = null
 
-    private val permissionBridge = WebPermissionBridge(this)
+    // Shared with WebPermissionBridge -- see PermissionRequestSequencer's doc comment
+    // for why the notification-permission request below and the WebView's camera/mic
+    // passthrough must not call Android's requestPermissions() concurrently.
+    private val permissionSequencer = PermissionRequestSequencer()
+    private val permissionBridge = WebPermissionBridge(this, permissionSequencer)
 
     // The foreground service functions either way; this only affects whether
     // its notification is visible (Android 13+ requires it to be granted).
     private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { permissionSequencer.next() }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,7 +43,7 @@ class MainActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            permissionSequencer.run { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
         }
         AirShellForegroundService.start(this)
 

@@ -29,7 +29,7 @@ class WebPermissionBridgeTest {
     @Before
     fun setUp() {
         activity = Robolectric.buildActivity(ComponentActivity::class.java).create().get()
-        bridge = WebPermissionBridge(activity)
+        bridge = WebPermissionBridge(activity, PermissionRequestSequencer())
     }
 
     private fun requestFor(vararg resources: String): PermissionRequest {
