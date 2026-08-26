@@ -2,9 +2,14 @@ package link.dronelink.androidshell
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -31,6 +36,26 @@ class MainActivity : AppCompatActivity() {
     private val permissionSequencer = PermissionRequestSequencer()
     private val permissionBridge = WebPermissionBridge(this, permissionSequencer)
 
+    // Set once onPageFinished() has confirmed the WebView is showing pageOrigin, and
+    // once the service connection hands over the USB session -- whichever arrives
+    // second is what actually attaches the bridge (see maybeAttachBridge()).
+    private var pageOrigin: Uri? = null
+    private var usbSession: UsbSerialSession? = null
+    private var serviceBound = false
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            usbSession = (binder as AirShellForegroundService.LocalBinder).getService().usbSession
+            maybeAttachBridge()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            // Only fires on the service process crashing/being killed out from under us
+            // (not a normal unbind, which never calls this) -- AirShellForegroundService
+            // lives in this same process, so this shouldn't happen in practice.
+            usbSession = null
+        }
+    }
+
     // The foreground service functions either way; this only affects whether
     // its notification is visible (Android 13+ requires it to be granted).
     private val notificationPermissionLauncher =
@@ -46,6 +71,11 @@ class MainActivity : AppCompatActivity() {
             permissionSequencer.run { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
         }
         AirShellForegroundService.start(this)
+        serviceBound = bindService(
+            Intent(this, AirShellForegroundService::class.java),
+            serviceConnection,
+            Context.BIND_AUTO_CREATE,
+        )
 
         webAppServer = LocalWebAppServer(assets)
         try {
@@ -75,25 +105,43 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val pageOrigin = Uri.parse("http://127.0.0.1:${webAppServer.listeningPort}")
+        val origin = Uri.parse("http://127.0.0.1:${webAppServer.listeningPort}")
 
         // postWebMessage() targets a specific origin and is dropped silently if the WebView
         // isn't actually showing that origin yet (e.g. still on about:blank mid-navigation),
-        // so the bridge only starts once onPageFinished confirms the page has loaded --
-        // starting it right after loadUrl() would race that.
+        // so the bridge only attaches once onPageFinished confirms the page has loaded --
+        // attaching right after loadUrl() would race that.
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
-                if (serialBridgeController != null) return
-                serialBridgeController = NativeSerialBridgeController(this@MainActivity, view, pageOrigin).also { it.start() }
+                if (pageOrigin != null) return
+                pageOrigin = origin
+                maybeAttachBridge()
             }
         }
-        webView.loadUrl("$pageOrigin/")
+        webView.loadUrl("$origin/")
+    }
+
+    // The service connecting and the page finishing can arrive in either order -- this
+    // runs from both callbacks and only actually attaches once both have happened.
+    private fun maybeAttachBridge() {
+        if (serialBridgeController != null) return
+        val session = usbSession ?: return
+        val view = webView ?: return
+        val origin = pageOrigin ?: return
+        serialBridgeController = NativeSerialBridgeController(session, view, origin).also { it.attach() }
     }
 
     override fun onDestroy() {
-        serialBridgeController?.stop()
+        // detach(), not the old stop() -- AirShellForegroundService's UsbSerialSession
+        // deliberately keeps the USB connection alive independent of this Activity, so
+        // tearing it down here would defeat the entire point of owning it in the service.
+        serialBridgeController?.detach()
         serialBridgeController = null
+        if (serviceBound) {
+            unbindService(serviceConnection)
+            serviceBound = false
+        }
         webAppServer.stop()
 
         // AirShellForegroundService deliberately keeps the process alive independent

@@ -1,5 +1,6 @@
 import {
   NATIVE_BRIDGE_PORT_MESSAGE,
+  NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE,
   NativeBridgeTransport,
   PairingSession,
   QrPairingScanner,
@@ -231,16 +232,18 @@ export function mountApp(root: HTMLElement): void {
   let nativeBridgeTransport: NativeBridgeTransport | null = null;
   let pendingNativePort: MessagePort | null = null;
   let connectingFc = false;
-  // Set once the pilot has explicitly connected the FC at least once. After that,
-  // a dropped-and-replugged FC (e.g. a brownout mid-flight) reconnects on its own
-  // when the native shell reposts a fresh port -- nobody's there to tap "Connect
-  // FC" again on a phone mounted on a drone. The very first connect still requires
-  // an explicit tap, same as WebSerialTransport's picker on desktop.
-  let hasConnectedFcOnce = false;
 
   if (isAndroidShell()) {
     window.addEventListener("message", (event) => {
-      if (event.data !== NATIVE_BRIDGE_PORT_MESSAGE || event.ports.length === 0) return;
+      // The native shell distinguishes a session's genuine first-ever connect
+      // (NATIVE_BRIDGE_PORT_MESSAGE, still wants the pilot's explicit "Connect FC" tap,
+      // same as WebSerialTransport's picker on desktop) from every later reconnect
+      // (NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE -- a live replug, e.g. a brownout mid-flight,
+      // or android-shell's USB session surviving an Activity recreation), which is safe to
+      // auto-connect on without anyone there to tap the screen again. See
+      // UsbSerialSession.Listener.onConnected()'s doc comment on the native side.
+      const isReconnect = event.data === NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE;
+      if ((event.data !== NATIVE_BRIDGE_PORT_MESSAGE && !isReconnect) || event.ports.length === 0) return;
       const [port] = event.ports;
       // Always buffer as the latest pending port, in addition to forwarding to
       // whichever transport instance is current: the native shell reposts a fresh
@@ -253,7 +256,7 @@ export function mountApp(root: HTMLElement): void {
       // what actually rescues a fresh "Connect FC" tap from hanging forever.
       pendingNativePort = port;
       nativeBridgeTransport?.receivePort(port);
-      if (hasConnectedFcOnce && !transport && !connectingFc) {
+      if (isReconnect && !transport && !connectingFc) {
         handleConnectFc();
       }
     });
@@ -288,7 +291,6 @@ export function mountApp(root: HTMLElement): void {
       .open()
       .then(() => {
         connectingFc = false;
-        hasConnectedFcOnce = true;
         transport = t;
         fcPanel.setConnecting(false);
         fcPanel.setConnected(true);
