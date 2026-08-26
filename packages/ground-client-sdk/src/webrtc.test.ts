@@ -9,6 +9,7 @@ import {
   handleGuiSignalingMessage,
   handleSocketClose,
   handleGuiSocketClose,
+  requestKeyFrameOnPictureLoss,
 } from "./webrtc.js";
 
 describe("isTailscaleCandidate", () => {
@@ -56,6 +57,40 @@ describe("forwardRtpTrack", () => {
     forwarder.stop();
     source.onReceiveRtp.execute(packet as never);
     expect(received).toHaveLength(1);
+  });
+});
+
+describe("requestKeyFrameOnPictureLoss", () => {
+  it("requests a keyframe from the source receiver when the GUI sender reports picture loss", () => {
+    const listeners: Array<() => void> = [];
+    const sender = { onPictureLossIndication: { subscribe: (cb: () => void) => listeners.push(cb) } };
+    const sendRtcpPLI = vi.fn(async () => {});
+    const receiver = { sendRtcpPLI };
+
+    requestKeyFrameOnPictureLoss(sender as never, receiver as never, 12345);
+    expect(listeners).toHaveLength(1);
+
+    listeners[0]();
+    expect(sendRtcpPLI).toHaveBeenCalledWith(12345);
+  });
+
+  it("logs a warning instead of throwing when sendRtcpPLI rejects", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const listeners: Array<() => void> = [];
+    const sender = { onPictureLossIndication: { subscribe: (cb: () => void) => listeners.push(cb) } };
+    const receiver = {
+      sendRtcpPLI: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    };
+
+    requestKeyFrameOnPictureLoss(sender as never, receiver as never, 1);
+    listeners[0]();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to request keyframe"), "boom");
+    warnSpy.mockRestore();
   });
 });
 
