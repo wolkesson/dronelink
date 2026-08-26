@@ -1,4 +1,4 @@
-import { MediaStreamTrack, RTCPeerConnection } from "werift";
+import { MediaStreamTrack, RTCPeerConnection, type RTCRtpReceiver, type RTCRtpSender } from "werift";
 import { MediaRecorder } from "werift/nonstandard";
 import type { RTCDataChannel, RTCIceCandidateInit } from "werift";
 import type { RtpPacket } from "werift";
@@ -15,6 +15,7 @@ let onDataChannelCloseCallback: DataChannelCloseCallback | null = null;
 let activePc: RTCPeerConnection | null = null;
 let activeRecorder: MediaRecorder | null = null;
 let activeVideoTrack: MediaStreamTrack | null = null;
+let activeVideoReceiver: RTCRtpReceiver | null = null;
 let activeGuiPc: RTCPeerConnection | null = null;
 let activeGuiForwarder: RtpTrackForwarder | null = null;
 let guiRemoteDescriptionSet = false;
@@ -34,6 +35,30 @@ export function videoFilePath(dir: string, sessionId: string): string {
 export interface RtpTrackForwarder {
   track: MediaStreamTrack;
   stop(): void;
+}
+
+/**
+ * A GUI viewer's RTCRtpSender fires onPictureLossIndication whenever that viewer's
+ * decoder can't decode what it's receiving (most commonly: it joined mid-stream and
+ * has no keyframe to start from, since forwardRtpTrack() just relays whatever RTP
+ * happens to arrive from that point on). forwardRtpTrack() only copies media RTP, not
+ * RTCP feedback, so without this a GUI viewer's PLI never reaches the air side's
+ * encoder -- it would have to wait for that encoder's own spontaneous keyframe
+ * interval (if any) instead of getting one on demand.
+ */
+export function requestKeyFrameOnPictureLoss(
+  sender: Pick<RTCRtpSender, "onPictureLossIndication">,
+  receiver: Pick<RTCRtpReceiver, "sendRtcpPLI">,
+  mediaSsrc: number,
+): void {
+  sender.onPictureLossIndication.subscribe(() => {
+    void receiver.sendRtcpPLI(mediaSsrc).catch((err: unknown) => {
+      console.warn(
+        "Failed to request keyframe from source after GUI viewer PLI:",
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+  });
 }
 
 export function forwardRtpTrack(source: Pick<MediaStreamTrack, "kind" | "onReceiveRtp">): RtpTrackForwarder {
@@ -112,6 +137,7 @@ export function handleSignalingMessage(
     pc.onTrack.subscribe((track: MediaStreamTrack) => {
       if (track.kind !== "video") return;
       activeVideoTrack = track;
+      activeVideoReceiver = pc.getReceivers().find((r) => r.track === track) ?? null;
 
       if (stateDir) {
         mkdirSync(stateDir, { recursive: true });
@@ -240,11 +266,16 @@ export function handleGuiSignalingMessage(
 
     const sdp = typeof message.sdp === "string" ? message.sdp : "";
     const pc = new RTCPeerConnection({});
-    const forwarder = forwardRtpTrack(activeVideoTrack);
+    const sourceTrack = activeVideoTrack;
+    const sourceReceiver = activeVideoReceiver;
+    const forwarder = forwardRtpTrack(sourceTrack);
     activeGuiPc = pc;
     activeGuiForwarder = forwarder;
     guiRemoteDescriptionSet = false;
-    pc.addTrack(forwarder.track);
+    const sender = pc.addTrack(forwarder.track);
+    if (sourceReceiver && typeof sourceTrack.ssrc === "number") {
+      requestKeyFrameOnPictureLoss(sender, sourceReceiver, sourceTrack.ssrc);
+    }
 
     pc.onIceCandidate.subscribe((candidate) => {
       if (!candidate) return;
@@ -342,6 +373,7 @@ export function handleSocketClose(): void {
   }
   void stopRecorder();
   activeVideoTrack = null;
+  activeVideoReceiver = null;
   closeGuiPeer();
   pendingCandidates.length = 0;
 }
