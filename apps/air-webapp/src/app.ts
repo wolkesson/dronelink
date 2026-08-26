@@ -231,12 +231,6 @@ export function mountApp(root: HTMLElement): void {
   let nativeBridgeTransport: NativeBridgeTransport | null = null;
   let pendingNativePort: MessagePort | null = null;
   let connectingFc = false;
-  // Set once the pilot has explicitly connected the FC at least once. After that,
-  // a dropped-and-replugged FC (e.g. a brownout mid-flight) reconnects on its own
-  // when the native shell reposts a fresh port -- nobody's there to tap "Connect
-  // FC" again on a phone mounted on a drone. The very first connect still requires
-  // an explicit tap, same as WebSerialTransport's picker on desktop.
-  let hasConnectedFcOnce = false;
 
   if (isAndroidShell()) {
     window.addEventListener("message", (event) => {
@@ -245,15 +239,21 @@ export function mountApp(root: HTMLElement): void {
       // Always buffer as the latest pending port, in addition to forwarding to
       // whichever transport instance is current: the native shell reposts a fresh
       // port on every USB (re)connect (see NativeSerialBridgeController.kt), which
-      // can arrive before the next "Connect FC" tap creates a new transport, not
-      // just before the first one. nativeBridgeTransport keeps pointing at
-      // whichever instance createSerialTransport() built most recently, which may
-      // already be closed/disconnected -- receivePort() on a dead instance is a
-      // harmless no-op (see NativeBridgeTransport.receivePort()), so the buffer is
-      // what actually rescues a fresh "Connect FC" tap from hanging forever.
+      // can arrive before the next auto-connect creates a new transport, not just
+      // before the first one. nativeBridgeTransport keeps pointing at whichever
+      // instance createSerialTransport() built most recently, which may already be
+      // closed/disconnected -- receivePort() on a dead instance is a harmless no-op
+      // (see NativeBridgeTransport.receivePort()), so the buffer is what actually
+      // rescues a fresh auto-connect attempt from hanging forever.
       pendingNativePort = port;
       nativeBridgeTransport?.receivePort(port);
-      if (hasConnectedFcOnce && !transport && !connectingFc) {
+      // Unlike WebSerialTransport's desktop picker, the native shell already found
+      // and opened the USB-serial device itself (there's no in-page permission
+      // gesture to wait on) -- so as soon as it hands over a port, whether that's
+      // a FC already plugged in when the app launched, one plugged in while the
+      // app is running, or a replug after a disconnect, connect to it automatically
+      // instead of waiting for a manual "Connect FC" tap.
+      if (!transport && !connectingFc) {
         handleConnectFc();
       }
     });
@@ -288,7 +288,6 @@ export function mountApp(root: HTMLElement): void {
       .open()
       .then(() => {
         connectingFc = false;
-        hasConnectedFcOnce = true;
         transport = t;
         fcPanel.setConnecting(false);
         fcPanel.setConnected(true);
