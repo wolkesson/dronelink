@@ -1,5 +1,6 @@
 import {
   NATIVE_BRIDGE_PORT_MESSAGE,
+  NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE,
   NativeBridgeTransport,
   PairingSession,
   QrPairingScanner,
@@ -234,7 +235,15 @@ export function mountApp(root: HTMLElement): void {
 
   if (isAndroidShell()) {
     window.addEventListener("message", (event) => {
-      if (event.data !== NATIVE_BRIDGE_PORT_MESSAGE || event.ports.length === 0) return;
+      // The native shell distinguishes a session's genuine first-ever connect
+      // (NATIVE_BRIDGE_PORT_MESSAGE, still wants the pilot's explicit "Connect FC" tap,
+      // same as WebSerialTransport's picker on desktop) from every later reconnect
+      // (NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE -- a live replug, e.g. a brownout mid-flight,
+      // or android-shell's USB session surviving an Activity recreation), which is safe to
+      // auto-connect on without anyone there to tap the screen again. See
+      // UsbSerialSession.Listener.onConnected()'s doc comment on the native side.
+      const isReconnect = event.data === NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE;
+      if ((event.data !== NATIVE_BRIDGE_PORT_MESSAGE && !isReconnect) || event.ports.length === 0) return;
       const [port] = event.ports;
       // Always buffer as the latest pending port, in addition to forwarding to
       // whichever transport instance is current: the native shell reposts a fresh
@@ -247,13 +256,7 @@ export function mountApp(root: HTMLElement): void {
       // rescues a fresh auto-connect attempt from hanging forever.
       pendingNativePort = port;
       nativeBridgeTransport?.receivePort(port);
-      // Unlike WebSerialTransport's desktop picker, the native shell already found
-      // and opened the USB-serial device itself (there's no in-page permission
-      // gesture to wait on) -- so as soon as it hands over a port, whether that's
-      // a FC already plugged in when the app launched, one plugged in while the
-      // app is running, or a replug after a disconnect, connect to it automatically
-      // instead of waiting for a manual "Connect FC" tap.
-      if (!transport && !connectingFc) {
+      if (isReconnect && !transport && !connectingFc) {
         handleConnectFc();
       }
     });

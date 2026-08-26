@@ -71,6 +71,15 @@ export class WebRtcSessionManager {
       }
     };
 
+    // Ground trickles ICE candidates as soon as it gathers them, which can race
+    // ahead of its answer arriving and being applied here. addIceCandidate()
+    // rejects if the remote description isn't set yet, so buffer candidates
+    // that arrive before the answer and flush them once it's applied -- the
+    // same pattern ground-client-sdk's webrtc.ts uses for its own two
+    // offer/answer directions.
+    let remoteDescriptionSet = false;
+    const pendingCandidates: RTCIceCandidateInit[] = [];
+
     // Register the message handler BEFORE sending the offer so we never miss
     // an answer or ICE candidate that arrives immediately after the offer.
     socket.onMessage((data: string) => {
@@ -84,11 +93,30 @@ export class WebRtcSessionManager {
       if (!isRecord(msg)) return;
 
       if (msg.type === "answer" && typeof msg.sdp === "string") {
-        void this.pc?.setRemoteDescription({ type: "answer", sdp: msg.sdp }).catch((err) => {
-          console.error("setRemoteDescription failed:", err instanceof Error ? err.message : String(err));
-        });
+        void this.pc
+          ?.setRemoteDescription({ type: "answer", sdp: msg.sdp })
+          .then(async () => {
+            remoteDescriptionSet = true;
+            const buffered = pendingCandidates.splice(0);
+            for (const candidate of buffered) {
+              await this.pc?.addIceCandidate(candidate).catch((err: unknown) => {
+                console.warn(
+                  "Failed to add buffered ICE candidate:",
+                  err instanceof Error ? err.message : String(err),
+                );
+              });
+            }
+          })
+          .catch((err) => {
+            console.error("setRemoteDescription failed:", err instanceof Error ? err.message : String(err));
+          });
       } else if (msg.type === "ice-candidate" && isRecord(msg.candidate)) {
-        void this.pc?.addIceCandidate(msg.candidate as RTCIceCandidateInit).catch((err) => {
+        const candidateInit = msg.candidate as RTCIceCandidateInit;
+        if (!remoteDescriptionSet) {
+          pendingCandidates.push(candidateInit);
+          return;
+        }
+        void this.pc?.addIceCandidate(candidateInit).catch((err) => {
           console.warn("addIceCandidate failed:", err instanceof Error ? err.message : String(err));
         });
       }

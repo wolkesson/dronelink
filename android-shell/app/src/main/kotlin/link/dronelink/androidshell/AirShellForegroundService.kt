@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -25,12 +26,43 @@ import androidx.core.content.ContextCompat
  * Screen-stays-on while the app is visible is handled separately by
  * MainActivity's FLAG_KEEP_SCREEN_ON — this service only covers the CPU.
  *
- * No USB/telemetry logic here — Spike 4 owns that. This just needs to exist
- * and keep running so BootUsbReceiver has something to start.
+ * Also owns the USB serial session (see UsbSerialSession) so it survives
+ * MainActivity being backgrounded/recreated -- the Activity binds to this
+ * service and attaches a NativeSerialBridgeController listener to usbSession
+ * for as long as it has a live WebView, but the session itself keeps running
+ * whether or not anything is bound.
  */
 class AirShellForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+
+    /**
+     * Lazy, not a plain field initializer: a Service's Context (getSystemService(),
+     * which UsbSerialBridge's constructor needs) isn't usable until the framework
+     * calls attachBaseContext(), which happens after this object is constructed --
+     * a field initializer would run first and NPE. By the time anything actually
+     * touches usbSession (onBind(), well after onCreate()), attachBaseContext()
+     * has long since run.
+     *
+     * Only started (device connect attempts begin) from onBind() -- deferring USB
+     * connect/permission-request until an Activity is actually present or starting
+     * keeps this on the same footing as today's behavior, and avoids requesting USB
+     * permission with no Activity in the foreground at all (untested territory,
+     * notably for BootUsbReceiver's unattended-start path, which this deliberately
+     * leaves alone).
+     */
+    val usbSession: UsbSerialSession by lazy { UsbSerialSession(this) }
+
+    private val binder = LocalBinder()
+
+    inner class LocalBinder : Binder() {
+        fun getService(): AirShellForegroundService = this@AirShellForegroundService
+    }
+
+    override fun onBind(intent: Intent?): IBinder {
+        usbSession.start()
+        return binder
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -58,10 +90,9 @@ class AirShellForegroundService : Service() {
         return START_STICKY
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
+        usbSession.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         super.onDestroy()
