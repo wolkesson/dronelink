@@ -1,0 +1,57 @@
+diff --git a/node_modules/werift/lib/nonstandard/index.mjs b/node_modules/werift/lib/nonstandard/index.mjs
+index 61fb87e..c0f2b7e 100644
+--- a/node_modules/werift/lib/nonstandard/index.mjs
++++ b/node_modules/werift/lib/nonstandard/index.mjs
+@@ -7209,26 +7209,40 @@ var WebmCallback = class extends WebmBase {
+     this.queue.cancel();
+   };
+ };
++async function retryOnTransientFsError(fn) {
++  const maxAttempts = 8;
++  for (let attempt = 1; ; attempt++) {
++    try {
++      return await fn();
++    } catch (err) {
++      const retryable = err && (err.code === "EBUSY" || err.code === "EPERM");
++      if (!retryable || attempt >= maxAttempts) throw err;
++      await new Promise((resolve) => setTimeout(resolve, 20 * attempt));
++    }
++  }
++}
+ var saveToFileSystem = (path2) => {
+   const queue = new PromiseQueue();
+   return async (value) => {
+     return await queue.push(async () => {
+       if (value.saveToFile) {
+-        await appendFile2(path2, value.saveToFile);
++        await retryOnTransientFsError(() => appendFile2(path2, value.saveToFile));
+         return false;
+       } else if (value.eol) {
+         const { durationElement } = value.eol;
+-        const handler = await open(path2, "r+");
+-        await handler.write(
+-          durationElement,
+-          0,
+-          durationElement.length,
+-          DurationPosition
+-        );
+-        const meta = await stat(path2);
+-        const resize = replaceSegmentSize(meta.size);
+-        await handler.write(resize, 0, resize.length, SegmentSizePosition);
+-        await handler.close();
++        await retryOnTransientFsError(async () => {
++          const handler = await open(path2, "r+");
++          await handler.write(
++            durationElement,
++            0,
++            durationElement.length,
++            DurationPosition
++          );
++          const meta = await stat(path2);
++          const resize = replaceSegmentSize(meta.size);
++          await handler.write(resize, 0, resize.length, SegmentSizePosition);
++          await handler.close();
++        });
+         return true;
+       }
+       return false;
