@@ -4,17 +4,19 @@ import { createStatRow, type StatRowHandle } from "./StatRow.js";
 import { icons } from "./icons.js";
 
 export type GroundConnectionMode = "view" | "binding";
-export type BindingTab = "paste" | "scan";
+export type BindingView = "choice" | "scan" | "phrase";
 
 export interface GroundConnectionPanelOptions {
   qrSupported: boolean;
   onPair: (bundleText: string) => void;
   onStartScan: () => void;
   onCancelScan: () => void;
+  onSwitchCamera: () => void;
 }
 
 export interface GroundConnectionPanelHandle {
   el: HTMLElement;
+  videoEl: HTMLVideoElement;
   setMode(mode: GroundConnectionMode): void;
   setConnected(connected: boolean): void;
   setPairing(pairing: boolean): void;
@@ -22,22 +24,31 @@ export interface GroundConnectionPanelHandle {
   setThroughput(text: string): void;
   setUptime(text: string): void;
   setError(message: string): void;
+  setScanActive(active: boolean): void;
+  setCameraSwitchAvailable(available: boolean): void;
 }
 
 /**
- * Ground connection panel. "View" mode shows live WebRTC link stats;
- * "binding" mode lets the operator paste the pairing bundle JSON printed by
- * the ground station, or scan its QR code — the header toggle switches
- * between the two, matching the video/FC panels' pattern.
+ * Ground connection panel — the first step of the workflow. "Binding" mode
+ * opens on a choice screen (large "Scan QR" CTA + a smaller "enter binding
+ * phrase" link); each option drills into its own sub-view (a self-contained
+ * camera preview for scanning, or the textarea/Pair form for pasting the
+ * bundle). "View" mode (once connected) shows live WebRTC link stats.
+ *
+ * The scan view owns its own camera stream rather than reusing the video
+ * source panel's — binding now happens before a video source is picked, so
+ * there is no feed to piggyback on, and a dedicated stream lets it default to
+ * the rear camera and cycle through every available device independently of
+ * whichever camera later gets bound as the outgoing feed.
  */
 export function createGroundConnectionPanel(
   options: GroundConnectionPanelOptions,
 ): GroundConnectionPanelHandle {
   let mode: GroundConnectionMode = "binding";
-  let tab: BindingTab = "paste";
+  let view: BindingView = options.qrSupported ? "choice" : "phrase";
 
   const panel = createPanel({
-    number: "03",
+    number: "01",
     title: "SERVER BINDING",
     toggle: {
       icon: icons.dot,
@@ -66,27 +77,92 @@ export function createGroundConnectionPanel(
   const throughputRow: StatRowHandle = createStatRow("Relay Throughput", "—");
   const uptimeRow: StatRowHandle = createStatRow("Uptime Session", "00:00:00");
 
-  // --- binding mode ---
+  // --- binding mode: choice screen ---
 
-  const tabs = document.createElement("div");
-  tabs.className = "dl-ground__tabs";
+  const choiceWrap = document.createElement("div");
+  choiceWrap.className = "dl-ground__choice";
 
-  const pasteTabBtn = document.createElement("button");
-  pasteTabBtn.type = "button";
-  pasteTabBtn.className = "dl-ground__tab";
-  pasteTabBtn.innerHTML = `${icons.keyboard}<span>Paste Bundle</span>`;
-  pasteTabBtn.addEventListener("click", () => setTab("paste"));
-  tabs.appendChild(pasteTabBtn);
+  const scanButton = document.createElement("button");
+  scanButton.type = "button";
+  scanButton.className = "dl-ground__scan-cta";
+  scanButton.innerHTML = `
+    <span class="dl-ground__scan-cta-icon">${icons.qrCode}</span>
+    <span class="dl-ground__scan-cta-label">Scan QR</span>
+  `;
+  scanButton.addEventListener("click", () => setView("scan"));
 
-  let scanTabBtn: HTMLButtonElement | null = null;
+  const phraseLink = document.createElement("button");
+  phraseLink.type = "button";
+  phraseLink.className = "dl-ground__link-button";
+  phraseLink.textContent = "Enter binding phrase";
+  phraseLink.addEventListener("click", () => setView("phrase"));
+
   if (options.qrSupported) {
-    scanTabBtn = document.createElement("button");
-    scanTabBtn.type = "button";
-    scanTabBtn.className = "dl-ground__tab";
-    scanTabBtn.innerHTML = `${icons.qrCode}<span>Scan QR Code</span>`;
-    scanTabBtn.addEventListener("click", () => setTab("scan"));
-    tabs.appendChild(scanTabBtn);
+    choiceWrap.append(scanButton, phraseLink);
+  } else {
+    choiceWrap.hidden = true;
   }
+
+  // --- binding mode: scan view (self-contained camera preview) ---
+
+  const scanWrap = document.createElement("div");
+  scanWrap.className = "dl-ground__scan-wrap";
+
+  const scanBackLink = document.createElement("button");
+  scanBackLink.type = "button";
+  scanBackLink.className = "dl-ground__link-button dl-ground__back-link";
+  scanBackLink.textContent = "‹ Back";
+  scanBackLink.addEventListener("click", () => setView("choice"));
+
+  const scanVideoWrap = document.createElement("div");
+  scanVideoWrap.className = "dl-ground__scan-video-wrap";
+
+  const videoEl = document.createElement("video");
+  videoEl.className = "dl-ground__scan-video";
+  videoEl.autoplay = true;
+  videoEl.playsInline = true;
+  videoEl.muted = true;
+
+  const scanPlaceholder = document.createElement("div");
+  scanPlaceholder.className = "dl-ground__scan-placeholder";
+  scanPlaceholder.textContent = "Opening camera…";
+
+  const scanReticle = document.createElement("div");
+  scanReticle.className = "dl-ground__scan-reticle";
+  scanReticle.innerHTML = `
+    <span class="dl-ground__scan-corner dl-ground__scan-corner--tl"></span>
+    <span class="dl-ground__scan-corner dl-ground__scan-corner--tr"></span>
+    <span class="dl-ground__scan-corner dl-ground__scan-corner--bl"></span>
+    <span class="dl-ground__scan-corner dl-ground__scan-corner--br"></span>
+  `;
+
+  const switchCameraButton = document.createElement("button");
+  switchCameraButton.type = "button";
+  switchCameraButton.className = "dl-ground__scan-switch";
+  switchCameraButton.innerHTML = icons.refresh;
+  switchCameraButton.setAttribute("aria-label", "Switch camera");
+  switchCameraButton.hidden = true;
+  switchCameraButton.addEventListener("click", () => options.onSwitchCamera());
+
+  const scanHint = document.createElement("p");
+  scanHint.className = "dl-ground__scan-hint";
+  scanHint.textContent = "Point the camera at the ground station's QR code";
+
+  scanVideoWrap.append(videoEl, scanPlaceholder, scanReticle, switchCameraButton, scanHint);
+  scanWrap.append(scanBackLink, scanVideoWrap);
+  scanWrap.hidden = true;
+
+  // --- binding mode: phrase view ---
+
+  const phraseWrap = document.createElement("div");
+  phraseWrap.className = "dl-ground__phrase-wrap";
+
+  const phraseBackLink = document.createElement("button");
+  phraseBackLink.type = "button";
+  phraseBackLink.className = "dl-ground__link-button dl-ground__back-link";
+  phraseBackLink.textContent = "‹ Back";
+  phraseBackLink.addEventListener("click", () => setView("choice"));
+  if (!options.qrSupported) phraseBackLink.hidden = true;
 
   const bundleInput = document.createElement("textarea");
   bundleInput.className = "dl-ground__bundle-input";
@@ -100,8 +176,12 @@ export function createGroundConnectionPanel(
   pairButton.textContent = "Pair";
   pairButton.addEventListener("click", () => options.onPair(bundleInput.value));
 
+  phraseWrap.append(phraseBackLink, bundleInput, pairButton);
+  phraseWrap.hidden = true;
+
   const helper = document.createElement("p");
   helper.className = "dl-ground__helper";
+  helper.textContent = "Scan the ground station's QR code, or enter its binding phrase manually.";
 
   const errorEl = document.createElement("p");
   errorEl.className = "dl-ground__error";
@@ -112,35 +192,12 @@ export function createGroundConnectionPanel(
     latencyRow.el,
     throughputRow.el,
     uptimeRow.el,
-    tabs,
-    bundleInput,
-    pairButton,
+    choiceWrap,
+    scanWrap,
+    phraseWrap,
     helper,
     errorEl,
   );
-
-  function renderTab() {
-    const scanning = tab === "scan";
-    bundleInput.hidden = scanning;
-    pairButton.hidden = scanning;
-    pasteTabBtn.classList.toggle("dl-ground__tab--active", !scanning);
-    scanTabBtn?.classList.toggle("dl-ground__tab--active", scanning);
-    helper.textContent = scanning
-      ? "Point the camera at the ground station's QR code — see the video feed panel above."
-      : "Paste the pairing bundle JSON printed by the ground station.";
-  }
-
-  function setTab(next: BindingTab) {
-    if (tab === next) return;
-    const wasScanning = tab === "scan";
-    tab = next;
-    renderTab();
-    if (next === "scan") {
-      options.onStartScan();
-    } else if (wasScanning) {
-      options.onCancelScan();
-    }
-  }
 
   function render() {
     const showView = mode === "view";
@@ -148,26 +205,37 @@ export function createGroundConnectionPanel(
     latencyRow.el.hidden = !showView;
     throughputRow.el.hidden = !showView;
     uptimeRow.el.hidden = !showView;
-    tabs.hidden = showView;
-    errorEl.style.display = "";
-    if (showView) {
-      bundleInput.hidden = true;
-      pairButton.hidden = true;
-      helper.hidden = true;
-    } else {
-      renderTab();
-      helper.hidden = false;
-    }
+
+    const showBinding = !showView;
+    choiceWrap.hidden = !(showBinding && view === "choice" && options.qrSupported);
+    scanWrap.hidden = !(showBinding && view === "scan");
+    phraseWrap.hidden = !(showBinding && view === "phrase");
+    helper.hidden = !(showBinding && view === "choice" && options.qrSupported);
+
     panel.setTitle(showView ? "GROUND CONNECTION" : "SERVER BINDING");
     panel.setToggleActive(!showView);
   }
 
+  function setView(next: BindingView) {
+    if (view === next) return;
+    if (view === "scan") options.onCancelScan();
+    view = next;
+    if (next === "scan") {
+      scanPlaceholder.hidden = false;
+      switchCameraButton.hidden = true;
+      options.onStartScan();
+    }
+    render();
+  }
+
   function setMode(next: GroundConnectionMode) {
-    if (mode === "binding" && next === "view" && tab === "scan") {
+    if (mode === "binding" && view === "scan" && next !== "binding") {
       options.onCancelScan();
-      tab = "paste";
     }
     mode = next;
+    if (next === "binding") {
+      view = options.qrSupported ? "choice" : "phrase";
+    }
     render();
   }
 
@@ -175,6 +243,7 @@ export function createGroundConnectionPanel(
 
   return {
     el: panel.el,
+    videoEl,
     setMode,
     setConnected(connected: boolean) {
       signalIcon.classList.toggle("dl-ground__signal--active", connected);
@@ -198,6 +267,12 @@ export function createGroundConnectionPanel(
     setError(message: string) {
       errorEl.hidden = message.length === 0;
       errorEl.textContent = message;
+    },
+    setScanActive(active: boolean) {
+      scanPlaceholder.hidden = active;
+    },
+    setCameraSwitchAvailable(available: boolean) {
+      switchCameraButton.hidden = !available;
     },
   };
 }

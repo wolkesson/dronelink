@@ -59,6 +59,7 @@ export function mountApp(root: HTMLElement): void {
     onPair: (bundleText) => void handlePair(bundleText),
     onStartScan: () => handleStartScan(),
     onCancelScan: () => handleCancelScan(),
+    onSwitchCamera: () => handleSwitchCamera(),
   });
 
   const disconnectButton = createDisconnectButton(() => handleDisconnect());
@@ -66,9 +67,9 @@ export function mountApp(root: HTMLElement): void {
 
   root.replaceChildren(
     header.el,
+    groundPanel.el,
     videoPanel.el,
     fcPanel.el,
-    groundPanel.el,
     disconnectButton.el,
     footer.el,
   );
@@ -190,28 +191,56 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
-  // Scanning reuses the video-feed panel's own preview rather than opening a
-  // second camera stream: if a camera is already bound, the reticle overlays
-  // straight onto it; otherwise a stream is acquired and bound the same way a
-  // manual device-dropdown pick would be, so it doubles as the selected feed.
-  function handleStartScan(): void {
-    const onResult = (bundleText: string) => {
-      handleCancelScan();
-      void handlePair(bundleText);
-    };
+  // Binding now happens before a video source is chosen, so the scan view owns
+  // its own camera stream rather than borrowing the video-feed panel's -- there
+  // is no feed yet to piggyback on, and a dedicated stream lets scanning default
+  // to the rear camera and cycle through every available device independently
+  // of whichever camera later gets bound as the outgoing feed.
+  let scanStream: MediaStream | null = null;
+  let scanDevices: MediaDeviceInfo[] = [];
+  let scanDeviceIndex = -1;
 
-    if (videoStream) {
-      videoPanel.setScanning(true);
-      qrScanner.start(videoPanel.videoEl, videoStream, onResult);
-      return;
+  function handleScanResult(bundleText: string): void {
+    handleCancelScan();
+    void handlePair(bundleText);
+  }
+
+  function stopScanStream(): void {
+    if (scanStream) {
+      scanStream.getTracks().forEach((t) => t.stop());
+      scanStream = null;
     }
+    groundPanel.videoEl.srcObject = null;
+    groundPanel.setScanActive(false);
+  }
 
+  async function bindScanStream(stream: MediaStream): Promise<void> {
+    scanStream = stream;
+    groundPanel.videoEl.srcObject = stream;
+    groundPanel.setScanActive(true);
+
+    const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId ?? null;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      scanDevices = devices.filter((d) => d.kind === "videoinput");
+      scanDeviceIndex = Math.max(
+        0,
+        scanDevices.findIndex((d) => d.deviceId === currentId),
+      );
+    } catch {
+      scanDevices = [];
+      scanDeviceIndex = -1;
+    }
+    groundPanel.setCameraSwitchAvailable(scanDevices.length > 1);
+  }
+
+  function handleStartScan(): void {
+    groundPanel.setError("");
     void navigator.mediaDevices
       .getUserMedia({ video: { facingMode: { ideal: "environment" } } })
-      .then((stream) => {
-        bindVideoStream(stream);
-        videoPanel.setScanning(true);
-        qrScanner.start(videoPanel.videoEl, stream, onResult);
+      .then(async (stream) => {
+        await bindScanStream(stream);
+        qrScanner.start(groundPanel.videoEl, stream, handleScanResult);
       })
       .catch((err: unknown) => {
         groundPanel.setError(err instanceof Error ? err.message : "Camera access denied.");
@@ -220,7 +249,27 @@ export function mountApp(root: HTMLElement): void {
 
   function handleCancelScan(): void {
     qrScanner.stop();
-    videoPanel.setScanning(false);
+    stopScanStream();
+    scanDevices = [];
+    scanDeviceIndex = -1;
+  }
+
+  function handleSwitchCamera(): void {
+    if (scanDevices.length < 2 || scanDeviceIndex < 0) return;
+    const nextDevice = scanDevices[(scanDeviceIndex + 1) % scanDevices.length];
+
+    qrScanner.stop();
+    stopScanStream();
+
+    void navigator.mediaDevices
+      .getUserMedia({ video: { deviceId: { exact: nextDevice.deviceId } } })
+      .then(async (stream) => {
+        await bindScanStream(stream);
+        qrScanner.start(groundPanel.videoEl, stream, handleScanResult);
+      })
+      .catch((err: unknown) => {
+        groundPanel.setError(err instanceof Error ? err.message : "Failed to switch camera.");
+      });
   }
 
   // --- flight controller --------------------------------------------------
