@@ -58,7 +58,7 @@ export function mountApp(root: HTMLElement): void {
     qrSupported: QrPairingScanner.isSupported(),
     onPair: (bundleText) => void handlePair(bundleText),
     onStartScan: () => handleStartScan(),
-    onCancelScan: () => handleCancelScan(),
+    onCancelScan: () => void handleCancelScan(),
     onSwitchCamera: () => handleSwitchCamera(),
   });
 
@@ -132,17 +132,27 @@ export function mountApp(root: HTMLElement): void {
 
       if (sessionManager.state === "CONNECTED") {
         const [newTrack] = stream.getVideoTracks();
-        try {
-          // In-place swap via RTCRtpSender.replaceTrack -- no renegotiation, the
-          // live session (data channel, ICE) is untouched. Only same-resolution
-          // swaps are supported today: the ground side sized its recorder from the
-          // original offer and won't notice a resolution change, which can corrupt
-          // the recording (see WebRtcSessionManager.replaceVideoTrack).
-          if (newTrack) await sessionManager.replaceVideoTrack(newTrack);
-        } catch {
-          videoPanel.setError(
-            "Camera switched locally, but this session was paired without video -- reconnect to send it.",
-          );
+        if (newTrack) {
+          try {
+            if (sessionManager.hasVideo) {
+              // In-place swap via RTCRtpSender.replaceTrack -- no renegotiation, the
+              // live session (data channel, ICE) is untouched. Only same-resolution
+              // swaps are supported today: the ground side sized its recorder from
+              // the original offer and won't notice a resolution change, which can
+              // corrupt the recording (see WebRtcSessionManager.replaceVideoTrack).
+              await sessionManager.replaceVideoTrack(newTrack);
+            } else {
+              // Session connected data-only (e.g. paired via a scan-only bind) --
+              // renegotiate to add video now instead of requiring a reconnect.
+              await sessionManager.addVideoTrack(newTrack, stream);
+            }
+          } catch (err) {
+            videoPanel.setError(
+              err instanceof Error
+                ? `Camera switched locally, but sending it to the ground station failed: ${err.message}`
+                : "Camera switched locally, but sending it to the ground station failed.",
+            );
+          }
         }
       }
 
@@ -196,13 +206,22 @@ export function mountApp(root: HTMLElement): void {
   // is no feed yet to piggyback on, and a dedicated stream lets scanning default
   // to the rear camera and cycle through every available device independently
   // of whichever camera later gets bound as the outgoing feed.
+  //
+  // Hardware is still exclusive, though: most browsers/OSes only allow one open
+  // handle on the camera stack at a time (sometimes even across different physical
+  // cameras). So opening the scan stream always releases the video-feed stream
+  // first if one is active, and finishing the scan (cancel or a successful pair)
+  // reacquires whichever device was previously selected -- picking it back up as
+  // the video feed exactly like re-selecting it from the dropdown would, which
+  // also means a session that connected data-only picks up video via
+  // WebRtcSessionManager.addVideoTrack() instead of silently staying video-less.
   let scanStream: MediaStream | null = null;
   let scanDevices: MediaDeviceInfo[] = [];
   let scanDeviceIndex = -1;
+  let priorVideoDeviceId: string | null = null;
 
   function handleScanResult(bundleText: string): void {
-    handleCancelScan();
-    void handlePair(bundleText);
+    void handleCancelScan().then(() => handlePair(bundleText));
   }
 
   function stopScanStream(): void {
@@ -236,6 +255,11 @@ export function mountApp(root: HTMLElement): void {
 
   function handleStartScan(): void {
     groundPanel.setError("");
+    priorVideoDeviceId = videoStream?.getVideoTracks()[0]?.getSettings().deviceId ?? null;
+    if (videoStream) {
+      stopVideoStream();
+    }
+
     void navigator.mediaDevices
       .getUserMedia({ video: { facingMode: { ideal: "environment" } } })
       .then(async (stream) => {
@@ -247,11 +271,17 @@ export function mountApp(root: HTMLElement): void {
       });
   }
 
-  function handleCancelScan(): void {
+  async function handleCancelScan(): Promise<void> {
     qrScanner.stop();
     stopScanStream();
     scanDevices = [];
     scanDeviceIndex = -1;
+
+    if (priorVideoDeviceId) {
+      const deviceId = priorVideoDeviceId;
+      priorVideoDeviceId = null;
+      await handleDeviceChange(deviceId);
+    }
   }
 
   function handleSwitchCamera(): void {
@@ -439,6 +469,13 @@ export function mountApp(root: HTMLElement): void {
     stopMetricsLoop();
     connectedAt = null;
     lastRelayBytesSent = 0;
+
+    // Safe no-op if no scan was in progress (e.g. the bind panel was reopened and a
+    // re-scan started after already connecting) -- releases the scan camera instead
+    // of leaking it, without reacquiring a video feed we're about to tear down anyway.
+    qrScanner.stop();
+    stopScanStream();
+    priorVideoDeviceId = null;
 
     if (transport) {
       await transport.close();
