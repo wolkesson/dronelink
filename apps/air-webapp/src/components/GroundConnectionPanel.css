@@ -30,38 +30,201 @@
   color: var(--dl-green);
 }
 
-/* --- binding mode --- */
+/* --- binding mode: choice screen --- */
 
-.dl-ground__tabs {
+.dl-ground__choice {
   display: flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: var(--dl-radius-sm);
-  background: var(--dl-panel-bg-raised);
-  border: 1px solid var(--dl-border);
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 
-.dl-ground__tab {
-  flex: 1;
+.dl-ground__scan-cta {
+  width: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border-radius: 5px;
+  gap: 8px;
+  padding: 22px 16px;
+  border-radius: var(--dl-radius);
+  border: 1px solid var(--dl-cyan);
+  background: var(--dl-cyan-dim);
+  color: var(--dl-cyan);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dl-ground__scan-cta:hover {
+  background: rgba(45, 212, 191, 0.2);
+}
+
+.dl-ground__scan-cta-icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.dl-ground__scan-cta-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dl-ground__link-button {
+  padding: 4px;
   border: none;
   background: transparent;
   color: var(--dl-text-dim);
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 
-.dl-ground__tab--active {
-  background: var(--dl-panel-bg);
+.dl-ground__link-button:hover {
   color: var(--dl-text);
-  box-shadow: 0 0 0 1px var(--dl-border-strong);
+}
+
+.dl-ground__back-link {
+  align-self: flex-start;
+  padding: 0;
+  text-decoration: none;
+}
+
+/* --- binding mode: scan view --- */
+
+.dl-ground__scan-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dl-ground__scan-video-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--dl-radius-sm);
+  overflow: hidden;
+  background: #060a10;
+  border: 1px solid var(--dl-border);
+}
+
+.dl-ground__scan-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.dl-ground__scan-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dl-text-faint);
+  font-size: 12px;
+  text-align: center;
+  padding: 0 16px;
+  background: #060a10;
+}
+
+.dl-ground__scan-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 38%;
+  max-width: 130px;
+  aspect-ratio: 1 / 1;
+}
+
+.dl-ground__scan-corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--dl-cyan);
+}
+
+.dl-ground__scan-corner--tl {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 4px;
+}
+
+.dl-ground__scan-corner--tr {
+  top: 0;
+  right: 0;
+  border-left: none;
+  border-bottom: none;
+  border-top-right-radius: 4px;
+}
+
+.dl-ground__scan-corner--bl {
+  bottom: 0;
+  left: 0;
+  border-right: none;
+  border-top: none;
+  border-bottom-left-radius: 4px;
+}
+
+.dl-ground__scan-corner--br {
+  bottom: 0;
+  right: 0;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 4px;
+}
+
+.dl-ground__scan-switch {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--dl-border-strong);
+  background: rgba(6, 10, 16, 0.72);
+  color: var(--dl-text);
+  cursor: pointer;
+}
+
+.dl-ground__scan-switch:hover {
+  color: var(--dl-cyan);
+  border-color: var(--dl-cyan);
+}
+
+.dl-ground__scan-hint {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(6, 10, 16, 0.72);
+  color: var(--dl-text);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+/* --- binding mode: phrase view --- */
+
+.dl-ground__phrase-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .dl-ground__bundle-input {

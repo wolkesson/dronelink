@@ -26,7 +26,7 @@ export interface FlightControllerPanelHandle {
 export function createFlightControllerPanel(
   options: FlightControllerPanelOptions,
 ): FlightControllerPanelHandle {
-  const panel = createPanel({ number: "02", title: "FLIGHT CONTROLLER LINK" });
+  const panel = createPanel({ number: "03", title: "FLIGHT CONTROLLER LINK" });
 
   // --- select / connect row ---
 

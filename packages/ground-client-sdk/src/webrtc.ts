@@ -19,6 +19,19 @@ let activeVideoReceiver: RTCRtpReceiver | null = null;
 let activeGuiPc: RTCPeerConnection | null = null;
 let activeGuiForwarder: RtpTrackForwarder | null = null;
 let guiRemoteDescriptionSet = false;
+// Dimensions for the recorder, read from whichever offer actually carries a video
+// track -- the initial one, or a later renegotiation offer that adds video to a
+// session that connected data-only. pc.onTrack (subscribed once, below) reads these
+// live rather than closing over a single offer message, since it may fire well after
+// the initial offer if video is only added via renegotiation.
+let pendingVideoWidth = 320;
+let pendingVideoHeight = 240;
+let pendingVideoDimensionsKnown = false;
+// A renegotiation is only ever used to add video to a data-only session, and only
+// once -- set synchronously as soon as one is accepted so a stray extra offer
+// doesn't attempt a second one before activeVideoTrack lands (it's only set later,
+// once pc.onTrack actually fires).
+let videoRenegotiationAccepted = false;
 const pendingCandidates: RTCIceCandidateInit[] = [];
 const pendingGuiCandidates: RTCIceCandidateInit[] = [];
 let stateDir = "";
@@ -97,7 +110,36 @@ export function handleSignalingMessage(
 
   if (message.type === "offer") {
     if (activePc) {
-      console.warn("WebRTC: ignoring offer — connection already active");
+      // The only offer a client sends after the first is a renegotiation to add
+      // video to a session that connected data-only (WebRtcSessionManager.addVideoTrack).
+      // Once video is flowing (or a renegotiation for it is already in flight), any
+      // further offer is unexpected and ignored, same as before.
+      if (activeVideoTrack || videoRenegotiationAccepted) {
+        console.warn("WebRTC: ignoring offer — connection already active");
+        return;
+      }
+
+      videoRenegotiationAccepted = true;
+      if (typeof message.videoWidth === "number" && typeof message.videoHeight === "number") {
+        pendingVideoWidth = message.videoWidth;
+        pendingVideoHeight = message.videoHeight;
+        pendingVideoDimensionsKnown = true;
+      }
+
+      const sdp = typeof message.sdp === "string" ? message.sdp : "";
+      const pc = activePc;
+      pc.setRemoteDescription({ type: "offer", sdp })
+        .then(async () => {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          reply({ type: "answer", sdp: answer.sdp });
+        })
+        .catch((err: unknown) => {
+          console.error(
+            "WebRTC renegotiation failed:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
       return;
     }
 
@@ -111,17 +153,26 @@ export function handleSignalingMessage(
     const sdp = typeof message.sdp === "string" ? message.sdp : "";
     const pc = new RTCPeerConnection({});
     activePc = pc;
+    videoRenegotiationAccepted = false;
 
-    // Use dimensions signaled in the offer. If missing or invalid, fall back to 320x240
-    // (werift's MediaRecorder default is 640x360 which causes shearing artifacts).
-    // These are read once here and never revisited: the air side can swap its outbound
-    // video track in place post-connect (WebRtcSessionManager.replaceVideoTrack) without
-    // renegotiating, so a source switch to a different resolution will desync the
-    // recorder below from the actual frame size and can corrupt the recording. Only
-    // same-resolution swaps are safe until this reads dimensions from a live signal
-    // instead of the original offer.
-    const videoWidth: number = typeof message.videoWidth === "number" ? message.videoWidth : 320;
-    const videoHeight: number = typeof message.videoHeight === "number" ? message.videoHeight : 240;
+    // Use dimensions signaled in the offer, if present -- otherwise fall back to
+    // 320x240 (werift's MediaRecorder default is 640x360 which causes shearing
+    // artifacts). If this offer is data-only, a later renegotiation offer that adds
+    // video (see the `activePc` branch above) updates these before the video track
+    // actually arrives, since pc.onTrack below reads them live rather than closing
+    // over this offer's message.
+    //
+    // Whichever offer supplies them, they're read once and never revisited: the air
+    // side can swap its outbound video track in place post-connect
+    // (WebRtcSessionManager.replaceVideoTrack) without renegotiating, so a source
+    // switch to a different resolution will desync the recorder below from the
+    // actual frame size and can corrupt the recording. Only same-resolution swaps
+    // are safe until this reads dimensions from a live signal instead of the offer
+    // that first introduced video.
+    pendingVideoWidth = typeof message.videoWidth === "number" ? message.videoWidth : 320;
+    pendingVideoHeight = typeof message.videoHeight === "number" ? message.videoHeight : 240;
+    pendingVideoDimensionsKnown =
+      typeof message.videoWidth === "number" && typeof message.videoHeight === "number";
 
     const buffered = pendingCandidates.splice(0);
 
@@ -144,11 +195,13 @@ export function handleSignalingMessage(
       }
       const filePath = videoFilePath(stateDir || ".", recordingId);
 
-      if (typeof message.videoWidth !== "number" || typeof message.videoHeight !== "number") {
+      if (!pendingVideoDimensionsKnown) {
         console.warn(
           "Video dimensions not signaled in offer; falling back to 320x240 for recording.",
         );
       }
+      const videoWidth = pendingVideoWidth;
+      const videoHeight = pendingVideoHeight;
 
       const recorder = new MediaRecorder({
         tracks: [track],
@@ -374,6 +427,7 @@ export function handleSocketClose(): void {
   void stopRecorder();
   activeVideoTrack = null;
   activeVideoReceiver = null;
+  videoRenegotiationAccepted = false;
   closeGuiPeer();
   pendingCandidates.length = 0;
 }

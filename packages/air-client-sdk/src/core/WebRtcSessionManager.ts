@@ -21,8 +21,10 @@ export interface WebRtcConnectionMetrics {
 export class WebRtcSessionManager {
   private _state: SessionState = "IDLE";
   private pc: RTCPeerConnection | null = null;
+  private socket: PairingSocket | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private videoSender: RTCRtpSender | null = null;
+  private pendingRenegotiation: { resolve: () => void; reject: (err: Error) => void } | null = null;
   private readonly handlers = new Set<(data: Uint8Array) => void>();
   private readonly connectTimeoutMs: number;
 
@@ -34,6 +36,11 @@ export class WebRtcSessionManager {
     return this._state;
   }
 
+  /** Whether a video track is currently bound to the session (via connect() or addVideoTrack()). */
+  get hasVideo(): boolean {
+    return this.videoSender !== null;
+  }
+
   /**
    * Create an RTCPeerConnection, open the "serial-relay" data channel, and
    * complete the SDP/ICE exchange over the already-paired signaling socket.
@@ -43,6 +50,7 @@ export class WebRtcSessionManager {
    */
   async connect(socket: PairingSocket, isTailscaleTarget = false, localStream?: MediaStream): Promise<void> {
     this._state = "CONNECTING";
+    this.socket = socket;
 
     this.pc = new RTCPeerConnection();
     const dc = this.pc.createDataChannel("serial-relay");
@@ -106,9 +114,13 @@ export class WebRtcSessionManager {
                 );
               });
             }
+            // A renegotiation answer (e.g. from addVideoTrack()) flows through this
+            // same handler, since it's registered once for the socket's lifetime.
+            this.pendingRenegotiation?.resolve();
           })
           .catch((err) => {
             console.error("setRemoteDescription failed:", err instanceof Error ? err.message : String(err));
+            this.pendingRenegotiation?.reject(err instanceof Error ? err : new Error(String(err)));
           });
       } else if (msg.type === "ice-candidate" && isRecord(msg.candidate)) {
         const candidateInit = msg.candidate as RTCIceCandidateInit;
@@ -207,6 +219,64 @@ export class WebRtcSessionManager {
   }
 
   /**
+   * Add a video track to a session that connected data-only, via a fresh
+   * offer/answer round on the same peer connection and signaling socket
+   * (no ICE restart -- the existing data channel and transport are reused).
+   * Throws if a video track is already bound (use replaceVideoTrack() to
+   * swap it instead) or if the session isn't currently connected.
+   */
+  async addVideoTrack(track: MediaStreamTrack, stream: MediaStream): Promise<void> {
+    if (this._state !== "CONNECTED" || !this.pc || !this.socket) {
+      throw new Error("Cannot add video track: session is not connected.");
+    }
+    if (this.videoSender) {
+      throw new Error("Video track already active -- use replaceVideoTrack() to swap it.");
+    }
+
+    this.videoSender = this.pc.addTrack(track, stream);
+
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
+
+    const offerMsg: Record<string, unknown> = { type: "offer", sdp: offer.sdp };
+    const settings = track.getSettings();
+    if (typeof settings.width === "number" && typeof settings.height === "number") {
+      offerMsg.videoWidth = settings.width;
+      offerMsg.videoHeight = settings.height;
+    }
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          this.pendingRenegotiation = null;
+          reject(new Error("Adding video track timed out waiting for an answer."));
+        }, this.connectTimeoutMs);
+
+        this.pendingRenegotiation = {
+          resolve: () => {
+            clearTimeout(timeoutId);
+            resolve();
+          },
+          reject: (err) => {
+            clearTimeout(timeoutId);
+            reject(err);
+          },
+        };
+
+        this.socket!.send(JSON.stringify(offerMsg));
+      });
+    } catch (err) {
+      // Roll back so a later retry starts from a clean, connect()-like state
+      // instead of permanently wedging on a half-added sender.
+      this.pc.removeTrack(this.videoSender);
+      this.videoSender = null;
+      throw err;
+    } finally {
+      this.pendingRenegotiation = null;
+    }
+  }
+
+  /**
    * Send raw bytes over the "serial-relay" data channel.
    * Throws if the channel is not open.
    */
@@ -277,7 +347,10 @@ export class WebRtcSessionManager {
     this.pc?.close();
     this.dataChannel = null;
     this.pc = null;
+    this.socket = null;
     this.videoSender = null;
+    this.pendingRenegotiation?.reject(new Error("Session disconnected."));
+    this.pendingRenegotiation = null;
     this._state = "IDLE";
   }
 }

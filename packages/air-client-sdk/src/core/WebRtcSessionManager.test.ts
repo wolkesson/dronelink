@@ -621,6 +621,154 @@ describe("WebRtcSessionManager — replaceVideoTrack", () => {
   });
 });
 
+describe("WebRtcSessionManager — addVideoTrack", () => {
+  it("throws when not connected", async () => {
+    const mgr = new WebRtcSessionManager();
+    await expect(
+      mgr.addVideoTrack({} as MediaStreamTrack, {} as MediaStream),
+    ).rejects.toThrow("session is not connected");
+  });
+
+  it("throws when a video track is already active (use replaceVideoTrack instead)", async () => {
+    const { pc, openRef } = makeMockPc();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => ({ replaceTrack: vi.fn() }));
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+
+      const videoTrack = { kind: "video", getSettings: () => ({}) } as unknown as MediaStreamTrack;
+      const fakeStream = {
+        getTracks: () => [videoTrack],
+        getVideoTracks: () => [videoTrack],
+      } as unknown as MediaStream;
+
+      const connectPromise = mgr.connect(socket, false, fakeStream);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      openRef.fn?.();
+      await connectPromise;
+
+      expect(mgr.hasVideo).toBe(true);
+      await expect(mgr.addVideoTrack(videoTrack, fakeStream)).rejects.toThrow(
+        "Video track already active",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends a renegotiation offer with video dimensions and resolves once the answer arrives", async () => {
+    const { pc, openRef } = makeMockPc();
+    const addTrack = vi.fn(() => ({ replaceTrack: vi.fn() }));
+    (pc as unknown as Record<string, unknown>).addTrack = addTrack;
+    (pc as unknown as Record<string, unknown>).setRemoteDescription = vi.fn(async () => {});
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+      const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+      (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+        onMessageRef.fn = cb;
+      });
+
+      // Connects data-only -- no localStream passed.
+      const connectPromise = mgr.connect(socket);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      openRef.fn?.();
+      await connectPromise;
+      expect(mgr.hasVideo).toBe(false);
+
+      const newTrack = {
+        kind: "video",
+        getSettings: () => ({ width: 640, height: 480 }),
+      } as unknown as MediaStreamTrack;
+      const newStream = {
+        getTracks: () => [newTrack],
+        getVideoTracks: () => [newTrack],
+      } as unknown as MediaStream;
+
+      const addPromise = mgr.addVideoTrack(newTrack, newStream);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+
+      expect(addTrack).toHaveBeenCalledWith(newTrack, newStream);
+      expect(mgr.hasVideo).toBe(true);
+
+      const offerMsg = (socket.send as ReturnType<typeof vi.fn>).mock.calls
+        .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+        .find((m) => m.type === "offer" && m.videoWidth === 640);
+      expect(offerMsg).toBeDefined();
+      expect(offerMsg?.videoHeight).toBe(480);
+
+      // The renegotiation answer flows through the same onMessage handler as the
+      // original connect() answer.
+      onMessageRef.fn?.(JSON.stringify({ type: "answer", sdp: "v=0\r\n" }));
+      await addPromise;
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rolls back the sender and rejects if no answer arrives before the timeout", async () => {
+    vi.useFakeTimers();
+    const { pc, openRef } = makeMockPc();
+    const videoSender = { replaceTrack: vi.fn() };
+    const addTrack = vi.fn(() => videoSender);
+    const removeTrack = vi.fn();
+    (pc as unknown as Record<string, unknown>).addTrack = addTrack;
+    (pc as unknown as Record<string, unknown>).removeTrack = removeTrack;
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager({ connectTimeoutMs: 100 });
+      const socket = makeMockSocket();
+
+      const connectPromise = mgr.connect(socket);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      openRef.fn?.();
+      await connectPromise;
+
+      const newTrack = { kind: "video", getSettings: () => ({}) } as unknown as MediaStreamTrack;
+      const newStream = {
+        getTracks: () => [newTrack],
+        getVideoTracks: () => [newTrack],
+      } as unknown as MediaStream;
+
+      const addPromise = mgr.addVideoTrack(newTrack, newStream);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+
+      const assertion = expect(addPromise).rejects.toThrow("timed out");
+      await vi.advanceTimersByTimeAsync(200);
+      await assertion;
+
+      expect(removeTrack).toHaveBeenCalledWith(videoSender);
+      expect(mgr.hasVideo).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("WebRtcSessionManager — disconnect", () => {
   it("is a no-op when never connected", () => {
     const mgr = new WebRtcSessionManager();

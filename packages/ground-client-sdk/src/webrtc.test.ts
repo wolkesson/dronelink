@@ -115,19 +115,41 @@ describe("handleSignalingMessage", () => {
     expect(reply).not.toHaveBeenCalled();
   });
 
-  it("ignores a second offer while a connection is already active", () => {
+  it("accepts a second offer as a renegotiation when no video is active yet", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const reply1 = vi.fn();
     const reply2 = vi.fn();
 
+    // The first offer connects data-only; the second is the renegotiation a client
+    // sends via WebRtcSessionManager.addVideoTrack() to add video afterward. Since
+    // no video track has actually arrived yet (no real SDP/media exchange happens
+    // here), it must be routed to the renegotiation path, not rejected as a stray
+    // duplicate.
+    handleSignalingMessage({ type: "offer", sdp: "" }, reply1);
+    handleSignalingMessage({ type: "offer", sdp: "", videoWidth: 1280, videoHeight: 720 }, reply2);
+
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("ignoring offer — connection already active"),
+    );
+  });
+
+  it("ignores a third offer once a renegotiation has already been accepted", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const reply1 = vi.fn();
+    const reply2 = vi.fn();
+    const reply3 = vi.fn();
+
     handleSignalingMessage({ type: "offer", sdp: "" }, reply1);
     handleSignalingMessage({ type: "offer", sdp: "" }, reply2);
+    warnSpy.mockClear();
+    handleSignalingMessage({ type: "offer", sdp: "" }, reply3);
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("ignoring offer — connection already active"),
     );
-    expect(reply2).not.toHaveBeenCalled();
+    expect(reply3).not.toHaveBeenCalled();
   });
 
   it("buffers an ice-candidate received before any offer, without replying or throwing", () => {
