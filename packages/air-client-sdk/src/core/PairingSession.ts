@@ -28,7 +28,11 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  return "Browser TLS connection failed. Trust the ground certificate in this browser and retry.";
+  return (
+    "Couldn't reach the ground station. Confirm the ground process is running, the phone has " +
+    "network/Tailscale connectivity to it, and (if using a self-signed mkcert certificate " +
+    "instead of a Tailscale-issued one) that this browser has been made to trust it."
+  );
 }
 
 function createBrowserSocket(url: string): PairingSocket {

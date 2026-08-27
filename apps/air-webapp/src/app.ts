@@ -248,12 +248,12 @@ export function mountApp(root: HTMLElement): void {
       // Always buffer as the latest pending port, in addition to forwarding to
       // whichever transport instance is current: the native shell reposts a fresh
       // port on every USB (re)connect (see NativeSerialBridgeController.kt), which
-      // can arrive before the next "Connect FC" tap creates a new transport, not
-      // just before the first one. nativeBridgeTransport keeps pointing at
-      // whichever instance createSerialTransport() built most recently, which may
-      // already be closed/disconnected -- receivePort() on a dead instance is a
-      // harmless no-op (see NativeBridgeTransport.receivePort()), so the buffer is
-      // what actually rescues a fresh "Connect FC" tap from hanging forever.
+      // can arrive before the next auto-connect creates a new transport, not just
+      // before the first one. nativeBridgeTransport keeps pointing at whichever
+      // instance createSerialTransport() built most recently, which may already be
+      // closed/disconnected -- receivePort() on a dead instance is a harmless no-op
+      // (see NativeBridgeTransport.receivePort()), so the buffer is what actually
+      // rescues a fresh auto-connect attempt from hanging forever.
       pendingNativePort = port;
       nativeBridgeTransport?.receivePort(port);
       if (isReconnect && !transport && !connectingFc) {
