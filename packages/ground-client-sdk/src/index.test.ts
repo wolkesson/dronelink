@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSignalingServer, type GuiAssets } from "./signaling.js";
+import * as indexModule from "./index.js";
 
 const runtimes: Array<ReturnType<typeof createSignalingServer>> = [];
 const tempDirs: string[] = [];
@@ -338,5 +339,11 @@ describe("signaling server", () => {
     const certBeforeSecondStart = readFileSync(certPath, "utf8");
     await Promise.all([first.start(), second.start()]);
     expect(readFileSync(certPath, "utf8")).toBe(certBeforeSecondStart);
+  });
+});
+
+describe("index.ts barrel exports", () => {
+  it("re-exports createSignalingServer from the package root", () => {
+    expect(indexModule.createSignalingServer).toBe(createSignalingServer);
   });
 });
