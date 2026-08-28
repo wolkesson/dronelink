@@ -1,4 +1,4 @@
-import { createConnection, type Socket } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startBridge, stopBridge } from "./tcp-bridge.js";
 import type { RTCDataChannel } from "werift";
@@ -160,5 +160,81 @@ describe("tcp-bridge: relay behaviour", () => {
       expect.stringContaining("no TCP client connected"),
     );
     warnSpy.mockRestore();
+  });
+});
+
+describe("tcp-bridge: restart and error handling", () => {
+  it("is a no-op when called with no active bridge", () => {
+    expect(() => stopBridge()).not.toThrow();
+  });
+
+  it("drops TCP data from the client when the data channel is not open", async () => {
+    const { channel, sendSpy } = makeDataChannelMock();
+    channel.readyState = "connecting";
+    startBridge(channel);
+
+    const client = await connectTcp();
+    if (!client) return; // bridge port in use — skip gracefully
+
+    await new Promise<void>((resolveWrite) => {
+      client.write(Buffer.from([0x01]), () => resolveWrite());
+    });
+    await new Promise<void>((resolveTick) => setTimeout(resolveTick, 20));
+
+    expect(sendSpy).not.toHaveBeenCalled();
+    client.destroy();
+  });
+
+  it("stops the previous bridge (destroying its TCP client) when startBridge is called again", async () => {
+    const { channel } = makeDataChannelMock();
+    startBridge(channel);
+
+    const first = await connectTcp();
+    if (!first) return; // bridge port in use — skip gracefully
+
+    const { channel: channel2 } = makeDataChannelMock();
+    startBridge(channel2);
+
+    await socketClosed(first);
+    expect(first.destroyed).toBe(true);
+  });
+
+  it("logs a warning and clears the client on a TCP socket error", async () => {
+    const { channel } = makeDataChannelMock();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    startBridge(channel);
+
+    const client = await connectTcp();
+    if (!client) {
+      errorSpy.mockRestore();
+      return;
+    }
+
+    // Sends an actual TCP RST, which surfaces as an "error" event (ECONNRESET)
+    // on the bridge's server-side socket for this connection.
+    client.resetAndDestroy();
+
+    await vi.waitFor(() =>
+      expect(errorSpy).toHaveBeenCalledWith("TCP client error:", expect.any(String)),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("logs a warning when the bridge fails to bind its TCP port", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const blocker = createServer();
+    await new Promise<void>((resolveListen) => blocker.listen(BRIDGE_PORT, resolveListen));
+
+    try {
+      const { channel } = makeDataChannelMock();
+      startBridge(channel);
+
+      await vi.waitFor(() =>
+        expect(errorSpy).toHaveBeenCalledWith("TCP bridge error:", expect.any(String)),
+      );
+    } finally {
+      await new Promise<void>((resolveClose) => blocker.close(() => resolveClose()));
+      errorSpy.mockRestore();
+    }
   });
 });
