@@ -701,6 +701,58 @@ describe("video-control-request / video-control-state relay", () => {
     });
   });
 
+  it("forwards a GUI camera-source request unchanged, without any ground-side knowledge of its shape", async () => {
+    // Demonstrates the relay's control-agnostic design: this control was added
+    // entirely in air-client-sdk and the GUI, with no changes to this file's
+    // production code -- requestVideoControl()/handleGuiSignalingMessage just
+    // forward whatever {control, ...} shape arrives.
+    const { reply: airReply } = await connectVideoSource();
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    await vi.waitFor(() =>
+      expect(guiReply).toHaveBeenCalledWith(expect.objectContaining({ type: "answer" })),
+    );
+
+    handleGuiSignalingMessage(
+      { type: "video-control-request", control: "camera-source", deviceId: "cam-2" },
+      guiReply,
+    );
+
+    expect(airReply).toHaveBeenCalledWith({
+      type: "video-control-request",
+      control: "camera-source",
+      deviceId: "cam-2",
+    });
+
+    // And air's ack/list push forwards back to the GUI the same way.
+    handleSignalingMessage(
+      { type: "video-control-state", control: "camera-source", deviceId: "cam-2", ok: true },
+      vi.fn(),
+    );
+    expect(guiReply).toHaveBeenCalledWith({
+      type: "video-control-state",
+      control: "camera-source",
+      deviceId: "cam-2",
+      ok: true,
+    });
+
+    handleSignalingMessage(
+      {
+        type: "video-control-state",
+        control: "camera-source-list",
+        devices: [{ deviceId: "cam-1", label: "Front" }],
+        activeDeviceId: "cam-2",
+      },
+      vi.fn(),
+    );
+    expect(guiReply).toHaveBeenCalledWith({
+      type: "video-control-state",
+      control: "camera-source-list",
+      devices: [{ deviceId: "cam-1", label: "Front" }],
+      activeDeviceId: "cam-2",
+    });
+  });
+
   it("forwards air's video-control-state ack to the connected GUI viewer", async () => {
     await connectVideoSource();
     const guiReply = vi.fn();

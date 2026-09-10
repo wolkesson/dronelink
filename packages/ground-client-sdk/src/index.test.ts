@@ -374,6 +374,27 @@ describe("video control protocol schemas", () => {
     expect(branch.properties.preset.enum).toEqual(["auto", "high", "low", "data-only"]);
     expect(branch.properties.videoActive.type).toBe("boolean");
   });
+
+  it("video-control-request.schema.json's 'camera-source' branch requires a non-empty deviceId", () => {
+    const schema = loadSchema("video-control-request.schema.json");
+    const branch = schema.oneOf[1];
+
+    expect(branch.required).toEqual(["type", "control", "deviceId"]);
+    expect(branch.properties.control.const).toBe("camera-source");
+    expect(branch.properties.deviceId.type).toBe("string");
+  });
+
+  it("video-control-state.schema.json's 'camera-source' and 'camera-source-list' branches are present", () => {
+    const schema = loadSchema("video-control-state.schema.json");
+    const ackBranch = schema.oneOf[1];
+    const listBranch = schema.oneOf[2];
+
+    expect(ackBranch.required).toEqual(["type", "control", "deviceId", "ok"]);
+    expect(ackBranch.properties.control.const).toBe("camera-source");
+
+    expect(listBranch.required).toEqual(["type", "control", "devices", "activeDeviceId"]);
+    expect(listBranch.properties.control.const).toBe("camera-source-list");
+  });
 });
 
 describe("index.ts barrel exports", () => {

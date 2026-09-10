@@ -76,6 +76,19 @@ export function mountApp(root: HTMLElement): void {
 
   // --- video source -----------------------------------------------------
 
+  // Mirrors the local dropdown's list so a ground-initiated switch can be
+  // validated/published without re-enumerating, and so publishCameraSources()
+  // always has something to send even if called before the next enumeration.
+  let knownCameraDevices: MediaDeviceInfo[] = [];
+
+  function publishCameraSources(): void {
+    const activeDeviceId = videoStream?.getVideoTracks()[0]?.getSettings().deviceId ?? null;
+    sessionManager.publishCameraSources(
+      knownCameraDevices.map((d, index) => ({ deviceId: d.deviceId, label: d.label || `Camera ${index + 1}` })),
+      activeDeviceId ?? null,
+    );
+  }
+
   async function populateCameraList(): Promise<void> {
     try {
       const unlock = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -90,7 +103,9 @@ export function mountApp(root: HTMLElement): void {
     }
 
     const devices = await navigator.mediaDevices.enumerateDevices();
-    videoPanel.populateDevices(devices.filter((d) => d.kind === "videoinput"));
+    knownCameraDevices = devices.filter((d) => d.kind === "videoinput");
+    videoPanel.populateDevices(knownCameraDevices);
+    publishCameraSources();
   }
 
   function stopVideoStream(): void {
@@ -120,47 +135,68 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
-  async function handleDeviceChange(deviceId: string): Promise<void> {
+  /**
+   * Core camera switch, throwing on failure -- used directly by the
+   * ground-initiated camera-source handler (so its ack can report ok: false),
+   * and wrapped by handleDeviceChange() below for the local dropdown, which
+   * displays the error instead of propagating it.
+   */
+  async function switchCameraTo(deviceId: string): Promise<void> {
     stopVideoStream();
-    videoPanel.setError("");
-    if (!deviceId) return;
+    if (!deviceId) {
+      publishCameraSources();
+      return;
+    }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
 
-      if (sessionManager.state === "CONNECTED") {
-        const [newTrack] = stream.getVideoTracks();
-        if (newTrack) {
-          try {
-            if (sessionManager.hasVideo) {
-              // In-place swap via RTCRtpSender.replaceTrack -- no renegotiation, the
-              // live session (data channel, ICE) is untouched. Only same-resolution
-              // swaps are supported today: the ground side sized its recorder from
-              // the original offer and won't notice a resolution change, which can
-              // corrupt the recording (see WebRtcSessionManager.replaceVideoTrack).
-              await sessionManager.replaceVideoTrack(newTrack);
-            } else {
-              // Session connected data-only (e.g. paired via a scan-only bind) --
-              // renegotiate to add video now instead of requiring a reconnect.
-              await sessionManager.addVideoTrack(newTrack, stream);
-            }
-          } catch (err) {
-            videoPanel.setError(
-              err instanceof Error
-                ? `Camera switched locally, but sending it to the ground station failed: ${err.message}`
-                : "Camera switched locally, but sending it to the ground station failed.",
-            );
+    let relayError: Error | null = null;
+    if (sessionManager.state === "CONNECTED") {
+      const [newTrack] = stream.getVideoTracks();
+      if (newTrack) {
+        try {
+          if (sessionManager.hasVideo) {
+            // In-place swap via RTCRtpSender.replaceTrack -- no renegotiation, the
+            // live session (data channel, ICE) is untouched. Only same-resolution
+            // swaps are supported today: the ground side sized its recorder from
+            // the original offer and won't notice a resolution change, which can
+            // corrupt the recording (see WebRtcSessionManager.replaceVideoTrack).
+            await sessionManager.replaceVideoTrack(newTrack);
+          } else {
+            // Session connected data-only (e.g. paired via a scan-only bind) --
+            // renegotiate to add video now instead of requiring a reconnect.
+            await sessionManager.addVideoTrack(newTrack, stream);
           }
+        } catch (err) {
+          relayError = new Error(
+            err instanceof Error
+              ? `Camera switched locally, but sending it to the ground station failed: ${err.message}`
+              : "Camera switched locally, but sending it to the ground station failed.",
+          );
         }
       }
+    }
 
-      bindVideoStream(stream);
+    // The local switch (and, below, publishing it) succeeded even if the relay
+    // above failed -- only the relay failure is reported to the caller.
+    bindVideoStream(stream);
+    videoPanel.setSelectedDevice(deviceId);
+    publishCameraSources();
+    if (relayError) throw relayError;
+  }
+
+  async function handleDeviceChange(deviceId: string): Promise<void> {
+    videoPanel.setError("");
+    try {
+      await switchCameraTo(deviceId);
     } catch (err) {
       videoPanel.setError(err instanceof Error ? err.message : "Failed to open camera.");
     }
   }
+
+  sessionManager.setCameraSourceHandler((deviceId) => switchCameraTo(deviceId));
 
   void populateCameraList();
 
@@ -187,6 +223,10 @@ export function mountApp(root: HTMLElement): void {
       connectedAt = Date.now();
       lastRelayBytesSent = 0;
       startMetricsLoop();
+      // The socket publishCameraSources() needs only exists from here on --
+      // populateCameraList() may have already enumerated devices at mount time,
+      // before any pairing, so this is what actually gets that list to ground.
+      publishCameraSources();
 
       header.setConnected(true);
       groundPanel.setConnected(true);
