@@ -19,6 +19,11 @@ let activeVideoReceiver: RTCRtpReceiver | null = null;
 let activeGuiPc: RTCPeerConnection | null = null;
 let activeGuiForwarder: RtpTrackForwarder | null = null;
 let guiRemoteDescriptionSet = false;
+// Reply callbacks for the two active signaling connections, kept so a video
+// control request/ack can be relayed between them (GUI viewer <-> air side)
+// outside of their own offer/answer exchange.
+let activeAirReply: ((msg: unknown) => void) | null = null;
+let activeGuiReply: ((msg: unknown) => void) | null = null;
 // Dimensions for the recorder, read from whichever offer actually carries a video
 // track -- the initial one, or a later renegotiation offer that adds video to a
 // session that connected data-only. pc.onTrack (subscribed once, below) reads these
@@ -109,6 +114,7 @@ export function handleSignalingMessage(
   if (!isRecord(message)) return;
 
   if (message.type === "offer") {
+    activeAirReply = reply;
     if (activePc) {
       // The only offer a client sends after the first is a renegotiation to add
       // video to a session that connected data-only (WebRtcSessionManager.addVideoTrack).
@@ -296,7 +302,21 @@ export function handleSignalingMessage(
       const msg = err instanceof Error ? err.message : String(err);
       console.error("addIceCandidate failed:", msg);
     });
+    return;
   }
+
+  if (message.type === "video-control-state") {
+    // Forwarded to the GUI viewer as-is -- this relay is intentionally agnostic
+    // to the payload shape (see requestVideoControl below), so new control
+    // types need no change here.
+    activeGuiReply?.(message);
+  }
+}
+
+export function requestVideoControl(request: { control: string } & Record<string, unknown>): boolean {
+  if (!activeAirReply) return false;
+  activeAirReply({ type: "video-control-request", ...request });
+  return true;
 }
 
 export function handleGuiSignalingMessage(
@@ -305,6 +325,16 @@ export function handleGuiSignalingMessage(
   isTailscale = false,
 ): void {
   if (!isRecord(message)) return;
+
+  if (message.type === "video-control-request") {
+    if (typeof message.control !== "string") return;
+    const { type: _type, ...request } = message;
+    const forwarded = requestVideoControl(request as { control: string } & Record<string, unknown>);
+    if (!forwarded) {
+      reply({ type: "error", message: "No active drone connection to apply video control to." });
+    }
+    return;
+  }
 
   if (message.type === "offer") {
     if (activeGuiPc) {
@@ -324,6 +354,7 @@ export function handleGuiSignalingMessage(
     const forwarder = forwardRtpTrack(sourceTrack);
     activeGuiPc = pc;
     activeGuiForwarder = forwarder;
+    activeGuiReply = reply;
     guiRemoteDescriptionSet = false;
     const sender = pc.addTrack(forwarder.track);
     if (sourceReceiver && typeof sourceTrack.ssrc === "number") {
@@ -411,6 +442,7 @@ function closeGuiPeer(): void {
   }
   activeGuiForwarder?.stop();
   activeGuiForwarder = null;
+  activeGuiReply = null;
   guiRemoteDescriptionSet = false;
   pendingGuiCandidates.length = 0;
 }
@@ -428,6 +460,7 @@ export function handleSocketClose(): void {
   activeVideoTrack = null;
   activeVideoReceiver = null;
   videoRenegotiationAccepted = false;
+  activeAirReply = null;
   closeGuiPeer();
   pendingCandidates.length = 0;
 }

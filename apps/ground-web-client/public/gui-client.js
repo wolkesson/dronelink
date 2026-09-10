@@ -1,5 +1,6 @@
 const status = document.getElementById("status");
 const video = document.getElementById("live-video");
+const qualitySelect = document.getElementById("quality-select");
 const signalingUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/gui-signaling`;
 const socket = new WebSocket(signalingUrl);
 const peerConnection = new RTCPeerConnection();
@@ -65,6 +66,9 @@ socket.onmessage = async (event) => {
       }
     } else if (message.type === "ice-candidate" && message.candidate) {
       await addRemoteCandidate(message.candidate);
+    } else if (message.type === "video-control-state" && message.control === "quality") {
+      qualitySelect.value = message.preset;
+      setStatus(message.videoActive ? "Live video connected" : "Live video paused (data-only mode)");
     } else if (message.type === "error" && typeof message.message === "string") {
       setStatus(message.message);
     }
@@ -79,3 +83,11 @@ socket.onclose = () => {
   }
   peerConnection.close();
 };
+
+qualitySelect.addEventListener("change", () => {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(
+      JSON.stringify({ type: "video-control-request", control: "quality", preset: qualitySelect.value }),
+    );
+  }
+});

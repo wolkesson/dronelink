@@ -18,6 +18,7 @@ import {
   handleGuiSignalingMessage,
   handleSocketClose,
   handleGuiSocketClose,
+  requestVideoControl,
 } from "./webrtc.js";
 
 interface MockPeerConnection {
@@ -140,7 +141,11 @@ function fakeChannel(overrides: Partial<RTCDataChannel> = {}): RTCDataChannel {
 }
 
 /** Gets a video track flowing on the main signaling connection, as a precondition for GUI viewer tests. */
-async function connectVideoSource(): Promise<{ pc: MockPeerConnection; track: MediaStreamTrack }> {
+async function connectVideoSource(): Promise<{
+  pc: MockPeerConnection;
+  track: MediaStreamTrack;
+  reply: ReturnType<typeof vi.fn>;
+}> {
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
   vi.spyOn(console, "log").mockImplementation(() => undefined);
   const reply = vi.fn();
@@ -151,7 +156,7 @@ async function connectVideoSource(): Promise<{ pc: MockPeerConnection; track: Me
   pc.getReceivers.mockReturnValue([{ track, sendRtcpPLI }]);
   pc.onTrack.execute(track);
   await vi.waitFor(() => expect(recorderInstances).toHaveLength(1));
-  return { pc, track };
+  return { pc, track, reply };
 }
 
 afterEach(() => {
@@ -655,6 +660,104 @@ describe("handleGuiSignalingMessage: viewer flow", () => {
     expect(reply2).not.toHaveBeenCalledWith(
       expect.objectContaining({ message: "A GUI viewer is already connected." }),
     );
+  });
+});
+
+describe("video-control-request / video-control-state relay", () => {
+  it("requestVideoControl() forwards a request to the active air connection", async () => {
+    const { reply } = await connectVideoSource();
+
+    const ok = requestVideoControl({ control: "quality", preset: "low" });
+
+    expect(ok).toBe(true);
+    expect(reply).toHaveBeenCalledWith({
+      type: "video-control-request",
+      control: "quality",
+      preset: "low",
+    });
+  });
+
+  it("requestVideoControl() returns false when no air connection is active", () => {
+    expect(requestVideoControl({ control: "quality", preset: "low" })).toBe(false);
+  });
+
+  it("forwards a GUI video-control-request to the active air connection", async () => {
+    const { reply: airReply } = await connectVideoSource();
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    await vi.waitFor(() =>
+      expect(guiReply).toHaveBeenCalledWith(expect.objectContaining({ type: "answer" })),
+    );
+
+    handleGuiSignalingMessage(
+      { type: "video-control-request", control: "quality", preset: "data-only" },
+      guiReply,
+    );
+
+    expect(airReply).toHaveBeenCalledWith({
+      type: "video-control-request",
+      control: "quality",
+      preset: "data-only",
+    });
+  });
+
+  it("forwards air's video-control-state ack to the connected GUI viewer", async () => {
+    await connectVideoSource();
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    await vi.waitFor(() =>
+      expect(guiReply).toHaveBeenCalledWith(expect.objectContaining({ type: "answer" })),
+    );
+    guiReply.mockClear();
+
+    handleSignalingMessage(
+      { type: "video-control-state", control: "quality", preset: "low", videoActive: true },
+      vi.fn(),
+    );
+
+    expect(guiReply).toHaveBeenCalledWith({
+      type: "video-control-state",
+      control: "quality",
+      preset: "low",
+      videoActive: true,
+    });
+  });
+
+  it("does not throw forwarding a video-control-state ack when no GUI viewer is connected", async () => {
+    await connectVideoSource();
+
+    expect(() =>
+      handleSignalingMessage(
+        { type: "video-control-state", control: "quality", preset: "low", videoActive: true },
+        vi.fn(),
+      ),
+    ).not.toThrow();
+  });
+
+  it("handleSocketClose clears the air reply so a later request is rejected", async () => {
+    await connectVideoSource();
+    handleSocketClose();
+
+    expect(requestVideoControl({ control: "quality", preset: "low" })).toBe(false);
+  });
+
+  it("handleGuiSocketClose clears the GUI reply so a later ack is not forwarded to it", async () => {
+    await connectVideoSource();
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    await vi.waitFor(() =>
+      expect(guiReply).toHaveBeenCalledWith(expect.objectContaining({ type: "answer" })),
+    );
+
+    handleGuiSocketClose();
+    guiReply.mockClear();
+
+    handleSignalingMessage(
+      { type: "video-control-state", control: "quality", preset: "low", videoActive: true },
+      vi.fn(),
+    );
+
+    expect(guiReply).not.toHaveBeenCalled();
   });
 });
 

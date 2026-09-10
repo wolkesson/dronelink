@@ -7,6 +7,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+export type VideoQualityPreset = "auto" | "high" | "low" | "data-only";
+
+const VIDEO_QUALITY_PRESETS: readonly VideoQualityPreset[] = ["auto", "high", "low", "data-only"];
+
+function isVideoQualityPreset(value: unknown): value is VideoQualityPreset {
+  return typeof value === "string" && (VIDEO_QUALITY_PRESETS as readonly string[]).includes(value);
+}
+
+// Only "quality" is implemented today. Ground-initiated camera-source/zoom/
+// gain/contrast controls are expected to extend this union with new
+// discriminants later -- ground-client-sdk's requestVideoControl() forwards
+// any {control, ...} shape unmodified, so adding a case here needs no
+// ground-side change.
+export type VideoControlRequest = { control: "quality"; preset: VideoQualityPreset };
+export type VideoControlState = { control: "quality"; preset: VideoQualityPreset; videoActive: boolean };
+
+function isVideoControlRequest(value: unknown): value is VideoControlRequest {
+  return isRecord(value) && value.control === "quality" && isVideoQualityPreset(value.preset);
+}
+
 export interface WebRtcSessionManagerOptions {
   connectTimeoutMs?: number;
 }
@@ -24,6 +44,8 @@ export class WebRtcSessionManager {
   private socket: PairingSocket | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private videoSender: RTCRtpSender | null = null;
+  private videoQualityPreset: VideoQualityPreset = "auto";
+  private currentVideoTrack: MediaStreamTrack | null = null;
   private pendingRenegotiation: { resolve: () => void; reject: (err: Error) => void } | null = null;
   private readonly handlers = new Set<(data: Uint8Array) => void>();
   private readonly connectTimeoutMs: number;
@@ -131,6 +153,9 @@ export class WebRtcSessionManager {
         void this.pc?.addIceCandidate(candidateInit).catch((err) => {
           console.warn("addIceCandidate failed:", err instanceof Error ? err.message : String(err));
         });
+      } else if (msg.type === "video-control-request" && isVideoControlRequest(msg)) {
+        const state = this.applyVideoControlRequest(msg);
+        socket.send(JSON.stringify({ type: "video-control-state", ...state }));
       }
     });
 
@@ -139,6 +164,7 @@ export class WebRtcSessionManager {
         const sender = this.pc.addTrack(track, localStream);
         if (track.kind === "video") {
           this.videoSender = sender;
+          this.currentVideoTrack = track;
         }
       }
     }
@@ -210,12 +236,77 @@ export class WebRtcSessionManager {
    * ground-client-sdk's webrtc.ts), so replacing with a track of a different
    * resolution will desync the recorder from the actual frame size and can corrupt
    * the recording. Callers should only swap between sources of the same resolution.
+   *
+   * If a "data-only" video quality preset is active, the swap is not forwarded to
+   * the live sender (which stays paused via replaceTrack(null)) -- only the stored
+   * track reference is updated, so the new source takes effect once the preset
+   * changes away from "data-only".
    */
   async replaceVideoTrack(track: MediaStreamTrack): Promise<void> {
     if (!this.videoSender) {
       throw new Error("No active video sender to replace -- video was not bound at connect() time.");
     }
+    this.currentVideoTrack = track;
+    if (this.videoQualityPreset === "data-only") {
+      return;
+    }
     await this.videoSender.replaceTrack(track);
+  }
+
+  /**
+   * Apply a ground-requested video quality preset to the outbound sender.
+   * "data-only" pauses video entirely via replaceTrack(null) -- a disabled
+   * MediaStreamTrack (track.enabled = false) still transmits blacked-out
+   * frames, so this is the only way to actually stop sending video data.
+   * No-op if no video track is bound.
+   */
+  private applyVideoQualityPreset(preset: VideoQualityPreset): void {
+    if (!this.videoSender) return;
+
+    if (preset === "data-only") {
+      void this.videoSender.replaceTrack(null);
+      this.videoQualityPreset = preset;
+      return;
+    }
+
+    if (this.videoQualityPreset === "data-only") {
+      void this.videoSender.replaceTrack(this.currentVideoTrack);
+    }
+
+    const parameters = this.videoSender.getParameters();
+    const encoding: RTCRtpEncodingParameters = parameters.encodings[0] ?? {};
+
+    if (preset === "auto") {
+      delete encoding.maxBitrate;
+      delete encoding.scaleResolutionDownBy;
+      delete encoding.maxFramerate;
+    } else if (preset === "high") {
+      encoding.maxBitrate = 2_000_000;
+      encoding.scaleResolutionDownBy = 1;
+      encoding.maxFramerate = 30;
+    } else if (preset === "low") {
+      encoding.maxBitrate = 350_000;
+      encoding.scaleResolutionDownBy = 2;
+      encoding.maxFramerate = 15;
+    }
+
+    parameters.encodings[0] = encoding;
+    void this.videoSender.setParameters(parameters);
+    this.videoQualityPreset = preset;
+  }
+
+  /**
+   * Dispatch a ground-requested video control by its `control` discriminant.
+   * This switch is the extension point for future controls (camera-source,
+   * zoom, gain, contrast, ...) -- adding one needs a new case here, not a new
+   * message type or ground-side relay change.
+   */
+  private applyVideoControlRequest(request: VideoControlRequest): VideoControlState {
+    switch (request.control) {
+      case "quality":
+        this.applyVideoQualityPreset(request.preset);
+        return { control: "quality", preset: request.preset, videoActive: request.preset !== "data-only" };
+    }
   }
 
   /**
@@ -234,6 +325,7 @@ export class WebRtcSessionManager {
     }
 
     this.videoSender = this.pc.addTrack(track, stream);
+    this.currentVideoTrack = track;
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
@@ -270,6 +362,7 @@ export class WebRtcSessionManager {
       // instead of permanently wedging on a half-added sender.
       this.pc.removeTrack(this.videoSender);
       this.videoSender = null;
+      this.currentVideoTrack = null;
       throw err;
     } finally {
       this.pendingRenegotiation = null;
@@ -349,6 +442,8 @@ export class WebRtcSessionManager {
     this.pc = null;
     this.socket = null;
     this.videoSender = null;
+    this.videoQualityPreset = "auto";
+    this.currentVideoTrack = null;
     this.pendingRenegotiation?.reject(new Error("Session disconnected."));
     this.pendingRenegotiation = null;
     this._state = "IDLE";
