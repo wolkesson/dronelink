@@ -10,6 +10,7 @@ import {
   handleSocketClose,
   handleGuiSocketClose,
   requestKeyFrameOnPictureLoss,
+  requestVideoControl,
 } from "./webrtc.js";
 
 describe("isTailscaleCandidate", () => {
@@ -217,6 +218,42 @@ describe("handleGuiSignalingMessage", () => {
     handleGuiSignalingMessage({ type: "ice-candidate", candidate: "not-an-object" }, reply);
     handleGuiSignalingMessage({ type: "ice-candidate", candidate: { candidate: 123 } }, reply);
     handleGuiSignalingMessage({ type: "ice-candidate" }, reply);
+    expect(reply).not.toHaveBeenCalled();
+  });
+});
+
+describe("requestVideoControl", () => {
+  afterEach(() => {
+    handleSocketClose();
+    handleGuiSocketClose();
+  });
+
+  it("returns false when there is no active air connection", () => {
+    expect(requestVideoControl({ control: "quality", preset: "low" })).toBe(false);
+  });
+});
+
+describe("handleGuiSignalingMessage: video-control-request", () => {
+  afterEach(() => {
+    handleSocketClose();
+    handleGuiSocketClose();
+  });
+
+  it("replies with an error when there is no active drone connection", () => {
+    const reply = vi.fn();
+    handleGuiSignalingMessage({ type: "video-control-request", control: "quality", preset: "low" }, reply);
+    expect(reply).toHaveBeenCalledWith({
+      type: "error",
+      message: "No active drone connection to apply video control to.",
+    });
+  });
+
+  it("ignores a request missing a string control field, without replying or throwing", () => {
+    const reply = vi.fn();
+    expect(() => handleGuiSignalingMessage({ type: "video-control-request" }, reply)).not.toThrow();
+    expect(() =>
+      handleGuiSignalingMessage({ type: "video-control-request", control: 5 }, reply),
+    ).not.toThrow();
     expect(reply).not.toHaveBeenCalled();
   });
 });

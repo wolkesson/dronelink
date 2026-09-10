@@ -342,6 +342,40 @@ describe("signaling server", () => {
   });
 });
 
+describe("video control protocol schemas", () => {
+  function loadSchema(name: string): {
+    oneOf: Array<{
+      required: string[];
+      properties: Record<string, { const?: string; enum?: string[]; type?: string }>;
+    }>;
+  } {
+    return JSON.parse(
+      readFileSync(new URL(`../../../protocol/schemas/${name}`, import.meta.url), "utf8"),
+    ) as ReturnType<typeof loadSchema>;
+  }
+
+  it("video-control-request.schema.json's 'quality' branch matches every preset", () => {
+    const schema = loadSchema("video-control-request.schema.json");
+    const branch = schema.oneOf[0];
+
+    expect(branch.required).toEqual(["type", "control", "preset"]);
+    expect(branch.properties.type.const).toBe("video-control-request");
+    expect(branch.properties.control.const).toBe("quality");
+    expect(branch.properties.preset.enum).toEqual(["auto", "high", "low", "data-only"]);
+  });
+
+  it("video-control-state.schema.json's 'quality' branch matches every preset", () => {
+    const schema = loadSchema("video-control-state.schema.json");
+    const branch = schema.oneOf[0];
+
+    expect(branch.required).toEqual(["type", "control", "preset", "videoActive"]);
+    expect(branch.properties.type.const).toBe("video-control-state");
+    expect(branch.properties.control.const).toBe("quality");
+    expect(branch.properties.preset.enum).toEqual(["auto", "high", "low", "data-only"]);
+    expect(branch.properties.videoActive.type).toBe("boolean");
+  });
+});
+
 describe("index.ts barrel exports", () => {
   it("re-exports createSignalingServer from the package root", () => {
     expect(indexModule.createSignalingServer).toBe(createSignalingServer);

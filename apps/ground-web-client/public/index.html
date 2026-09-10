@@ -10,6 +10,15 @@
       <h1>DroneLink live video</h1>
       <p id="status" role="status">Connecting to the ground video relay…</p>
       <video id="live-video" autoplay playsinline controls></video>
+      <p>
+        <label for="quality-select">Video quality</label>
+        <select id="quality-select">
+          <option value="auto" selected>Auto</option>
+          <option value="high">High</option>
+          <option value="low">Low</option>
+          <option value="data-only">Data-only (no video)</option>
+        </select>
+      </p>
     </main>
     <script type="module" src="/gui-client.js"></script>
   </body>

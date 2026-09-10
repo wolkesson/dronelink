@@ -769,6 +769,292 @@ describe("WebRtcSessionManager — addVideoTrack", () => {
   });
 });
 
+describe("WebRtcSessionManager — video quality control", () => {
+  function makeVideoSender() {
+    let encodings: RTCRtpEncodingParameters[] = [{}];
+    return {
+      replaceTrack: vi.fn(async () => {}),
+      getParameters: vi.fn(() => ({ encodings })),
+      setParameters: vi.fn(async (params: { encodings: RTCRtpEncodingParameters[] }) => {
+        encodings = params.encodings;
+      }),
+    };
+  }
+
+  function sentVideoControlStates(socket: PairingSocket): Array<Record<string, unknown>> {
+    return (socket.send as ReturnType<typeof vi.fn>).mock.calls
+      .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+      .filter((m) => m.type === "video-control-state");
+  }
+
+  async function connectWithVideo(pc: unknown, openRef: { fn: (() => void) | null }) {
+    const mgr = new WebRtcSessionManager();
+    const socket = makeMockSocket();
+    const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+    (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+      onMessageRef.fn = cb;
+    });
+
+    const videoTrack = { kind: "video", getSettings: () => ({}) } as unknown as MediaStreamTrack;
+    const fakeStream = {
+      getTracks: () => [videoTrack],
+      getVideoTracks: () => [videoTrack],
+    } as unknown as MediaStream;
+
+    const connectPromise = mgr.connect(socket, false, fakeStream);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    openRef.fn?.();
+    await connectPromise;
+
+    return { mgr, socket, onMessageRef, videoTrack };
+  }
+
+  it("is a no-op on the (nonexistent) sender when no video track is bound, but still acks", async () => {
+    const { pc, openRef } = makeMockPc();
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const mgr = new WebRtcSessionManager();
+      const socket = makeMockSocket();
+      const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+      (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+        onMessageRef.fn = cb;
+      });
+
+      // Connects data-only -- no video sender is bound.
+      const connectPromise = mgr.connect(socket);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+      openRef.fn?.();
+      await connectPromise;
+
+      expect(() =>
+        onMessageRef.fn?.(
+          JSON.stringify({ type: "video-control-request", control: "quality", preset: "low" }),
+        ),
+      ).not.toThrow();
+      expect(sentVideoControlStates(socket)).toContainEqual({
+        type: "video-control-state",
+        control: "quality",
+        preset: "low",
+        videoActive: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("'high' sets maxBitrate/scaleResolutionDownBy/maxFramerate and acks with videoActive: true", async () => {
+    const { pc, openRef } = makeMockPc();
+    const sender = makeVideoSender();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => sender);
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const { onMessageRef, socket } = await connectWithVideo(pc, openRef);
+
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "high" }),
+      );
+
+      expect(sender.setParameters).toHaveBeenCalledWith({
+        encodings: [{ maxBitrate: 2_000_000, scaleResolutionDownBy: 1, maxFramerate: 30 }],
+      });
+      expect(sentVideoControlStates(socket)).toContainEqual({
+        type: "video-control-state",
+        control: "quality",
+        preset: "high",
+        videoActive: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("'low' sets the reduced encoding caps", async () => {
+    const { pc, openRef } = makeMockPc();
+    const sender = makeVideoSender();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => sender);
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const { onMessageRef } = await connectWithVideo(pc, openRef);
+
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "low" }),
+      );
+
+      expect(sender.setParameters).toHaveBeenCalledWith({
+        encodings: [{ maxBitrate: 350_000, scaleResolutionDownBy: 2, maxFramerate: 15 }],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("'auto' clears previously-set encoding caps", async () => {
+    const { pc, openRef } = makeMockPc();
+    const sender = makeVideoSender();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => sender);
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const { onMessageRef } = await connectWithVideo(pc, openRef);
+
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "low" }),
+      );
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "auto" }),
+      );
+
+      expect(sender.setParameters).toHaveBeenLastCalledWith({ encodings: [{}] });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("'data-only' replaces the sender's track with null and does not touch setParameters, acking videoActive: false", async () => {
+    const { pc, openRef } = makeMockPc();
+    const sender = makeVideoSender();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => sender);
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const { onMessageRef, socket } = await connectWithVideo(pc, openRef);
+
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "data-only" }),
+      );
+
+      expect(sender.replaceTrack).toHaveBeenCalledWith(null);
+      expect(sender.setParameters).not.toHaveBeenCalled();
+      expect(sentVideoControlStates(socket)).toContainEqual({
+        type: "video-control-state",
+        control: "quality",
+        preset: "data-only",
+        videoActive: false,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("leaving data-only restores the original track before applying the new preset", async () => {
+    const { pc, openRef } = makeMockPc();
+    const sender = makeVideoSender();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => sender);
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const { onMessageRef, videoTrack } = await connectWithVideo(pc, openRef);
+
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "data-only" }),
+      );
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "auto" }),
+      );
+
+      expect(sender.replaceTrack).toHaveBeenNthCalledWith(1, null);
+      expect(sender.replaceTrack).toHaveBeenNthCalledWith(2, videoTrack);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("ignores an unrecognized control value without throwing", async () => {
+    const { pc, openRef } = makeMockPc();
+    const sender = makeVideoSender();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => sender);
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const { onMessageRef } = await connectWithVideo(pc, openRef);
+
+      expect(() =>
+        onMessageRef.fn?.(
+          JSON.stringify({ type: "video-control-request", control: "zoom", level: 2 }),
+        ),
+      ).not.toThrow();
+      expect(sender.setParameters).not.toHaveBeenCalled();
+      expect(sender.replaceTrack).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("replaceVideoTrack() while in data-only mode updates the stored track but does not resume sending", async () => {
+    const { pc, openRef } = makeMockPc();
+    const sender = makeVideoSender();
+    (pc as unknown as Record<string, unknown>).addTrack = vi.fn(() => sender);
+
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    try {
+      const { mgr, onMessageRef } = await connectWithVideo(pc, openRef);
+
+      onMessageRef.fn?.(
+        JSON.stringify({ type: "video-control-request", control: "quality", preset: "data-only" }),
+      );
+      sender.replaceTrack.mockClear();
+
+      const newTrack = { kind: "video" } as unknown as MediaStreamTrack;
+      await mgr.replaceVideoTrack(newTrack);
+
+      expect(sender.replaceTrack).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("WebRtcSessionManager — disconnect", () => {
   it("is a no-op when never connected", () => {
     const mgr = new WebRtcSessionManager();
