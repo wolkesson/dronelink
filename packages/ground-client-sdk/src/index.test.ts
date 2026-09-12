@@ -346,7 +346,7 @@ describe("video control protocol schemas", () => {
   function loadSchema(name: string): {
     oneOf: Array<{
       required: string[];
-      properties: Record<string, { const?: string; enum?: string[]; type?: string }>;
+      properties: Record<string, { const?: string; enum?: Array<string | number>; type?: string }>;
     }>;
   } {
     return JSON.parse(
@@ -387,13 +387,51 @@ describe("video control protocol schemas", () => {
   it("video-control-state.schema.json's 'camera-source' and 'camera-source-list' branches are present", () => {
     const schema = loadSchema("video-control-state.schema.json");
     const ackBranch = schema.oneOf[1];
-    const listBranch = schema.oneOf[2];
+    const listBranch = schema.oneOf[4];
 
     expect(ackBranch.required).toEqual(["type", "control", "deviceId", "ok"]);
     expect(ackBranch.properties.control.const).toBe("camera-source");
 
     expect(listBranch.required).toEqual(["type", "control", "devices", "activeDeviceId"]);
     expect(listBranch.properties.control.const).toBe("camera-source-list");
+  });
+
+  it("video-control-request.schema.json's 'flip' branch requires horizontal and vertical booleans", () => {
+    const schema = loadSchema("video-control-request.schema.json");
+    const branch = schema.oneOf[2];
+
+    expect(branch.required).toEqual(["type", "control", "horizontal", "vertical"]);
+    expect(branch.properties.control.const).toBe("flip");
+    expect(branch.properties.horizontal.type).toBe("boolean");
+    expect(branch.properties.vertical.type).toBe("boolean");
+  });
+
+  it("video-control-state.schema.json's 'flip' branch acks horizontal/vertical with ok/error", () => {
+    const schema = loadSchema("video-control-state.schema.json");
+    const branch = schema.oneOf[2];
+
+    expect(branch.required).toEqual(["type", "control", "horizontal", "vertical", "ok"]);
+    expect(branch.properties.control.const).toBe("flip");
+    expect(branch.properties.horizontal.type).toBe("boolean");
+    expect(branch.properties.vertical.type).toBe("boolean");
+  });
+
+  it("video-control-request.schema.json's 'rotate' branch only allows 90-degree steps", () => {
+    const schema = loadSchema("video-control-request.schema.json");
+    const branch = schema.oneOf[3];
+
+    expect(branch.required).toEqual(["type", "control", "degrees"]);
+    expect(branch.properties.control.const).toBe("rotate");
+    expect(branch.properties.degrees.enum).toEqual([0, 90, 180, 270]);
+  });
+
+  it("video-control-state.schema.json's 'rotate' branch acks degrees with ok/error", () => {
+    const schema = loadSchema("video-control-state.schema.json");
+    const branch = schema.oneOf[3];
+
+    expect(branch.required).toEqual(["type", "control", "degrees", "ok"]);
+    expect(branch.properties.control.const).toBe("rotate");
+    expect(branch.properties.degrees.enum).toEqual([0, 90, 180, 270]);
   });
 });
 

@@ -15,18 +15,37 @@ function isVideoQualityPreset(value: unknown): value is VideoQualityPreset {
   return typeof value === "string" && (VIDEO_QUALITY_PRESETS as readonly string[]).includes(value);
 }
 
-// "quality" and "camera-source" are implemented today. Further ground-initiated
-// controls (zoom, gain, contrast, ...) are expected to extend these unions with
-// new discriminants later -- ground-client-sdk's requestVideoControl() forwards
-// any {control, ...} shape unmodified, so adding a case here needs no
-// ground-side change.
+/** 90-degree steps only -- every way a phone can be physically mounted sideways or upside-down. */
+export type VideoRotationDegrees = 0 | 90 | 180 | 270;
+
+const VIDEO_ROTATION_DEGREES: readonly VideoRotationDegrees[] = [0, 90, 180, 270];
+
+function isVideoRotationDegrees(value: unknown): value is VideoRotationDegrees {
+  return typeof value === "number" && (VIDEO_ROTATION_DEGREES as readonly number[]).includes(value);
+}
+
+// "quality", "camera-source", "flip", and "rotate" are implemented today.
+// Further ground-initiated controls (zoom, gain, contrast, ...) are expected
+// to extend these unions with new discriminants later -- ground-client-sdk's
+// requestVideoControl() forwards any {control, ...} shape unmodified, so
+// adding a case here needs no ground-side change.
 export type VideoControlRequest =
   | { control: "quality"; preset: VideoQualityPreset }
-  | { control: "camera-source"; deviceId: string };
+  | { control: "camera-source"; deviceId: string }
+  | { control: "flip"; horizontal: boolean; vertical: boolean }
+  | { control: "rotate"; degrees: VideoRotationDegrees };
 
 export type VideoControlState =
   | { control: "quality"; preset: VideoQualityPreset; videoActive: boolean }
-  | { control: "camera-source"; deviceId: string; ok: boolean; error?: string };
+  | { control: "camera-source"; deviceId: string; ok: boolean; error?: string }
+  | { control: "flip"; horizontal: boolean; vertical: boolean; ok: boolean; error?: string }
+  | { control: "rotate"; degrees: VideoRotationDegrees; ok: boolean; error?: string };
+
+/** Requested mirroring of the outbound video, e.g. to correct a phone mount that can't be oriented normally. */
+export interface VideoFlipState {
+  horizontal: boolean;
+  vertical: boolean;
+}
 
 /** A camera reported by enumerateDevices(), as sent to the ground in a camera-source-list push. */
 export interface CameraSourceDevice {
@@ -39,6 +58,12 @@ function isVideoControlRequest(value: unknown): value is VideoControlRequest {
   if (value.control === "quality") return isVideoQualityPreset(value.preset);
   if (value.control === "camera-source") {
     return typeof value.deviceId === "string" && value.deviceId.length > 0;
+  }
+  if (value.control === "flip") {
+    return typeof value.horizontal === "boolean" && typeof value.vertical === "boolean";
+  }
+  if (value.control === "rotate") {
+    return isVideoRotationDegrees(value.degrees);
   }
   return false;
 }
@@ -63,6 +88,8 @@ export class WebRtcSessionManager {
   private videoQualityPreset: VideoQualityPreset = "auto";
   private currentVideoTrack: MediaStreamTrack | null = null;
   private cameraSourceHandler: ((deviceId: string) => Promise<void>) | null = null;
+  private flipHandler: ((flip: VideoFlipState) => Promise<void>) | null = null;
+  private rotateHandler: ((degrees: VideoRotationDegrees) => Promise<void>) | null = null;
   private pendingRenegotiation: { resolve: () => void; reject: (err: Error) => void } | null = null;
   private readonly handlers = new Set<(data: Uint8Array) => void>();
   private readonly connectTimeoutMs: number;
@@ -327,6 +354,29 @@ export class WebRtcSessionManager {
   }
 
   /**
+   * Register the handler that applies a ground-requested "flip" control.
+   * Like camera-source, actually mirroring the outbound frames needs a
+   * canvas/track-transform pipeline the app layer owns (raw camera tracks and
+   * RTCRtpSender have no built-in flip), so this SDK only dispatches the
+   * request and reports the handler's outcome. Rejecting the returned promise
+   * acks the request with ok: false and the rejection's message.
+   */
+  setFlipHandler(handler: (flip: VideoFlipState) => Promise<void>): void {
+    this.flipHandler = handler;
+  }
+
+  /**
+   * Register the handler that applies a ground-requested "rotate" control.
+   * Same rationale as setFlipHandler(): rotating the actual outbound frames
+   * needs the app-owned canvas/track-transform pipeline, not anything this
+   * transport-only SDK can do itself. Rejecting the returned promise acks the
+   * request with ok: false and the rejection's message.
+   */
+  setRotateHandler(handler: (degrees: VideoRotationDegrees) => Promise<void>): void {
+    this.rotateHandler = handler;
+  }
+
+  /**
    * Push the current camera list and active device to the ground side, so a
    * GUI viewer can offer camera-source choices. Unsolicited (not a reply to a
    * request) -- call after enumerating devices and after every successful
@@ -366,6 +416,39 @@ export class WebRtcSessionManager {
           return {
             control: "camera-source",
             deviceId: request.deviceId,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
+      case "flip": {
+        const flip = { horizontal: request.horizontal, vertical: request.vertical };
+        if (!this.flipHandler) {
+          return { control: "flip", ...flip, ok: false, error: "No flip handler registered." };
+        }
+        try {
+          await this.flipHandler(flip);
+          return { control: "flip", ...flip, ok: true };
+        } catch (err) {
+          return {
+            control: "flip",
+            ...flip,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
+      case "rotate": {
+        if (!this.rotateHandler) {
+          return { control: "rotate", degrees: request.degrees, ok: false, error: "No rotate handler registered." };
+        }
+        try {
+          await this.rotateHandler(request.degrees);
+          return { control: "rotate", degrees: request.degrees, ok: true };
+        } catch (err) {
+          return {
+            control: "rotate",
+            degrees: request.degrees,
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           };
