@@ -15,16 +15,32 @@ function isVideoQualityPreset(value: unknown): value is VideoQualityPreset {
   return typeof value === "string" && (VIDEO_QUALITY_PRESETS as readonly string[]).includes(value);
 }
 
-// Only "quality" is implemented today. Ground-initiated camera-source/zoom/
-// gain/contrast controls are expected to extend this union with new
-// discriminants later -- ground-client-sdk's requestVideoControl() forwards
+// "quality" and "camera-source" are implemented today. Further ground-initiated
+// controls (zoom, gain, contrast, ...) are expected to extend these unions with
+// new discriminants later -- ground-client-sdk's requestVideoControl() forwards
 // any {control, ...} shape unmodified, so adding a case here needs no
 // ground-side change.
-export type VideoControlRequest = { control: "quality"; preset: VideoQualityPreset };
-export type VideoControlState = { control: "quality"; preset: VideoQualityPreset; videoActive: boolean };
+export type VideoControlRequest =
+  | { control: "quality"; preset: VideoQualityPreset }
+  | { control: "camera-source"; deviceId: string };
+
+export type VideoControlState =
+  | { control: "quality"; preset: VideoQualityPreset; videoActive: boolean }
+  | { control: "camera-source"; deviceId: string; ok: boolean; error?: string };
+
+/** A camera reported by enumerateDevices(), as sent to the ground in a camera-source-list push. */
+export interface CameraSourceDevice {
+  deviceId: string;
+  label: string;
+}
 
 function isVideoControlRequest(value: unknown): value is VideoControlRequest {
-  return isRecord(value) && value.control === "quality" && isVideoQualityPreset(value.preset);
+  if (!isRecord(value)) return false;
+  if (value.control === "quality") return isVideoQualityPreset(value.preset);
+  if (value.control === "camera-source") {
+    return typeof value.deviceId === "string" && value.deviceId.length > 0;
+  }
+  return false;
 }
 
 export interface WebRtcSessionManagerOptions {
@@ -46,6 +62,7 @@ export class WebRtcSessionManager {
   private videoSender: RTCRtpSender | null = null;
   private videoQualityPreset: VideoQualityPreset = "auto";
   private currentVideoTrack: MediaStreamTrack | null = null;
+  private cameraSourceHandler: ((deviceId: string) => Promise<void>) | null = null;
   private pendingRenegotiation: { resolve: () => void; reject: (err: Error) => void } | null = null;
   private readonly handlers = new Set<(data: Uint8Array) => void>();
   private readonly connectTimeoutMs: number;
@@ -154,8 +171,9 @@ export class WebRtcSessionManager {
           console.warn("addIceCandidate failed:", err instanceof Error ? err.message : String(err));
         });
       } else if (msg.type === "video-control-request" && isVideoControlRequest(msg)) {
-        const state = this.applyVideoControlRequest(msg);
-        socket.send(JSON.stringify({ type: "video-control-state", ...state }));
+        void this.applyVideoControlRequest(msg).then((state) => {
+          socket.send(JSON.stringify({ type: "video-control-state", ...state }));
+        });
       }
     });
 
@@ -296,16 +314,63 @@ export class WebRtcSessionManager {
   }
 
   /**
-   * Dispatch a ground-requested video control by its `control` discriminant.
-   * This switch is the extension point for future controls (camera-source,
-   * zoom, gain, contrast, ...) -- adding one needs a new case here, not a new
-   * message type or ground-side relay change.
+   * Register the handler that performs an actual camera switch for a
+   * ground-requested "camera-source" control. Camera capture (getUserMedia,
+   * device enumeration) is owned by the app layer, not this transport-only SDK,
+   * so the handler is expected to acquire the new track and call
+   * replaceVideoTrack()/addVideoTrack() itself, the same way a local device-
+   * picker change would. Rejecting the returned promise acks the request with
+   * ok: false and the rejection's message.
    */
-  private applyVideoControlRequest(request: VideoControlRequest): VideoControlState {
+  setCameraSourceHandler(handler: (deviceId: string) => Promise<void>): void {
+    this.cameraSourceHandler = handler;
+  }
+
+  /**
+   * Push the current camera list and active device to the ground side, so a
+   * GUI viewer can offer camera-source choices. Unsolicited (not a reply to a
+   * request) -- call after enumerating devices and after every successful
+   * switch. No-op before connect() has set a socket.
+   */
+  publishCameraSources(devices: CameraSourceDevice[], activeDeviceId: string | null): void {
+    if (!this.socket) return;
+    this.socket.send(
+      JSON.stringify({ type: "video-control-state", control: "camera-source-list", devices, activeDeviceId }),
+    );
+  }
+
+  /**
+   * Dispatch a ground-requested video control by its `control` discriminant.
+   * This switch is the extension point for future controls (zoom, gain,
+   * contrast, ...) -- adding one needs a new case here, not a new message
+   * type or ground-side relay change.
+   */
+  private async applyVideoControlRequest(request: VideoControlRequest): Promise<VideoControlState> {
     switch (request.control) {
       case "quality":
         this.applyVideoQualityPreset(request.preset);
         return { control: "quality", preset: request.preset, videoActive: request.preset !== "data-only" };
+      case "camera-source": {
+        if (!this.cameraSourceHandler) {
+          return {
+            control: "camera-source",
+            deviceId: request.deviceId,
+            ok: false,
+            error: "No camera source handler registered.",
+          };
+        }
+        try {
+          await this.cameraSourceHandler(request.deviceId);
+          return { control: "camera-source", deviceId: request.deviceId, ok: true };
+        } catch (err) {
+          return {
+            control: "camera-source",
+            deviceId: request.deviceId,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
     }
   }
 

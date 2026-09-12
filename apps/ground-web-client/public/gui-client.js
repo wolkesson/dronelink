@@ -1,6 +1,7 @@
 const status = document.getElementById("status");
 const video = document.getElementById("live-video");
 const qualitySelect = document.getElementById("quality-select");
+const cameraSelect = document.getElementById("camera-select");
 const signalingUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/gui-signaling`;
 const socket = new WebSocket(signalingUrl);
 const peerConnection = new RTCPeerConnection();
@@ -69,6 +70,14 @@ socket.onmessage = async (event) => {
     } else if (message.type === "video-control-state" && message.control === "quality") {
       qualitySelect.value = message.preset;
       setStatus(message.videoActive ? "Live video connected" : "Live video paused (data-only mode)");
+    } else if (message.type === "video-control-state" && message.control === "camera-source-list") {
+      populateCameraOptions(Array.isArray(message.devices) ? message.devices : [], message.activeDeviceId ?? "");
+    } else if (message.type === "video-control-state" && message.control === "camera-source") {
+      if (message.ok) {
+        setStatus("Camera source switched");
+      } else {
+        setStatus(`Camera switch failed: ${message.error ?? "unknown error"}`);
+      }
     } else if (message.type === "error" && typeof message.message === "string") {
       setStatus(message.message);
     }
@@ -88,6 +97,31 @@ qualitySelect.addEventListener("change", () => {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(
       JSON.stringify({ type: "video-control-request", control: "quality", preset: qualitySelect.value }),
+    );
+  }
+});
+
+function populateCameraOptions(devices, activeDeviceId) {
+  const previousValue = cameraSelect.value;
+  cameraSelect.replaceChildren(
+    ...devices.map((device) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || device.deviceId;
+      return option;
+    }),
+  );
+  cameraSelect.disabled = devices.length === 0;
+  const nextValue = activeDeviceId || previousValue;
+  if (devices.some((device) => device.deviceId === nextValue)) {
+    cameraSelect.value = nextValue;
+  }
+}
+
+cameraSelect.addEventListener("change", () => {
+  if (socket.readyState === WebSocket.OPEN && cameraSelect.value) {
+    socket.send(
+      JSON.stringify({ type: "video-control-request", control: "camera-source", deviceId: cameraSelect.value }),
     );
   }
 });

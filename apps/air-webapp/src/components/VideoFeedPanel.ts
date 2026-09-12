@@ -15,6 +15,7 @@ export interface VideoFeedPanelHandle {
   videoEl: HTMLVideoElement;
   setMode(mode: VideoFeedMode): void;
   populateDevices(devices: MediaDeviceInfo[]): void;
+  setSelectedDevice(deviceId: string): void;
   setStreaming(streaming: boolean): void;
   setResolution(text: string | null): void;
   setFps(text: string | null): void;
@@ -145,6 +146,9 @@ export function createVideoFeedPanel(options: VideoFeedPanelOptions): VideoFeedP
         })),
       ]);
       dropdown.setValue(previous);
+    },
+    setSelectedDevice(deviceId: string) {
+      dropdown.setValue(deviceId);
     },
     setStreaming(next: boolean) {
       streaming = next;
