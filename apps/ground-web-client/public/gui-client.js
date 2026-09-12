@@ -4,6 +4,10 @@ const qualitySelect = document.getElementById("quality-select");
 const cameraSelect = document.getElementById("camera-select");
 const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
 const flipVerticalCheckbox = document.getElementById("flip-vertical");
+const rotationLabel = document.getElementById("rotation-label");
+const rotateLeftButton = document.getElementById("rotate-left");
+const rotateRightButton = document.getElementById("rotate-right");
+let currentRotation = 0;
 const signalingUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/gui-signaling`;
 const socket = new WebSocket(signalingUrl);
 const peerConnection = new RTCPeerConnection();
@@ -88,6 +92,14 @@ socket.onmessage = async (event) => {
       } else {
         setStatus(`Flip request failed: ${message.error ?? "unknown error"}`);
       }
+    } else if (message.type === "video-control-state" && message.control === "rotate") {
+      if (message.ok) {
+        currentRotation = message.degrees;
+        rotationLabel.textContent = `${currentRotation}°`;
+        setStatus("Video rotation updated");
+      } else {
+        setStatus(`Rotate request failed: ${message.error ?? "unknown error"}`);
+      }
     } else if (message.type === "error" && typeof message.message === "string") {
       setStatus(message.message);
     }
@@ -151,3 +163,16 @@ function sendFlipRequest() {
 
 flipHorizontalCheckbox.addEventListener("change", sendFlipRequest);
 flipVerticalCheckbox.addEventListener("change", sendFlipRequest);
+
+function sendRotateRequest(degrees) {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "video-control-request", control: "rotate", degrees }));
+  }
+}
+
+rotateLeftButton.addEventListener("click", () => {
+  sendRotateRequest((currentRotation + 270) % 360);
+});
+rotateRightButton.addEventListener("click", () => {
+  sendRotateRequest((currentRotation + 90) % 360);
+});

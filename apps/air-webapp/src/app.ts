@@ -18,7 +18,7 @@ import { createGroundConnectionPanel } from "./components/GroundConnectionPanel.
 import { createDisconnectButton } from "./components/DisconnectButton.js";
 import { createSessionFooter } from "./components/SessionFooter.js";
 import { formatByteRate, formatDuration, formatMbps } from "./format.js";
-import { createFlippedVideoTrack, type FlipState, type FlippedVideoSource } from "./video-flip.js";
+import { createTransformedVideoTrack, type VideoTransform, type TransformedVideoSource } from "./video-transform.js";
 
 const METRICS_INTERVAL_MS = 1000;
 
@@ -82,32 +82,32 @@ export function mountApp(root: HTMLElement): void {
   // always has something to send even if called before the next enumeration.
   let knownCameraDevices: MediaDeviceInfo[] = [];
 
-  // Ground-requested mirroring, applied to both the local preview (via CSS,
-  // cheap) and the outbound WebRTC track (via a canvas re-render pipeline,
-  // since raw camera tracks and RTCRtpSender have no flip of their own --
-  // see video-flip.ts). Persists across camera switches.
-  let flipState: FlipState = { horizontal: false, vertical: false };
-  let flippedSource: FlippedVideoSource | null = null;
+  // Ground-requested flip/rotation, applied to both the local preview (via
+  // CSS, cheap) and the outbound WebRTC track (via a canvas re-render
+  // pipeline, since raw camera tracks and RTCRtpSender have neither
+  // capability -- see video-transform.ts). Persists across camera switches.
+  let videoTransform: VideoTransform = { horizontal: false, vertical: false, rotation: 0 };
+  let transformedSource: TransformedVideoSource | null = null;
 
-  function applyLocalPreviewFlip(): void {
-    const scaleX = flipState.horizontal ? -1 : 1;
-    const scaleY = flipState.vertical ? -1 : 1;
-    videoPanel.videoEl.style.transform = `scale(${scaleX}, ${scaleY})`;
+  function applyLocalPreviewTransform(): void {
+    const scaleX = videoTransform.horizontal ? -1 : 1;
+    const scaleY = videoTransform.vertical ? -1 : 1;
+    videoPanel.videoEl.style.transform = `rotate(${videoTransform.rotation}deg) scale(${scaleX}, ${scaleY})`;
   }
 
-  function teardownFlipPipeline(): void {
-    flippedSource?.stop();
-    flippedSource = null;
+  function teardownTransformPipeline(): void {
+    transformedSource?.stop();
+    transformedSource = null;
   }
 
-  /** The track to actually send: the raw track unchanged, or a mirrored canvas track when a flip is active. */
+  /** The track to actually send: the raw track unchanged, or a flipped/rotated canvas track when a transform is active. */
   function outboundTrackFor(rawTrack: MediaStreamTrack): MediaStreamTrack {
-    teardownFlipPipeline();
-    if (!flipState.horizontal && !flipState.vertical) {
+    teardownTransformPipeline();
+    if (!videoTransform.horizontal && !videoTransform.vertical && videoTransform.rotation === 0) {
       return rawTrack;
     }
-    flippedSource = createFlippedVideoTrack(rawTrack, flipState);
-    return flippedSource.track;
+    transformedSource = createTransformedVideoTrack(rawTrack, videoTransform);
+    return transformedSource.track;
   }
 
   function publishCameraSources(): void {
@@ -138,7 +138,7 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function stopVideoStream(): void {
-    teardownFlipPipeline();
+    teardownTransformPipeline();
     if (videoStream) {
       videoStream.getTracks().forEach((t) => t.stop());
       videoStream = null;
@@ -154,7 +154,7 @@ export function mountApp(root: HTMLElement): void {
     videoStream = stream;
     videoPanel.videoEl.srcObject = stream;
     videoPanel.setStreaming(true);
-    applyLocalPreviewFlip();
+    applyLocalPreviewTransform();
 
     const [track] = stream.getVideoTracks();
     const settings = track?.getSettings();
@@ -231,19 +231,18 @@ export function mountApp(root: HTMLElement): void {
   sessionManager.setCameraSourceHandler((deviceId) => switchCameraTo(deviceId));
 
   /**
-   * Applies a ground-requested flip to the local preview immediately, and,
+   * Applies the current videoTransform to the local preview immediately, and,
    * if a camera is currently bound, rebuilds the outbound track (raw or
-   * canvas-mirrored) and swaps it into the live session. If no camera is
+   * canvas-transformed) and swaps it into the live session. If no camera is
    * bound yet, the state is only stored -- it takes effect on the next
    * switchCameraTo() (e.g. once a camera is selected).
    */
-  async function applyFlip(flip: FlipState): Promise<void> {
-    flipState = flip;
-    applyLocalPreviewFlip();
+  async function applyVideoTransform(): Promise<void> {
+    applyLocalPreviewTransform();
 
     const rawTrack = videoStream?.getVideoTracks()[0];
     if (!rawTrack) {
-      teardownFlipPipeline();
+      teardownTransformPipeline();
       return;
     }
 
@@ -253,7 +252,15 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
-  sessionManager.setFlipHandler((flip) => applyFlip(flip));
+  sessionManager.setFlipHandler(async (flip) => {
+    videoTransform = { ...videoTransform, ...flip };
+    await applyVideoTransform();
+  });
+
+  sessionManager.setRotateHandler(async (degrees) => {
+    videoTransform = { ...videoTransform, rotation: degrees };
+    await applyVideoTransform();
+  });
 
   void populateCameraList();
 

@@ -1308,6 +1308,111 @@ describe("WebRtcSessionManager — flip control", () => {
   });
 });
 
+describe("WebRtcSessionManager — rotate control", () => {
+  function sentVideoControlStates(socket: PairingSocket): Array<Record<string, unknown>> {
+    return (socket.send as ReturnType<typeof vi.fn>).mock.calls
+      .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+      .filter((m) => m.type === "video-control-state");
+  }
+
+  async function connectedManager(): Promise<{
+    mgr: WebRtcSessionManager;
+    socket: PairingSocket;
+    onMessageRef: { fn: ((data: string) => void) | null };
+  }> {
+    const { pc, openRef } = makeMockPc();
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    const mgr = new WebRtcSessionManager();
+    const socket = makeMockSocket();
+    const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+    (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+      onMessageRef.fn = cb;
+    });
+
+    const connectPromise = mgr.connect(socket);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    openRef.fn?.();
+    await connectPromise;
+
+    return { mgr, socket, onMessageRef };
+  }
+
+  it("calls the registered handler with the requested degrees and acks ok: true", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setRotateHandler(handler);
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "rotate", degrees: 90 }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledWith(90);
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "rotate",
+      degrees: 90,
+      ok: true,
+    });
+  });
+
+  it("acks ok: false with the rejection message when the handler throws", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    mgr.setRotateHandler(async () => {
+      throw new Error("no video track bound");
+    });
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "rotate", degrees: 270 }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "rotate",
+      degrees: 270,
+      ok: false,
+      error: "no video track bound",
+    });
+  });
+
+  it("acks ok: false when no rotate handler has been registered", async () => {
+    const { socket, onMessageRef } = await connectedManager();
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "rotate", degrees: 180 }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "rotate",
+      degrees: 180,
+      ok: false,
+      error: "No rotate handler registered.",
+    });
+  });
+
+  it("ignores a rotate request with degrees outside the 90-degree steps, without calling the handler", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setRotateHandler(handler);
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "rotate", degrees: 45 }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(sentVideoControlStates(socket)).toHaveLength(0);
+  });
+});
+
 describe("WebRtcSessionManager — disconnect", () => {
   it("is a no-op when never connected", () => {
     const mgr = new WebRtcSessionManager();
