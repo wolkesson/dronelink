@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://dronelink.local/protocol/schemas/video-control-request.schema.json",
   "title": "Video Control Request",
-  "description": "Ground-to-air request to change a video setting. The `control` field discriminates the payload shape; \"quality\" and \"camera-source\" are defined today. Future controls (e.g. zoom, gain, contrast) are expected to be added as additional oneOf branches, not by renaming this message.",
+  "description": "Ground-to-air request to change a video setting. The `control` field discriminates the payload shape; \"quality\", \"camera-source\", and \"flip\" are defined today. Future controls (e.g. zoom, gain, contrast) are expected to be added as additional oneOf branches, not by renaming this message.",
   "type": "object",
   "oneOf": [
     {
@@ -21,6 +21,16 @@
         "type": { "const": "video-control-request" },
         "control": { "const": "camera-source" },
         "deviceId": { "type": "string", "minLength": 1 }
+      }
+    },
+    {
+      "additionalProperties": false,
+      "required": ["type", "control", "horizontal", "vertical"],
+      "properties": {
+        "type": { "const": "video-control-request" },
+        "control": { "const": "flip" },
+        "horizontal": { "type": "boolean" },
+        "vertical": { "type": "boolean" }
       }
     }
   ]

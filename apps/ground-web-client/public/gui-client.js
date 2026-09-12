@@ -2,6 +2,8 @@ const status = document.getElementById("status");
 const video = document.getElementById("live-video");
 const qualitySelect = document.getElementById("quality-select");
 const cameraSelect = document.getElementById("camera-select");
+const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
+const flipVerticalCheckbox = document.getElementById("flip-vertical");
 const signalingUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/gui-signaling`;
 const socket = new WebSocket(signalingUrl);
 const peerConnection = new RTCPeerConnection();
@@ -78,6 +80,14 @@ socket.onmessage = async (event) => {
       } else {
         setStatus(`Camera switch failed: ${message.error ?? "unknown error"}`);
       }
+    } else if (message.type === "video-control-state" && message.control === "flip") {
+      if (message.ok) {
+        flipHorizontalCheckbox.checked = Boolean(message.horizontal);
+        flipVerticalCheckbox.checked = Boolean(message.vertical);
+        setStatus("Video flip updated");
+      } else {
+        setStatus(`Flip request failed: ${message.error ?? "unknown error"}`);
+      }
     } else if (message.type === "error" && typeof message.message === "string") {
       setStatus(message.message);
     }
@@ -125,3 +135,19 @@ cameraSelect.addEventListener("change", () => {
     );
   }
 });
+
+function sendFlipRequest() {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(
+      JSON.stringify({
+        type: "video-control-request",
+        control: "flip",
+        horizontal: flipHorizontalCheckbox.checked,
+        vertical: flipVerticalCheckbox.checked,
+      }),
+    );
+  }
+}
+
+flipHorizontalCheckbox.addEventListener("change", sendFlipRequest);
+flipVerticalCheckbox.addEventListener("change", sendFlipRequest);

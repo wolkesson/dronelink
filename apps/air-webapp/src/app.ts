@@ -18,6 +18,7 @@ import { createGroundConnectionPanel } from "./components/GroundConnectionPanel.
 import { createDisconnectButton } from "./components/DisconnectButton.js";
 import { createSessionFooter } from "./components/SessionFooter.js";
 import { formatByteRate, formatDuration, formatMbps } from "./format.js";
+import { createFlippedVideoTrack, type FlipState, type FlippedVideoSource } from "./video-flip.js";
 
 const METRICS_INTERVAL_MS = 1000;
 
@@ -81,6 +82,34 @@ export function mountApp(root: HTMLElement): void {
   // always has something to send even if called before the next enumeration.
   let knownCameraDevices: MediaDeviceInfo[] = [];
 
+  // Ground-requested mirroring, applied to both the local preview (via CSS,
+  // cheap) and the outbound WebRTC track (via a canvas re-render pipeline,
+  // since raw camera tracks and RTCRtpSender have no flip of their own --
+  // see video-flip.ts). Persists across camera switches.
+  let flipState: FlipState = { horizontal: false, vertical: false };
+  let flippedSource: FlippedVideoSource | null = null;
+
+  function applyLocalPreviewFlip(): void {
+    const scaleX = flipState.horizontal ? -1 : 1;
+    const scaleY = flipState.vertical ? -1 : 1;
+    videoPanel.videoEl.style.transform = `scale(${scaleX}, ${scaleY})`;
+  }
+
+  function teardownFlipPipeline(): void {
+    flippedSource?.stop();
+    flippedSource = null;
+  }
+
+  /** The track to actually send: the raw track unchanged, or a mirrored canvas track when a flip is active. */
+  function outboundTrackFor(rawTrack: MediaStreamTrack): MediaStreamTrack {
+    teardownFlipPipeline();
+    if (!flipState.horizontal && !flipState.vertical) {
+      return rawTrack;
+    }
+    flippedSource = createFlippedVideoTrack(rawTrack, flipState);
+    return flippedSource.track;
+  }
+
   function publishCameraSources(): void {
     const activeDeviceId = videoStream?.getVideoTracks()[0]?.getSettings().deviceId ?? null;
     sessionManager.publishCameraSources(
@@ -109,6 +138,7 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function stopVideoStream(): void {
+    teardownFlipPipeline();
     if (videoStream) {
       videoStream.getTracks().forEach((t) => t.stop());
       videoStream = null;
@@ -124,6 +154,7 @@ export function mountApp(root: HTMLElement): void {
     videoStream = stream;
     videoPanel.videoEl.srcObject = stream;
     videoPanel.setStreaming(true);
+    applyLocalPreviewFlip();
 
     const [track] = stream.getVideoTracks();
     const settings = track?.getSettings();
@@ -156,6 +187,7 @@ export function mountApp(root: HTMLElement): void {
     if (sessionManager.state === "CONNECTED") {
       const [newTrack] = stream.getVideoTracks();
       if (newTrack) {
+        const outboundTrack = outboundTrackFor(newTrack);
         try {
           if (sessionManager.hasVideo) {
             // In-place swap via RTCRtpSender.replaceTrack -- no renegotiation, the
@@ -163,11 +195,11 @@ export function mountApp(root: HTMLElement): void {
             // swaps are supported today: the ground side sized its recorder from
             // the original offer and won't notice a resolution change, which can
             // corrupt the recording (see WebRtcSessionManager.replaceVideoTrack).
-            await sessionManager.replaceVideoTrack(newTrack);
+            await sessionManager.replaceVideoTrack(outboundTrack);
           } else {
             // Session connected data-only (e.g. paired via a scan-only bind) --
             // renegotiate to add video now instead of requiring a reconnect.
-            await sessionManager.addVideoTrack(newTrack, stream);
+            await sessionManager.addVideoTrack(outboundTrack, stream);
           }
         } catch (err) {
           relayError = new Error(
@@ -197,6 +229,31 @@ export function mountApp(root: HTMLElement): void {
   }
 
   sessionManager.setCameraSourceHandler((deviceId) => switchCameraTo(deviceId));
+
+  /**
+   * Applies a ground-requested flip to the local preview immediately, and,
+   * if a camera is currently bound, rebuilds the outbound track (raw or
+   * canvas-mirrored) and swaps it into the live session. If no camera is
+   * bound yet, the state is only stored -- it takes effect on the next
+   * switchCameraTo() (e.g. once a camera is selected).
+   */
+  async function applyFlip(flip: FlipState): Promise<void> {
+    flipState = flip;
+    applyLocalPreviewFlip();
+
+    const rawTrack = videoStream?.getVideoTracks()[0];
+    if (!rawTrack) {
+      teardownFlipPipeline();
+      return;
+    }
+
+    const outboundTrack = outboundTrackFor(rawTrack);
+    if (sessionManager.state === "CONNECTED" && sessionManager.hasVideo) {
+      await sessionManager.replaceVideoTrack(outboundTrack);
+    }
+  }
+
+  sessionManager.setFlipHandler((flip) => applyFlip(flip));
 
   void populateCameraList();
 

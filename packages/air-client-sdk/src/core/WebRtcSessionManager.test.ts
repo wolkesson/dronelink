@@ -1192,6 +1192,122 @@ describe("WebRtcSessionManager — camera-source control", () => {
   });
 });
 
+describe("WebRtcSessionManager — flip control", () => {
+  function sentVideoControlStates(socket: PairingSocket): Array<Record<string, unknown>> {
+    return (socket.send as ReturnType<typeof vi.fn>).mock.calls
+      .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+      .filter((m) => m.type === "video-control-state");
+  }
+
+  async function connectedManager(): Promise<{
+    mgr: WebRtcSessionManager;
+    socket: PairingSocket;
+    onMessageRef: { fn: ((data: string) => void) | null };
+  }> {
+    const { pc, openRef } = makeMockPc();
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    const mgr = new WebRtcSessionManager();
+    const socket = makeMockSocket();
+    const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+    (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+      onMessageRef.fn = cb;
+    });
+
+    const connectPromise = mgr.connect(socket);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    openRef.fn?.();
+    await connectPromise;
+
+    return { mgr, socket, onMessageRef };
+  }
+
+  it("calls the registered handler with the requested flip state and acks ok: true", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setFlipHandler(handler);
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "flip", horizontal: true, vertical: false }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledWith({ horizontal: true, vertical: false });
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "flip",
+      horizontal: true,
+      vertical: false,
+      ok: true,
+    });
+  });
+
+  it("acks ok: false with the rejection message when the handler throws", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    mgr.setFlipHandler(async () => {
+      throw new Error("no video track bound");
+    });
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "flip", horizontal: false, vertical: true }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "flip",
+      horizontal: false,
+      vertical: true,
+      ok: false,
+      error: "no video track bound",
+    });
+  });
+
+  it("acks ok: false when no flip handler has been registered", async () => {
+    const { socket, onMessageRef } = await connectedManager();
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "flip", horizontal: true, vertical: true }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "flip",
+      horizontal: true,
+      vertical: true,
+      ok: false,
+      error: "No flip handler registered.",
+    });
+  });
+
+  it("ignores a flip request with non-boolean fields, without calling the handler", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setFlipHandler(handler);
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "flip", horizontal: "yes", vertical: false }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(sentVideoControlStates(socket)).toHaveLength(0);
+  });
+});
+
 describe("WebRtcSessionManager — disconnect", () => {
   it("is a no-op when never connected", () => {
     const mgr = new WebRtcSessionManager();

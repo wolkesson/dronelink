@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://dronelink.local/protocol/schemas/video-control-state.schema.json",
   "title": "Video Control State",
-  "description": "Air-to-ground acknowledgment of an applied video control, forwarded to any connected GUI viewer. The `control` field discriminates the payload shape; \"quality\" and \"camera-source\" are defined today, mirroring video-control-request.schema.json. \"camera-source-list\" is a related but unsolicited push (not an ack to any request) reporting air's enumerated cameras and which one is active.",
+  "description": "Air-to-ground acknowledgment of an applied video control, forwarded to any connected GUI viewer. The `control` field discriminates the payload shape; \"quality\", \"camera-source\", and \"flip\" are defined today, mirroring video-control-request.schema.json. \"camera-source-list\" is a related but unsolicited push (not an ack to any request) reporting air's enumerated cameras and which one is active.",
   "type": "object",
   "oneOf": [
     {
@@ -22,6 +22,18 @@
         "type": { "const": "video-control-state" },
         "control": { "const": "camera-source" },
         "deviceId": { "type": "string", "minLength": 1 },
+        "ok": { "type": "boolean" },
+        "error": { "type": "string" }
+      }
+    },
+    {
+      "additionalProperties": false,
+      "required": ["type", "control", "horizontal", "vertical", "ok"],
+      "properties": {
+        "type": { "const": "video-control-state" },
+        "control": { "const": "flip" },
+        "horizontal": { "type": "boolean" },
+        "vertical": { "type": "boolean" },
         "ok": { "type": "boolean" },
         "error": { "type": "string" }
       }
