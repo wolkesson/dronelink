@@ -5,8 +5,10 @@ import {
   PairingSession,
   QrPairingScanner,
   SERIAL_BAUD_RATE,
+  startBatteryMonitor,
   WebRtcSessionManager,
   WebSerialTransport,
+  type BatteryStatus,
   type SerialTransport,
 } from "@dronelink/air-client-sdk";
 import { LinkActivityTracker, type LinkActivitySnapshot } from "@dronelink/ui-kit-shared";
@@ -264,6 +266,17 @@ export function mountApp(root: HTMLElement): void {
 
   void populateCameraList();
 
+  // Latest reading, kept so it can be sent right after pairing (the monitor's
+  // first report usually lands before any socket exists) and on every change.
+  let latestBattery: BatteryStatus | null = null;
+  function publishAirStatus(): void {
+    sessionManager.publishAirStatus(latestBattery ? { battery: latestBattery } : {});
+  }
+  startBatteryMonitor((battery) => {
+    latestBattery = battery;
+    publishAirStatus();
+  });
+
   // --- ground connection / pairing --------------------------------------
 
   async function handlePair(bundleText: string): Promise<void> {
@@ -291,6 +304,7 @@ export function mountApp(root: HTMLElement): void {
       // populateCameraList() may have already enumerated devices at mount time,
       // before any pairing, so this is what actually gets that list to ground.
       publishCameraSources();
+      publishAirStatus();
 
       header.setConnected(true);
       groundPanel.setConnected(true);

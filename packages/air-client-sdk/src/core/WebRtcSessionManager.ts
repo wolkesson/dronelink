@@ -1,3 +1,4 @@
+import type { BatteryStatus } from "./BatteryMonitor.js";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
 import type { PairingSocket } from "./PairingSession.js";
 
@@ -387,6 +388,16 @@ export class WebRtcSessionManager {
     this.socket.send(
       JSON.stringify({ type: "video-control-state", control: "camera-source-list", devices, activeDeviceId }),
     );
+  }
+
+  /**
+   * Push the air unit's own status (currently just battery) to the ground side
+   * so a GUI viewer can warn before power runs out. Unsolicited -- call on
+   * every change and once after connect(). No-op before connect() has set a socket.
+   */
+  publishAirStatus(status: { battery?: BatteryStatus }): void {
+    if (!this.socket) return;
+    this.socket.send(JSON.stringify({ type: "air-status", ...status }));
   }
 
   /**
