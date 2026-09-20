@@ -258,8 +258,12 @@ describe("signaling server", () => {
 
     socket.send(JSON.stringify({ type: "offer", sdp: "v=0\r\n" }));
 
+    // With no video yet the offer is held, not rejected, so the GUI can still
+    // receive control state; a control request proves the socket is live.
+    socket.send(JSON.stringify({ type: "video-control-request", control: "quality", preset: "low" }));
+
     await expect(waitForMessage(socket)).resolves.toBe(
-      JSON.stringify({ type: "error", message: "No incoming video is available yet." }),
+      JSON.stringify({ type: "error", message: "No active drone connection to apply video control to." }),
     );
     socket.close();
   });

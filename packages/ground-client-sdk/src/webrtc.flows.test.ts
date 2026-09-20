@@ -753,6 +753,49 @@ describe("video-control-request / video-control-state relay", () => {
     });
   });
 
+  it("lets a GUI that attaches before any video receive the camera list, then answers its offer once video arrives", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const airReply = vi.fn();
+    handleSignalingMessage({ type: "offer", sdp: "v=0" }, airReply);
+    const sourcePc = lastPc();
+
+    const list = {
+      type: "video-control-state",
+      control: "camera-source-list",
+      devices: [{ deviceId: "cam-1", label: "Front" }],
+      activeDeviceId: null,
+    };
+    // Sent by air on connect, before any GUI is attached: must be replayed.
+    handleSignalingMessage(list, vi.fn());
+
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    expect(guiReply).toHaveBeenCalledWith(list);
+    expect(guiReply).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+    expect(pcInstances).toHaveLength(1);
+
+    // The GUI can already ask air for a camera...
+    handleGuiSignalingMessage(
+      { type: "video-control-request", control: "camera-source", deviceId: "cam-1" },
+      guiReply,
+    );
+    expect(airReply).toHaveBeenCalledWith({
+      type: "video-control-request",
+      control: "camera-source",
+      deviceId: "cam-1",
+    });
+
+    // ...and once that video arrives, its held offer is answered.
+    const track = videoTrack(778);
+    sourcePc.getReceivers.mockReturnValue([{ track, sendRtcpPLI: vi.fn(async () => {}) }]);
+    sourcePc.onTrack.execute(track);
+    await vi.waitFor(() =>
+      expect(guiReply).toHaveBeenCalledWith(expect.objectContaining({ type: "answer" })),
+    );
+    expect(pcInstances).toHaveLength(2);
+  });
+
   it("forwards air's video-control-state ack to the connected GUI viewer", async () => {
     await connectVideoSource();
     const guiReply = vi.fn();
