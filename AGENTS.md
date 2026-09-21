@@ -120,6 +120,19 @@ For Tailscale instead of LAN, set `SIGNAL_HOST`, `SIGNAL_TLS_TARGET`, and `TLS_P
 
 By default `sessionId`/`token` are regenerated every time `ground-core-node` starts, so a printed QR code goes stale on restart. To print a pairing QR code once and reuse it, set `PAIRING_SESSION_ID` and `PAIRING_TOKEN` (22 base64url characters, e.g. from `node -e "console.log(require('crypto').randomBytes(16).toString('base64url'))"`) before starting `ground-core-node` — the process fails fast at startup if `PAIRING_TOKEN` is malformed. This pins the pairing credential instead of rotating it per run, so only do this on a trusted network.
 
+### Remote device development (phone attached over adb)
+
+Node scripts in `tools/` (no extra dependencies) for driving the debug `android-shell` build on a phone plugged into this machine, without pixel taps:
+
+| Script | Purpose |
+| --- | --- |
+| `node tools/phone-preflight.mjs [--ping <ts-ip>]` | Checks adb, screen lock, Wi-Fi (re-enables it), installed app, and Tailscale reachability |
+| `node tools/ground-up.mjs [--lan <ip>]` | Restarts ground over Tailscale (or LAN with `--lan`) and prints only the pairing bundle JSON |
+| `node tools/phone-cdp.mjs <cmd>` | Drives the WebView over DevTools: `text`, `eval`, `click`, `type`, `pair '<bundle>'`, `disconnect`, `shot` |
+| `node tools/gui-probe.mjs <host> [--select <n>]` | Attaches like the ground GUI and asserts the camera list (and, with `--select`, a camera switch ack plus video answer) |
+
+Typical loop: `phone-preflight` -> `B=$(ground-up)` -> `phone-cdp pair "$B"` -> `gui-probe <host> --select 0`. The phone must be unlocked (only the user can do that), and pairing over Tailscale needs Tailscale connected on both ends; over LAN the phone must trust the mkcert root CA.
+
 ## Key design constraints
 
 - **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end; MSP/MAVLink parsing belongs only in ground-specific higher layers.
