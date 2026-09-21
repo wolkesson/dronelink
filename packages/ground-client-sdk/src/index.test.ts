@@ -400,6 +400,27 @@ describe("video control protocol schemas", () => {
     expect(listBranch.properties.control.const).toBe("camera-source-list");
   });
 
+  it("air-status.schema.json bounds battery percent to 0-100 and requires charging", () => {
+    const schema = JSON.parse(
+      readFileSync(new URL("../../../protocol/schemas/air-status.schema.json", import.meta.url), "utf8"),
+    ) as {
+      required: string[];
+      properties: {
+        type: { const: string };
+        battery: {
+          required: string[];
+          properties: { percent: { type: string; minimum: number; maximum: number }; charging: { type: string } };
+        };
+      };
+    };
+
+    expect(schema.required).toEqual(["type"]);
+    expect(schema.properties.type.const).toBe("air-status");
+    expect(schema.properties.battery.required).toEqual(["percent", "charging"]);
+    expect(schema.properties.battery.properties.percent).toEqual({ type: "integer", minimum: 0, maximum: 100 });
+    expect(schema.properties.battery.properties.charging.type).toBe("boolean");
+  });
+
   it("video-control-request.schema.json's 'flip' branch requires horizontal and vertical booleans", () => {
     const schema = loadSchema("video-control-request.schema.json");
     const branch = schema.oneOf[2];

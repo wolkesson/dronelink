@@ -796,6 +796,25 @@ describe("video-control-request / video-control-state relay", () => {
     expect(pcInstances).toHaveLength(2);
   });
 
+  it("relays air-status live, replays the latest to a later GUI, and blanks it when air disconnects", async () => {
+    await connectVideoSource();
+    const early = { type: "air-status", battery: { percent: 61, charging: false } };
+    handleSignalingMessage(early, vi.fn());
+    handleSignalingMessage({ type: "air-status", battery: { percent: 60, charging: false } }, vi.fn());
+
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    expect(guiReply).toHaveBeenCalledWith({ type: "air-status", battery: { percent: 60, charging: false } });
+    expect(guiReply).not.toHaveBeenCalledWith(early);
+
+    const live = { type: "air-status", battery: { percent: 59, charging: false } };
+    handleSignalingMessage(live, vi.fn());
+    expect(guiReply).toHaveBeenLastCalledWith(live);
+
+    handleSocketClose();
+    expect(guiReply).toHaveBeenLastCalledWith({ type: "air-status" });
+  });
+
   it("forwards air's video-control-state ack to the connected GUI viewer", async () => {
     await connectVideoSource();
     const guiReply = vi.fn();

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dronelink.local/protocol/schemas/air-status.schema.json",
+  "title": "Air Status",
+  "description": "Unsolicited air-to-ground report of the air unit's own health, forwarded to any connected GUI viewer. Sent on connect and whenever a reported value changes; ground caches the latest one and replays it to a viewer that attaches later. `battery` is omitted when the air device cannot report it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type"],
+  "properties": {
+    "type": { "const": "air-status" },
+    "battery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["percent", "charging"],
+      "properties": {
+        "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "charging": { "type": "boolean" }
+      }
+    }
+  }
+}

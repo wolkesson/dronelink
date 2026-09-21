@@ -2,6 +2,7 @@ const status = document.getElementById("status");
 const video = document.getElementById("live-video");
 const qualitySelect = document.getElementById("quality-select");
 const cameraSelect = document.getElementById("camera-select");
+const airBattery = document.getElementById("air-battery");
 const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
 const flipVerticalCheckbox = document.getElementById("flip-vertical");
 const rotationLabel = document.getElementById("rotation-label");
@@ -76,6 +77,8 @@ socket.onmessage = async (event) => {
     } else if (message.type === "video-control-state" && message.control === "quality") {
       qualitySelect.value = message.preset;
       setStatus(message.videoActive ? "Live video connected" : "Live video paused (data-only mode)");
+    } else if (message.type === "air-status") {
+      renderAirBattery(message.battery);
     } else if (message.type === "video-control-state" && message.control === "camera-source-list") {
       populateCameraOptions(Array.isArray(message.devices) ? message.devices : [], message.activeDeviceId ?? "");
     } else if (message.type === "video-control-state" && message.control === "camera-source") {
@@ -122,6 +125,27 @@ qualitySelect.addEventListener("change", () => {
     );
   }
 });
+
+const BATTERY_LOW_PERCENT = 20;
+const BATTERY_CRITICAL_PERCENT = 10;
+
+function renderAirBattery(battery) {
+  if (!battery || typeof battery.percent !== "number") {
+    airBattery.textContent = "Air unit battery: unknown";
+    airBattery.dataset.level = "unknown";
+    airBattery.style.color = "";
+    return;
+  }
+  const charging = battery.charging === true;
+  const percent = Math.round(battery.percent);
+  let level = "ok";
+  if (!charging && percent <= BATTERY_CRITICAL_PERCENT) level = "critical";
+  else if (!charging && percent <= BATTERY_LOW_PERCENT) level = "low";
+  airBattery.dataset.level = level;
+  airBattery.style.color = level === "critical" ? "#c62828" : level === "low" ? "#ef6c00" : "";
+  const warning = level === "critical" ? " — CRITICAL, land now" : level === "low" ? " — low" : "";
+  airBattery.textContent = `Air unit battery: ${percent}%${charging ? " (charging)" : ""}${warning}`;
+}
 
 function populateCameraOptions(devices, activeDeviceId) {
   const previousValue = cameraSelect.value;

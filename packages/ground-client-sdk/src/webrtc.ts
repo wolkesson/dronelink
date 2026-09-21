@@ -32,6 +32,8 @@ let pendingGuiOffer: { sdp: string; reply: (msg: unknown) => void; isTailscale: 
 // Latest camera-source-list push from air, replayed to a GUI viewer that attaches
 // after it was sent (air only pushes it on connect and after a switch).
 let lastCameraSourceList: unknown = null;
+// Same idea for air-status (battery): sent on connect and on change only.
+let lastAirStatus: unknown = null;
 // Dimensions for the recorder, read from whichever offer actually carries a video
 // track -- the initial one, or a later renegotiation offer that adds video to a
 // session that connected data-only. pc.onTrack (subscribed once, below) reads these
@@ -319,6 +321,12 @@ export function handleSignalingMessage(
     return;
   }
 
+  if (message.type === "air-status") {
+    lastAirStatus = message;
+    activeGuiReply?.(message);
+    return;
+  }
+
   if (message.type === "video-control-state") {
     if (message.control === "camera-source-list") {
       lastCameraSourceList = message;
@@ -408,6 +416,7 @@ export function handleGuiSignalingMessage(
     const sdp = typeof message.sdp === "string" ? message.sdp : "";
     activeGuiReply = reply;
     if (lastCameraSourceList) reply(lastCameraSourceList);
+    if (lastAirStatus) reply(lastAirStatus);
 
     if (!activeVideoTrack) {
       pendingGuiOffer = { sdp, reply, isTailscale };
@@ -487,6 +496,9 @@ export function handleSocketClose(): void {
   videoRenegotiationAccepted = false;
   activeAirReply = null;
   lastCameraSourceList = null;
+  lastAirStatus = null;
+  // Blank the GUI's battery readout rather than leave a stale percentage up.
+  activeGuiReply?.({ type: "air-status" });
   closeGuiPeer();
   pendingCandidates.length = 0;
 }
