@@ -1201,6 +1201,16 @@ describe("WebRtcSessionManager — camera-source control", () => {
     );
   });
 
+  it("publishAirStatus() includes session data usage when given", async () => {
+    const { mgr, socket } = await connectedManager();
+
+    mgr.publishAirStatus({ dataUsage: { txBytes: 1500, rxBytes: 300 } });
+
+    expect(socket.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: "air-status", dataUsage: { txBytes: 1500, rxBytes: 300 } }),
+    );
+  });
+
   it("publishAirStatus() sends a bare air-status when no battery reading is available", async () => {
     const { mgr, socket } = await connectedManager();
 

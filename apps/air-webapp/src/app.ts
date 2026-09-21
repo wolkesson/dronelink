@@ -46,6 +46,11 @@ export function mountApp(root: HTMLElement): void {
   let txRateText = "0 B/s";
   let rxRateText = "0 B/s";
   let lastRelayBytesSent = 0;
+  // Session data-usage totals for the ground GUI. Accumulated from deltas of the
+  // peer connection's cumulative counters (which restart on a new connection).
+  let lastRelayBytesReceived = 0;
+  let sessionTxBytes = 0;
+  let sessionRxBytes = 0;
 
   const header = createAppHeader();
 
@@ -270,7 +275,10 @@ export function mountApp(root: HTMLElement): void {
   // first report usually lands before any socket exists) and on every change.
   let latestBattery: BatteryStatus | null = null;
   function publishAirStatus(): void {
-    sessionManager.publishAirStatus(latestBattery ? { battery: latestBattery } : {});
+    sessionManager.publishAirStatus({
+      ...(latestBattery ? { battery: latestBattery } : {}),
+      ...(connectedAt !== null ? { dataUsage: { txBytes: sessionTxBytes, rxBytes: sessionRxBytes } } : {}),
+    });
   }
   startBatteryMonitor((battery) => {
     latestBattery = battery;
@@ -299,6 +307,9 @@ export function mountApp(root: HTMLElement): void {
 
       connectedAt = Date.now();
       lastRelayBytesSent = 0;
+      lastRelayBytesReceived = 0;
+      sessionTxBytes = 0;
+      sessionRxBytes = 0;
       startMetricsLoop();
       // The socket publishCameraSources() needs only exists from here on --
       // populateCameraList() may have already enumerated devices at mount time,
@@ -571,13 +582,22 @@ export function mountApp(root: HTMLElement): void {
 
     groundPanel.setLatency(metrics.rttMs !== null ? `${Math.round(metrics.rttMs)} ms` : "—");
 
-    const deltaSent = Math.max(0, metrics.bytesSent - lastRelayBytesSent);
+    // A counter that went backwards means the peer connection was replaced, so
+    // its new total is all fresh traffic.
+    const deltaSent = metrics.bytesSent >= lastRelayBytesSent ? metrics.bytesSent - lastRelayBytesSent : metrics.bytesSent;
+    const deltaReceived =
+      metrics.bytesReceived >= lastRelayBytesReceived ? metrics.bytesReceived - lastRelayBytesReceived : metrics.bytesReceived;
     lastRelayBytesSent = metrics.bytesSent;
+    lastRelayBytesReceived = metrics.bytesReceived;
+    sessionTxBytes += deltaSent;
+    sessionRxBytes += deltaReceived;
     const throughputText = `${formatMbps(deltaSent)} (Up)`;
     groundPanel.setThroughput(throughputText);
     if (videoStream) {
       videoPanel.setBitrate(formatMbps(deltaSent));
     }
+
+    publishAirStatus();
   }
 
   // --- disconnect ----------------------------------------------------------
@@ -587,6 +607,7 @@ export function mountApp(root: HTMLElement): void {
     stopMetricsLoop();
     connectedAt = null;
     lastRelayBytesSent = 0;
+    lastRelayBytesReceived = 0;
 
     // Safe no-op if no scan was in progress (e.g. the bind panel was reopened and a
     // re-scan started after already connecting) -- releases the scan camera instead
