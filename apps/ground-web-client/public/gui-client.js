@@ -7,6 +7,7 @@ const airBattery = document.getElementById("air-battery");
 const airDataUsage = document.getElementById("air-data-usage");
 const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
 const flipVerticalCheckbox = document.getElementById("flip-vertical");
+const zoomFillCheckbox = document.getElementById("zoom-fill");
 const rotationLabel = document.getElementById("rotation-label");
 const rotateLeftButton = document.getElementById("rotate-left");
 const rotateRightButton = document.getElementById("rotate-right");
@@ -271,6 +272,13 @@ function sendFlipRequest() {
 
 flipHorizontalCheckbox.addEventListener("change", sendFlipRequest);
 flipVerticalCheckbox.addEventListener("change", sendFlipRequest);
+
+// Purely a local playback preference (how this viewer's <video> box renders the
+// stream it's already receiving) -- unlike flip/rotate, there's nothing for air
+// to apply and nothing to send over the wire.
+zoomFillCheckbox.addEventListener("change", () => {
+  video.style.objectFit = zoomFillCheckbox.checked ? "cover" : "contain";
+});
 
 function sendRotateRequest(degrees) {
   if (socket.readyState === WebSocket.OPEN) {
