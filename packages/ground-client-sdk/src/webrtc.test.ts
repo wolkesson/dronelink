@@ -193,12 +193,19 @@ describe("handleGuiSignalingMessage", () => {
     expect(reply).not.toHaveBeenCalled();
   });
 
-  it("replies with an error when no incoming video is available yet", () => {
+  it("holds a GUI offer without replying while no incoming video is available yet", () => {
     const reply = vi.fn();
     handleGuiSignalingMessage({ type: "offer", sdp: "" }, reply);
-    expect(reply).toHaveBeenCalledWith({
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it("rejects a second GUI offer while the first is still waiting for video", () => {
+    handleGuiSignalingMessage({ type: "offer", sdp: "" }, vi.fn());
+    const reply2 = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "" }, reply2);
+    expect(reply2).toHaveBeenCalledWith({
       type: "error",
-      message: "No incoming video is available yet.",
+      message: "A GUI viewer is already connected.",
     });
   });
 

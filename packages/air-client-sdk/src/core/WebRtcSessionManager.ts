@@ -1,3 +1,4 @@
+import type { BatteryStatus } from "./BatteryMonitor.js";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
 import type { PairingSocket } from "./PairingSession.js";
 
@@ -24,20 +25,22 @@ function isVideoRotationDegrees(value: unknown): value is VideoRotationDegrees {
   return typeof value === "number" && (VIDEO_ROTATION_DEGREES as readonly number[]).includes(value);
 }
 
-// "quality", "camera-source", "flip", and "rotate" are implemented today.
-// Further ground-initiated controls (zoom, gain, contrast, ...) are expected
-// to extend these unions with new discriminants later -- ground-client-sdk's
-// requestVideoControl() forwards any {control, ...} shape unmodified, so
-// adding a case here needs no ground-side change.
+// "quality", "camera-source", "camera-set-default", "flip", and "rotate" are
+// implemented today. Further ground-initiated controls (zoom, gain, contrast,
+// ...) are expected to extend these unions with new discriminants later --
+// ground-client-sdk's requestVideoControl() forwards any {control, ...} shape
+// unmodified, so adding a case here needs no ground-side change.
 export type VideoControlRequest =
   | { control: "quality"; preset: VideoQualityPreset }
   | { control: "camera-source"; deviceId: string }
+  | { control: "camera-set-default"; deviceId: string }
   | { control: "flip"; horizontal: boolean; vertical: boolean }
   | { control: "rotate"; degrees: VideoRotationDegrees };
 
 export type VideoControlState =
   | { control: "quality"; preset: VideoQualityPreset; videoActive: boolean }
   | { control: "camera-source"; deviceId: string; ok: boolean; error?: string }
+  | { control: "camera-set-default"; deviceId: string; ok: boolean; error?: string }
   | { control: "flip"; horizontal: boolean; vertical: boolean; ok: boolean; error?: string }
   | { control: "rotate"; degrees: VideoRotationDegrees; ok: boolean; error?: string };
 
@@ -53,10 +56,25 @@ export interface CameraSourceDevice {
   label: string;
 }
 
+/**
+ * The flip/rotation actually in effect for the currently active camera, as sent
+ * in a camera-source-list push -- each camera can have its own saved transform
+ * (see air-webapp's CameraSettingsStore), so switching cameras can silently
+ * change this out from under a ground GUI that only updates it on a direct
+ * flip/rotate ack. Sending it alongside every camera-source-list push (which
+ * already fires after every switch, whoever initiated it) keeps the GUI's
+ * flip checkboxes/rotation label in sync with what's actually being sent.
+ */
+export interface VideoTransformState {
+  horizontal: boolean;
+  vertical: boolean;
+  rotation: VideoRotationDegrees;
+}
+
 function isVideoControlRequest(value: unknown): value is VideoControlRequest {
   if (!isRecord(value)) return false;
   if (value.control === "quality") return isVideoQualityPreset(value.preset);
-  if (value.control === "camera-source") {
+  if (value.control === "camera-source" || value.control === "camera-set-default") {
     return typeof value.deviceId === "string" && value.deviceId.length > 0;
   }
   if (value.control === "flip") {
@@ -70,6 +88,12 @@ function isVideoControlRequest(value: unknown): value is VideoControlRequest {
 
 export interface WebRtcSessionManagerOptions {
   connectTimeoutMs?: number;
+}
+
+/** Cumulative WebRTC payload bytes the air unit has sent/received this session. */
+export interface DataUsage {
+  txBytes: number;
+  rxBytes: number;
 }
 
 export interface WebRtcConnectionMetrics {
@@ -88,6 +112,7 @@ export class WebRtcSessionManager {
   private videoQualityPreset: VideoQualityPreset = "auto";
   private currentVideoTrack: MediaStreamTrack | null = null;
   private cameraSourceHandler: ((deviceId: string) => Promise<void>) | null = null;
+  private cameraDefaultHandler: ((deviceId: string) => Promise<void>) | null = null;
   private flipHandler: ((flip: VideoFlipState) => Promise<void>) | null = null;
   private rotateHandler: ((degrees: VideoRotationDegrees) => Promise<void>) | null = null;
   private pendingRenegotiation: { resolve: () => void; reject: (err: Error) => void } | null = null;
@@ -354,6 +379,18 @@ export class WebRtcSessionManager {
   }
 
   /**
+   * Register the handler that records a ground-requested "camera-set-default"
+   * control -- marking a camera (by deviceId) as the one the air unit should
+   * open on its own next time, without switching to it now. Persistence is
+   * app-owned (see CameraSettingsStore), same division as setCameraSourceHandler.
+   * Rejecting the returned promise acks the request with ok: false and the
+   * rejection's message.
+   */
+  setCameraDefaultHandler(handler: (deviceId: string) => Promise<void>): void {
+    this.cameraDefaultHandler = handler;
+  }
+
+  /**
    * Register the handler that applies a ground-requested "flip" control.
    * Like camera-source, actually mirroring the outbound frames needs a
    * canvas/track-transform pipeline the app layer owns (raw camera tracks and
@@ -377,16 +414,42 @@ export class WebRtcSessionManager {
   }
 
   /**
-   * Push the current camera list and active device to the ground side, so a
-   * GUI viewer can offer camera-source choices. Unsolicited (not a reply to a
-   * request) -- call after enumerating devices and after every successful
-   * switch. No-op before connect() has set a socket.
+   * Push the current camera list, active device, default device, and the active
+   * camera's own flip/rotation to the ground side, so a GUI viewer can offer
+   * camera-source choices, show which one is marked default, and keep its flip
+   * checkboxes/rotation label in sync with whichever camera is actually active
+   * (each camera can have its own saved transform -- see VideoTransformState).
+   * Unsolicited (not a reply to a request) -- call after enumerating devices and
+   * after every successful switch or default change. No-op before connect() has
+   * set a socket.
    */
-  publishCameraSources(devices: CameraSourceDevice[], activeDeviceId: string | null): void {
+  publishCameraSources(
+    devices: CameraSourceDevice[],
+    activeDeviceId: string | null,
+    defaultDeviceId: string | null = null,
+    activeTransform: VideoTransformState | null = null,
+  ): void {
     if (!this.socket) return;
     this.socket.send(
-      JSON.stringify({ type: "video-control-state", control: "camera-source-list", devices, activeDeviceId }),
+      JSON.stringify({
+        type: "video-control-state",
+        control: "camera-source-list",
+        devices,
+        activeDeviceId,
+        defaultDeviceId,
+        activeTransform,
+      }),
     );
+  }
+
+  /**
+   * Push the air unit's own status (battery, session data usage) to the ground
+   * side so a GUI viewer can warn before power runs out or data runs short. Unsolicited -- call on
+   * every change and once after connect(). No-op before connect() has set a socket.
+   */
+  publishAirStatus(status: { battery?: BatteryStatus; dataUsage?: DataUsage }): void {
+    if (!this.socket) return;
+    this.socket.send(JSON.stringify({ type: "air-status", ...status }));
   }
 
   /**
@@ -415,6 +478,27 @@ export class WebRtcSessionManager {
         } catch (err) {
           return {
             control: "camera-source",
+            deviceId: request.deviceId,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
+      case "camera-set-default": {
+        if (!this.cameraDefaultHandler) {
+          return {
+            control: "camera-set-default",
+            deviceId: request.deviceId,
+            ok: false,
+            error: "No camera default handler registered.",
+          };
+        }
+        try {
+          await this.cameraDefaultHandler(request.deviceId);
+          return { control: "camera-set-default", deviceId: request.deviceId, ok: true };
+        } catch (err) {
+          return {
+            control: "camera-set-default",
             deviceId: request.deviceId,
             ok: false,
             error: err instanceof Error ? err.message : String(err),

@@ -1,3 +1,5 @@
+export * from "./core/BatteryMonitor.js";
+export * from "./core/CameraSettingsStore.js";
 export * from "./core/PairingSession.js";
 export * from "./core/QrPairingScanner.js";
 export * from "./core/WebRtcSessionManager.js";

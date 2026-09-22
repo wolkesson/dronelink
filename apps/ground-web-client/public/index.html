@@ -9,6 +9,8 @@
     <main>
       <h1>DroneLink live video</h1>
       <p id="status" role="status">Connecting to the ground video relay…</p>
+      <p id="air-battery" role="status" data-level="unknown">Air unit battery: unknown</p>
+      <p id="air-data-usage" role="status">Air unit data: unknown</p>
       <video id="live-video" autoplay playsinline controls></video>
       <p>
         <label for="quality-select">Video quality</label>
@@ -24,6 +26,7 @@
         <select id="camera-select" disabled>
           <option value="">No cameras reported yet</option>
         </select>
+        <button type="button" id="camera-set-default" disabled>Set as default</button>
       </p>
       <p>
         <label><input type="checkbox" id="flip-horizontal" /> Flip horizontal</label>

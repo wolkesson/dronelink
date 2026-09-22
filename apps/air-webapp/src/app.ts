@@ -1,12 +1,15 @@
 import {
+  createCameraSettingsStore,
   NATIVE_BRIDGE_PORT_MESSAGE,
   NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE,
   NativeBridgeTransport,
   PairingSession,
   QrPairingScanner,
   SERIAL_BAUD_RATE,
+  startBatteryMonitor,
   WebRtcSessionManager,
   WebSerialTransport,
+  type BatteryStatus,
   type SerialTransport,
 } from "@dronelink/air-client-sdk";
 import { LinkActivityTracker, type LinkActivitySnapshot } from "@dronelink/ui-kit-shared";
@@ -28,6 +31,9 @@ export function mountApp(root: HTMLElement): void {
   const sessionManager = new WebRtcSessionManager();
   const activityTracker = new LinkActivityTracker();
   const qrScanner = new QrPairingScanner();
+  // Per-camera flip/rotation and the default camera, kept on this phone (not synced
+  // to the ground side) since they describe how *this* phone is physically mounted.
+  const cameraSettings = createCameraSettingsStore();
 
   let transport: SerialTransport | null = null;
   let videoStream: MediaStream | null = null;
@@ -44,6 +50,11 @@ export function mountApp(root: HTMLElement): void {
   let txRateText = "0 B/s";
   let rxRateText = "0 B/s";
   let lastRelayBytesSent = 0;
+  // Session data-usage totals for the ground GUI. Accumulated from deltas of the
+  // peer connection's cumulative counters (which restart on a new connection).
+  let lastRelayBytesReceived = 0;
+  let sessionTxBytes = 0;
+  let sessionRxBytes = 0;
 
   const header = createAppHeader();
 
@@ -85,7 +96,9 @@ export function mountApp(root: HTMLElement): void {
   // Ground-requested flip/rotation, applied to both the local preview (via
   // CSS, cheap) and the outbound WebRTC track (via a canvas re-render
   // pipeline, since raw camera tracks and RTCRtpSender have neither
-  // capability -- see video-transform.ts). Persists across camera switches.
+  // capability -- see video-transform.ts). Reset to the active camera's own
+  // saved transform on every switchCameraTo() rather than carried over from
+  // whichever camera was active before (see cameraSettings).
   let videoTransform: VideoTransform = { horizontal: false, vertical: false, rotation: 0 };
   let transformedSource: TransformedVideoSource | null = null;
 
@@ -110,11 +123,39 @@ export function mountApp(root: HTMLElement): void {
     return transformedSource.track;
   }
 
+  /**
+   * The identity persisted camera settings are keyed by, for a device from
+   * knownCameraDevices: its own label, not its deviceId -- confirmed against a
+   * real Android WebView, MediaDeviceInfo.deviceId/groupId are salted fresh on
+   * every page load there (not just per origin), so they only stay stable
+   * within one running session, not across the reload/app-restart/reboot this
+   * store exists for. See CameraSettingsStore's doc comment for the full story.
+   */
+  function cameraSettingsKey(device: Pick<MediaDeviceInfo, "deviceId" | "label">): string {
+    return device.label || device.deviceId;
+  }
+
+  function findKnownCameraByKey(cameraKey: string): MediaDeviceInfo | undefined {
+    return knownCameraDevices.find((d) => cameraSettingsKey(d) === cameraKey);
+  }
+
   function publishCameraSources(): void {
     const activeDeviceId = videoStream?.getVideoTracks()[0]?.getSettings().deviceId ?? null;
+    const defaultKey = cameraSettings.getDefaultCameraKey();
+    // Resolved to whichever currently-enumerated device has that key, if any --
+    // e.g. a saved default that isn't plugged in right now has nothing to show
+    // as "this one" in the ground GUI's list, so null (not the stale key itself).
+    const defaultDeviceId = defaultKey ? (findKnownCameraByKey(defaultKey)?.deviceId ?? null) : null;
     sessionManager.publishCameraSources(
       knownCameraDevices.map((d, index) => ({ deviceId: d.deviceId, label: d.label || `Camera ${index + 1}` })),
       activeDeviceId ?? null,
+      defaultDeviceId,
+      // videoTransform always reflects the active camera's own current transform
+      // by the time this runs (switchCameraTo() sets it before calling this) --
+      // sending it here is what lets the ground GUI's flip checkboxes/rotation
+      // label follow a camera switch instead of showing the previous camera's
+      // stale value.
+      activeDeviceId ? videoTransform : null,
     );
   }
 
@@ -134,6 +175,15 @@ export function mountApp(root: HTMLElement): void {
     const devices = await navigator.mediaDevices.enumerateDevices();
     knownCameraDevices = devices.filter((d) => d.kind === "videoinput");
     videoPanel.populateDevices(knownCameraDevices);
+
+    // Open the saved default camera on our own, before any ground station has
+    // attached -- the phone's mounting doesn't depend on who's watching.
+    const defaultKey = cameraSettings.getDefaultCameraKey();
+    const defaultDevice = defaultKey ? findKnownCameraByKey(defaultKey) : undefined;
+    if (defaultDevice) {
+      await handleDeviceChange(defaultDevice.deviceId);
+    }
+
     publishCameraSources();
   }
 
@@ -182,6 +232,11 @@ export function mountApp(root: HTMLElement): void {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
     });
+
+    // Restore this camera's own last flip/rotation (identity if none saved yet),
+    // rather than carrying over whatever the previously active camera had.
+    const device = knownCameraDevices.find((d) => d.deviceId === deviceId);
+    videoTransform = cameraSettings.getTransform(device ? cameraSettingsKey(device) : deviceId);
 
     let relayError: Error | null = null;
     if (sessionManager.state === "CONNECTED") {
@@ -252,17 +307,50 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
+  /** Saves videoTransform against whichever camera is currently bound, if any -- a
+   * flip/rotate request that arrives data-only (no camera bound yet) only takes
+   * effect on the next switch (see applyVideoTransform) and has nothing to key by. */
+  function persistActiveTransform(): void {
+    const activeDeviceId = videoStream?.getVideoTracks()[0]?.getSettings().deviceId;
+    if (!activeDeviceId) return;
+    const device = knownCameraDevices.find((d) => d.deviceId === activeDeviceId);
+    cameraSettings.setTransform(device ? cameraSettingsKey(device) : activeDeviceId, videoTransform);
+  }
+
   sessionManager.setFlipHandler(async (flip) => {
     videoTransform = { ...videoTransform, ...flip };
+    persistActiveTransform();
     await applyVideoTransform();
   });
 
   sessionManager.setRotateHandler(async (degrees) => {
     videoTransform = { ...videoTransform, rotation: degrees };
+    persistActiveTransform();
     await applyVideoTransform();
   });
 
+  sessionManager.setCameraDefaultHandler(async (deviceId) => {
+    const device = knownCameraDevices.find((d) => d.deviceId === deviceId);
+    if (!device) throw new Error("Unknown camera device.");
+    cameraSettings.setDefaultCameraKey(cameraSettingsKey(device));
+    publishCameraSources();
+  });
+
   void populateCameraList();
+
+  // Latest reading, kept so it can be sent right after pairing (the monitor's
+  // first report usually lands before any socket exists) and on every change.
+  let latestBattery: BatteryStatus | null = null;
+  function publishAirStatus(): void {
+    sessionManager.publishAirStatus({
+      ...(latestBattery ? { battery: latestBattery } : {}),
+      ...(connectedAt !== null ? { dataUsage: { txBytes: sessionTxBytes, rxBytes: sessionRxBytes } } : {}),
+    });
+  }
+  startBatteryMonitor((battery) => {
+    latestBattery = battery;
+    publishAirStatus();
+  });
 
   // --- ground connection / pairing --------------------------------------
 
@@ -286,11 +374,15 @@ export function mountApp(root: HTMLElement): void {
 
       connectedAt = Date.now();
       lastRelayBytesSent = 0;
+      lastRelayBytesReceived = 0;
+      sessionTxBytes = 0;
+      sessionRxBytes = 0;
       startMetricsLoop();
       // The socket publishCameraSources() needs only exists from here on --
       // populateCameraList() may have already enumerated devices at mount time,
       // before any pairing, so this is what actually gets that list to ground.
       publishCameraSources();
+      publishAirStatus();
 
       header.setConnected(true);
       groundPanel.setConnected(true);
@@ -557,13 +649,22 @@ export function mountApp(root: HTMLElement): void {
 
     groundPanel.setLatency(metrics.rttMs !== null ? `${Math.round(metrics.rttMs)} ms` : "—");
 
-    const deltaSent = Math.max(0, metrics.bytesSent - lastRelayBytesSent);
+    // A counter that went backwards means the peer connection was replaced, so
+    // its new total is all fresh traffic.
+    const deltaSent = metrics.bytesSent >= lastRelayBytesSent ? metrics.bytesSent - lastRelayBytesSent : metrics.bytesSent;
+    const deltaReceived =
+      metrics.bytesReceived >= lastRelayBytesReceived ? metrics.bytesReceived - lastRelayBytesReceived : metrics.bytesReceived;
     lastRelayBytesSent = metrics.bytesSent;
+    lastRelayBytesReceived = metrics.bytesReceived;
+    sessionTxBytes += deltaSent;
+    sessionRxBytes += deltaReceived;
     const throughputText = `${formatMbps(deltaSent)} (Up)`;
     groundPanel.setThroughput(throughputText);
     if (videoStream) {
       videoPanel.setBitrate(formatMbps(deltaSent));
     }
+
+    publishAirStatus();
   }
 
   // --- disconnect ----------------------------------------------------------
@@ -573,6 +674,7 @@ export function mountApp(root: HTMLElement): void {
     stopMetricsLoop();
     connectedAt = null;
     lastRelayBytesSent = 0;
+    lastRelayBytesReceived = 0;
 
     // Safe no-op if no scan was in progress (e.g. the bind panel was reopened and a
     // re-scan started after already connecting) -- releases the scan camera instead

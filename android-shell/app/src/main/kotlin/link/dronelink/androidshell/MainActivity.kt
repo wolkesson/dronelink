@@ -77,13 +77,24 @@ class MainActivity : AppCompatActivity() {
             Context.BIND_AUTO_CREATE,
         )
 
+        // The fixed default port keeps the WebView's origin (and so its localStorage/
+        // IndexedDB) stable across app restarts -- see LocalWebAppServer's doc comment.
+        // Fall back to an OS-assigned port only if that one's actually taken (some other
+        // process on the phone already bound it), rather than failing to launch over it;
+        // storage just won't persist past this one run in that case.
         webAppServer = LocalWebAppServer(assets)
         try {
             webAppServer.start()
         } catch (e: IOException) {
-            Log.e(TAG, "Failed to start local webapp server", e)
-            finish()
-            return
+            Log.w(TAG, "Default webapp server port unavailable, falling back to an OS-assigned one", e)
+            webAppServer = LocalWebAppServer(assets, port = 0)
+            try {
+                webAppServer.start()
+            } catch (e2: IOException) {
+                Log.e(TAG, "Failed to start local webapp server", e2)
+                finish()
+                return
+            }
         }
 
         val webView = WebView(this).also { setContentView(it) }

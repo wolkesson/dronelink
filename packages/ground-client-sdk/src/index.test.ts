@@ -258,8 +258,12 @@ describe("signaling server", () => {
 
     socket.send(JSON.stringify({ type: "offer", sdp: "v=0\r\n" }));
 
+    // With no video yet the offer is held, not rejected, so the GUI can still
+    // receive control state; a control request proves the socket is live.
+    socket.send(JSON.stringify({ type: "video-control-request", control: "quality", preset: "low" }));
+
     await expect(waitForMessage(socket)).resolves.toBe(
-      JSON.stringify({ type: "error", message: "No incoming video is available yet." }),
+      JSON.stringify({ type: "error", message: "No active drone connection to apply video control to." }),
     );
     socket.close();
   });
@@ -387,18 +391,96 @@ describe("video control protocol schemas", () => {
   it("video-control-state.schema.json's 'camera-source' and 'camera-source-list' branches are present", () => {
     const schema = loadSchema("video-control-state.schema.json");
     const ackBranch = schema.oneOf[1];
-    const listBranch = schema.oneOf[4];
+    const listBranch = schema.oneOf[5];
 
     expect(ackBranch.required).toEqual(["type", "control", "deviceId", "ok"]);
     expect(ackBranch.properties.control.const).toBe("camera-source");
 
-    expect(listBranch.required).toEqual(["type", "control", "devices", "activeDeviceId"]);
+    expect(listBranch.required).toEqual([
+      "type",
+      "control",
+      "devices",
+      "activeDeviceId",
+      "defaultDeviceId",
+      "activeTransform",
+    ]);
     expect(listBranch.properties.control.const).toBe("camera-source-list");
+  });
+
+  it("video-control-state.schema.json's 'camera-source-list' branch describes activeTransform as nullable flip/rotation", () => {
+    const schema = loadSchema("video-control-state.schema.json") as unknown as {
+      oneOf: Array<{
+        properties: {
+          control?: { const?: string };
+          activeTransform?: {
+            type: string[];
+            required: string[];
+            properties: Record<string, { type?: string; enum?: number[] }>;
+          };
+        };
+      }>;
+    };
+    const listBranch = schema.oneOf.find((b) => b.properties.control?.const === "camera-source-list");
+
+    expect(listBranch?.properties.activeTransform?.type).toEqual(["object", "null"]);
+    expect(listBranch?.properties.activeTransform?.required).toEqual(["horizontal", "vertical", "rotation"]);
+    expect(listBranch?.properties.activeTransform?.properties.horizontal.type).toBe("boolean");
+    expect(listBranch?.properties.activeTransform?.properties.vertical.type).toBe("boolean");
+    expect(listBranch?.properties.activeTransform?.properties.rotation.enum).toEqual([0, 90, 180, 270]);
+  });
+
+  it("video-control-request.schema.json's 'camera-set-default' branch requires a non-empty deviceId", () => {
+    const schema = loadSchema("video-control-request.schema.json");
+    const branch = schema.oneOf[2];
+
+    expect(branch.required).toEqual(["type", "control", "deviceId"]);
+    expect(branch.properties.control.const).toBe("camera-set-default");
+    expect(branch.properties.deviceId.type).toBe("string");
+  });
+
+  it("video-control-state.schema.json's 'camera-set-default' branch acks deviceId with ok/error", () => {
+    const schema = loadSchema("video-control-state.schema.json");
+    const branch = schema.oneOf[2];
+
+    expect(branch.required).toEqual(["type", "control", "deviceId", "ok"]);
+    expect(branch.properties.control.const).toBe("camera-set-default");
+    expect(branch.properties.deviceId.type).toBe("string");
+  });
+
+  it("air-status.schema.json bounds battery percent to 0-100 and requires charging", () => {
+    const schema = JSON.parse(
+      readFileSync(new URL("../../../protocol/schemas/air-status.schema.json", import.meta.url), "utf8"),
+    ) as {
+      required: string[];
+      properties: {
+        type: { const: string };
+        battery: {
+          required: string[];
+          properties: { percent: { type: string; minimum: number; maximum: number }; charging: { type: string } };
+        };
+      };
+    };
+
+    expect(schema.required).toEqual(["type"]);
+    expect(schema.properties.type.const).toBe("air-status");
+    expect(schema.properties.battery.required).toEqual(["percent", "charging"]);
+    expect(schema.properties.battery.properties.percent).toEqual({ type: "integer", minimum: 0, maximum: 100 });
+    expect(schema.properties.battery.properties.charging.type).toBe("boolean");
+  });
+
+  it("air-status.schema.json describes dataUsage as non-negative tx/rx byte totals", () => {
+    const schema = loadSchema("air-status.schema.json") as unknown as {
+      properties: { dataUsage: { required: string[]; properties: Record<string, { type: string; minimum: number }> } };
+    };
+
+    expect(schema.properties.dataUsage.required).toEqual(["txBytes", "rxBytes"]);
+    expect(schema.properties.dataUsage.properties.txBytes).toEqual({ type: "integer", minimum: 0 });
+    expect(schema.properties.dataUsage.properties.rxBytes).toEqual({ type: "integer", minimum: 0 });
   });
 
   it("video-control-request.schema.json's 'flip' branch requires horizontal and vertical booleans", () => {
     const schema = loadSchema("video-control-request.schema.json");
-    const branch = schema.oneOf[2];
+    const branch = schema.oneOf[3];
 
     expect(branch.required).toEqual(["type", "control", "horizontal", "vertical"]);
     expect(branch.properties.control.const).toBe("flip");
@@ -408,7 +490,7 @@ describe("video control protocol schemas", () => {
 
   it("video-control-state.schema.json's 'flip' branch acks horizontal/vertical with ok/error", () => {
     const schema = loadSchema("video-control-state.schema.json");
-    const branch = schema.oneOf[2];
+    const branch = schema.oneOf[3];
 
     expect(branch.required).toEqual(["type", "control", "horizontal", "vertical", "ok"]);
     expect(branch.properties.control.const).toBe("flip");
@@ -418,7 +500,7 @@ describe("video control protocol schemas", () => {
 
   it("video-control-request.schema.json's 'rotate' branch only allows 90-degree steps", () => {
     const schema = loadSchema("video-control-request.schema.json");
-    const branch = schema.oneOf[3];
+    const branch = schema.oneOf[4];
 
     expect(branch.required).toEqual(["type", "control", "degrees"]);
     expect(branch.properties.control.const).toBe("rotate");
@@ -427,7 +509,7 @@ describe("video control protocol schemas", () => {
 
   it("video-control-state.schema.json's 'rotate' branch acks degrees with ok/error", () => {
     const schema = loadSchema("video-control-state.schema.json");
-    const branch = schema.oneOf[3];
+    const branch = schema.oneOf[4];
 
     expect(branch.required).toEqual(["type", "control", "degrees", "ok"]);
     expect(branch.properties.control.const).toBe("rotate");
