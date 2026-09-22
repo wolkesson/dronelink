@@ -421,6 +421,16 @@ describe("video control protocol schemas", () => {
     expect(schema.properties.battery.properties.charging.type).toBe("boolean");
   });
 
+  it("air-status.schema.json describes dataUsage as non-negative tx/rx byte totals", () => {
+    const schema = loadSchema("air-status.schema.json") as unknown as {
+      properties: { dataUsage: { required: string[]; properties: Record<string, { type: string; minimum: number }> } };
+    };
+
+    expect(schema.properties.dataUsage.required).toEqual(["txBytes", "rxBytes"]);
+    expect(schema.properties.dataUsage.properties.txBytes).toEqual({ type: "integer", minimum: 0 });
+    expect(schema.properties.dataUsage.properties.rxBytes).toEqual({ type: "integer", minimum: 0 });
+  });
+
   it("video-control-request.schema.json's 'flip' branch requires horizontal and vertical booleans", () => {
     const schema = loadSchema("video-control-request.schema.json");
     const branch = schema.oneOf[2];
