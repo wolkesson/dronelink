@@ -1171,7 +1171,7 @@ describe("WebRtcSessionManager — camera-source control", () => {
     expect(sentVideoControlStates(socket)).toHaveLength(0);
   });
 
-  it("publishCameraSources() sends a camera-source-list state over the socket", async () => {
+  it("publishCameraSources() sends a camera-source-list state over the socket, defaulting defaultDeviceId/activeTransform to null", async () => {
     const { mgr, socket } = await connectedManager();
 
     mgr.publishCameraSources([{ deviceId: "cam-1", label: "Front" }], "cam-1");
@@ -1182,6 +1182,30 @@ describe("WebRtcSessionManager — camera-source control", () => {
         control: "camera-source-list",
         devices: [{ deviceId: "cam-1", label: "Front" }],
         activeDeviceId: "cam-1",
+        defaultDeviceId: null,
+        activeTransform: null,
+      }),
+    );
+  });
+
+  it("publishCameraSources() includes an explicit defaultDeviceId and activeTransform when given", async () => {
+    const { mgr, socket } = await connectedManager();
+
+    mgr.publishCameraSources(
+      [{ deviceId: "cam-1", label: "Front" }],
+      "cam-1",
+      "cam-1",
+      { horizontal: true, vertical: false, rotation: 90 },
+    );
+
+    expect(socket.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: "video-control-state",
+        control: "camera-source-list",
+        devices: [{ deviceId: "cam-1", label: "Front" }],
+        activeDeviceId: "cam-1",
+        defaultDeviceId: "cam-1",
+        activeTransform: { horizontal: true, vertical: false, rotation: 90 },
       }),
     );
   });
@@ -1189,6 +1213,119 @@ describe("WebRtcSessionManager — camera-source control", () => {
   it("publishCameraSources() is a no-op before connect() has set a socket", () => {
     const mgr = new WebRtcSessionManager();
     expect(() => mgr.publishCameraSources([], null)).not.toThrow();
+  });
+});
+
+describe("WebRtcSessionManager — camera-set-default control", () => {
+  function sentVideoControlStates(socket: PairingSocket): Array<Record<string, unknown>> {
+    return (socket.send as ReturnType<typeof vi.fn>).mock.calls
+      .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+      .filter((m) => m.type === "video-control-state");
+  }
+
+  async function connectedManager(): Promise<{
+    mgr: WebRtcSessionManager;
+    socket: PairingSocket;
+    onMessageRef: { fn: ((data: string) => void) | null };
+  }> {
+    const { pc, openRef } = makeMockPc();
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    const mgr = new WebRtcSessionManager();
+    const socket = makeMockSocket();
+    const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+    (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+      onMessageRef.fn = cb;
+    });
+
+    const connectPromise = mgr.connect(socket);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    openRef.fn?.();
+    await connectPromise;
+
+    return { mgr, socket, onMessageRef };
+  }
+
+  it("calls the registered handler with the requested deviceId and acks ok: true", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setCameraDefaultHandler(handler);
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "camera-set-default", deviceId: "cam-2" }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledWith("cam-2");
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "camera-set-default",
+      deviceId: "cam-2",
+      ok: true,
+    });
+  });
+
+  it("acks ok: false with the rejection message when the handler throws", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    mgr.setCameraDefaultHandler(async () => {
+      throw new Error("unknown camera device");
+    });
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "camera-set-default", deviceId: "cam-3" }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "camera-set-default",
+      deviceId: "cam-3",
+      ok: false,
+      error: "unknown camera device",
+    });
+  });
+
+  it("acks ok: false when no camera default handler has been registered", async () => {
+    const { socket, onMessageRef } = await connectedManager();
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "camera-set-default", deviceId: "cam-1" }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "camera-set-default",
+      deviceId: "cam-1",
+      ok: false,
+      error: "No camera default handler registered.",
+    });
+  });
+
+  it("ignores a camera-set-default request with an empty deviceId, without calling the handler", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setCameraDefaultHandler(handler);
+
+    onMessageRef.fn?.(
+      JSON.stringify({ type: "video-control-request", control: "camera-set-default", deviceId: "" }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(sentVideoControlStates(socket)).toHaveLength(0);
   });
 });
 

@@ -2,12 +2,14 @@ const status = document.getElementById("status");
 const video = document.getElementById("live-video");
 const qualitySelect = document.getElementById("quality-select");
 const cameraSelect = document.getElementById("camera-select");
+const cameraSetDefaultButton = document.getElementById("camera-set-default");
 const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
 const flipVerticalCheckbox = document.getElementById("flip-vertical");
 const rotationLabel = document.getElementById("rotation-label");
 const rotateLeftButton = document.getElementById("rotate-left");
 const rotateRightButton = document.getElementById("rotate-right");
 let currentRotation = 0;
+let currentDefaultDeviceId = "";
 const signalingUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/gui-signaling`;
 const socket = new WebSocket(signalingUrl);
 const peerConnection = new RTCPeerConnection();
@@ -77,12 +79,30 @@ socket.onmessage = async (event) => {
       qualitySelect.value = message.preset;
       setStatus(message.videoActive ? "Live video connected" : "Live video paused (data-only mode)");
     } else if (message.type === "video-control-state" && message.control === "camera-source-list") {
+      currentDefaultDeviceId = message.defaultDeviceId ?? "";
       populateCameraOptions(Array.isArray(message.devices) ? message.devices : [], message.activeDeviceId ?? "");
+      // Each camera can have its own saved flip/rotation, so a switch (however it
+      // was triggered) can change these out from under checkboxes/a label that
+      // otherwise only update on a direct flip/rotate ack -- resync them here.
+      if (message.activeTransform) {
+        flipHorizontalCheckbox.checked = Boolean(message.activeTransform.horizontal);
+        flipVerticalCheckbox.checked = Boolean(message.activeTransform.vertical);
+        currentRotation = message.activeTransform.rotation;
+        rotationLabel.textContent = `${currentRotation}°`;
+      }
     } else if (message.type === "video-control-state" && message.control === "camera-source") {
       if (message.ok) {
         setStatus("Camera source switched");
       } else {
         setStatus(`Camera switch failed: ${message.error ?? "unknown error"}`);
+      }
+    } else if (message.type === "video-control-state" && message.control === "camera-set-default") {
+      if (message.ok) {
+        currentDefaultDeviceId = message.deviceId;
+        relabelCameraOptions();
+        setStatus("Default camera saved");
+      } else {
+        setStatus(`Set default camera failed: ${message.error ?? "unknown error"}`);
       }
     } else if (message.type === "video-control-state" && message.control === "flip") {
       if (message.ok) {
@@ -123,13 +143,31 @@ qualitySelect.addEventListener("change", () => {
   }
 });
 
+let lastCameraDevices = [];
+
+function optionLabel(device) {
+  const label = device.label || device.deviceId;
+  return device.deviceId === currentDefaultDeviceId ? `${label} (default)` : label;
+}
+
+// Re-applies option text (e.g. the "(default)" suffix) without touching the device
+// list or the current selection -- used after a set-default ack, which changes
+// which device is the default but not what's plugged in or selected.
+function relabelCameraOptions() {
+  [...cameraSelect.options].forEach((option, i) => {
+    const device = lastCameraDevices[i];
+    if (device) option.textContent = optionLabel(device);
+  });
+}
+
 function populateCameraOptions(devices, activeDeviceId) {
   const previousValue = cameraSelect.value;
+  lastCameraDevices = devices;
   cameraSelect.replaceChildren(
     ...devices.map((device) => {
       const option = document.createElement("option");
       option.value = device.deviceId;
-      option.textContent = device.label || device.deviceId;
+      option.textContent = optionLabel(device);
       return option;
     }),
   );
@@ -138,12 +176,26 @@ function populateCameraOptions(devices, activeDeviceId) {
   if (devices.some((device) => device.deviceId === nextValue)) {
     cameraSelect.value = nextValue;
   }
+  cameraSetDefaultButton.disabled = !cameraSelect.value;
 }
 
 cameraSelect.addEventListener("change", () => {
+  cameraSetDefaultButton.disabled = !cameraSelect.value;
   if (socket.readyState === WebSocket.OPEN && cameraSelect.value) {
     socket.send(
       JSON.stringify({ type: "video-control-request", control: "camera-source", deviceId: cameraSelect.value }),
+    );
+  }
+});
+
+cameraSetDefaultButton.addEventListener("click", () => {
+  if (socket.readyState === WebSocket.OPEN && cameraSelect.value) {
+    socket.send(
+      JSON.stringify({
+        type: "video-control-request",
+        control: "camera-set-default",
+        deviceId: cameraSelect.value,
+      }),
     );
   }
 });

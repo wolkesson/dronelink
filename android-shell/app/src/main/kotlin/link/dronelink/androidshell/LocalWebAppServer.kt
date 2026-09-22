@@ -10,8 +10,18 @@ import java.io.IOException
  * getUserMedia/WebRTC require a secure context; Chrome treats
  * http://127.0.0.1 as a trustworthy origin regardless of scheme, so no TLS
  * is needed here (see ../../../../../../README.md "What not to add").
+ *
+ * `port` defaults to a fixed value rather than 0 (OS-assigned) so the WebView
+ * loads the same http://127.0.0.1:<port> origin on every launch -- an
+ * OS-assigned port changes every time, which silently discards the page's
+ * localStorage/IndexedDB (origin-scoped) on every app restart or reboot, well
+ * before anything gets a chance to actually rely on it surviving one. See
+ * MainActivity's retry-at-port-0 fallback for the rare case this one's taken.
  */
-class LocalWebAppServer(private val assets: AssetManager) : NanoHTTPD("127.0.0.1", 0) {
+class LocalWebAppServer(
+    private val assets: AssetManager,
+    port: Int = DEFAULT_PORT,
+) : NanoHTTPD("127.0.0.1", port) {
 
     override fun serve(session: IHTTPSession): Response {
         val requestPath = session.uri.trimStart('/').ifEmpty { INDEX_FILE }
@@ -33,9 +43,15 @@ class LocalWebAppServer(private val assets: AssetManager) : NanoHTTPD("127.0.0.1
     private fun mimeTypeFor(path: String): String =
         MIME_TYPES[path.substringAfterLast('.', "")] ?: "application/octet-stream"
 
-    private companion object {
-        const val ASSET_ROOT = "webapp"
-        const val INDEX_FILE = "index.html"
+    companion object {
+        // Arbitrary, in the dynamic/private range (49152-65535) to keep clear of
+        // other apps' well-known fixed ports -- loopback-only, so this is only
+        // ever a concern if something else on the same phone also happens to
+        // bind it first, in which case MainActivity falls back to port 0.
+        const val DEFAULT_PORT = 51837
+
+        private const val ASSET_ROOT = "webapp"
+        private const val INDEX_FILE = "index.html"
 
         // Android's URLConnection.guessContentTypeFromName() unreliably returns null for
         // "js" (and others), which falls back to application/octet-stream — Chrome's strict
