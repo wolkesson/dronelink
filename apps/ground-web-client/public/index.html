@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DroneLink Ground Video</title>
+    <style>
+      /* Bounded so "zoom to fit" vs "zoom to fill" (object-fit: contain vs cover)
+         actually has a box to fit/fill within -- an unconstrained <video> just
+         renders at its own intrinsic size and object-fit has nothing to do. */
+      #live-video {
+        display: block;
+        width: 100%;
+        max-width: 960px;
+        height: 60vh;
+        max-height: 540px;
+        background: #000;
+        object-fit: contain;
+      }
+    </style>
   </head>
   <body>
     <main>
@@ -31,6 +45,7 @@
       <p>
         <label><input type="checkbox" id="flip-horizontal" /> Flip horizontal</label>
         <label><input type="checkbox" id="flip-vertical" /> Flip vertical</label>
+        <label><input type="checkbox" id="zoom-fill" /> Zoom to fill (crops instead of letterboxing)</label>
       </p>
       <p>
         Rotation: <span id="rotation-label">0°</span>
