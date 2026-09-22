@@ -1,3 +1,4 @@
+import type { BatteryStatus } from "./BatteryMonitor.js";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
 import type { PairingSocket } from "./PairingSession.js";
 
@@ -87,6 +88,12 @@ function isVideoControlRequest(value: unknown): value is VideoControlRequest {
 
 export interface WebRtcSessionManagerOptions {
   connectTimeoutMs?: number;
+}
+
+/** Cumulative WebRTC payload bytes the air unit has sent/received this session. */
+export interface DataUsage {
+  txBytes: number;
+  rxBytes: number;
 }
 
 export interface WebRtcConnectionMetrics {
@@ -433,6 +440,16 @@ export class WebRtcSessionManager {
         activeTransform,
       }),
     );
+  }
+
+  /**
+   * Push the air unit's own status (battery, session data usage) to the ground
+   * side so a GUI viewer can warn before power runs out or data runs short. Unsolicited -- call on
+   * every change and once after connect(). No-op before connect() has set a socket.
+   */
+  publishAirStatus(status: { battery?: BatteryStatus; dataUsage?: DataUsage }): void {
+    if (!this.socket) return;
+    this.socket.send(JSON.stringify({ type: "air-status", ...status }));
   }
 
   /**

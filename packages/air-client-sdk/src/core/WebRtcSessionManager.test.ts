@@ -1214,6 +1214,39 @@ describe("WebRtcSessionManager — camera-source control", () => {
     const mgr = new WebRtcSessionManager();
     expect(() => mgr.publishCameraSources([], null)).not.toThrow();
   });
+
+  it("publishAirStatus() sends an air-status message with the battery over the socket", async () => {
+    const { mgr, socket } = await connectedManager();
+
+    mgr.publishAirStatus({ battery: { percent: 42, charging: false } });
+
+    expect(socket.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: "air-status", battery: { percent: 42, charging: false } }),
+    );
+  });
+
+  it("publishAirStatus() includes session data usage when given", async () => {
+    const { mgr, socket } = await connectedManager();
+
+    mgr.publishAirStatus({ dataUsage: { txBytes: 1500, rxBytes: 300 } });
+
+    expect(socket.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: "air-status", dataUsage: { txBytes: 1500, rxBytes: 300 } }),
+    );
+  });
+
+  it("publishAirStatus() sends a bare air-status when no battery reading is available", async () => {
+    const { mgr, socket } = await connectedManager();
+
+    mgr.publishAirStatus({});
+
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "air-status" }));
+  });
+
+  it("publishAirStatus() is a no-op before connect() has set a socket", () => {
+    const mgr = new WebRtcSessionManager();
+    expect(() => mgr.publishAirStatus({ battery: { percent: 1, charging: false } })).not.toThrow();
+  });
 });
 
 describe("WebRtcSessionManager — camera-set-default control", () => {

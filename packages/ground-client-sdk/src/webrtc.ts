@@ -24,6 +24,16 @@ let guiRemoteDescriptionSet = false;
 // outside of their own offer/answer exchange.
 let activeAirReply: ((msg: unknown) => void) | null = null;
 let activeGuiReply: ((msg: unknown) => void) | null = null;
+// A GUI offer that arrived before any video track did (air connected data-only, or
+// hasn't connected yet). Held so the GUI can already receive control state -- notably
+// the camera list, which is how the user picks a camera to start video in the first
+// place -- and is answered as soon as a video track arrives.
+let pendingGuiOffer: { sdp: string; reply: (msg: unknown) => void; isTailscale: boolean } | null = null;
+// Latest camera-source-list push from air, replayed to a GUI viewer that attaches
+// after it was sent (air only pushes it on connect and after a switch).
+let lastCameraSourceList: unknown = null;
+// Same idea for air-status (battery): sent on connect and on change only.
+let lastAirStatus: unknown = null;
 // Dimensions for the recorder, read from whichever offer actually carries a video
 // track -- the initial one, or a later renegotiation offer that adds video to a
 // session that connected data-only. pc.onTrack (subscribed once, below) reads these
@@ -196,6 +206,12 @@ export function handleSignalingMessage(
       activeVideoTrack = track;
       activeVideoReceiver = pc.getReceivers().find((r) => r.track === track) ?? null;
 
+      if (pendingGuiOffer) {
+        const { sdp: guiSdp, reply: guiReply, isTailscale: guiTailscale } = pendingGuiOffer;
+        pendingGuiOffer = null;
+        startGuiPeer(guiSdp, guiReply, guiTailscale);
+      }
+
       if (stateDir) {
         mkdirSync(stateDir, { recursive: true });
       }
@@ -305,7 +321,16 @@ export function handleSignalingMessage(
     return;
   }
 
+  if (message.type === "air-status") {
+    lastAirStatus = message;
+    activeGuiReply?.(message);
+    return;
+  }
+
   if (message.type === "video-control-state") {
+    if (message.control === "camera-source-list") {
+      lastCameraSourceList = message;
+    }
     // Forwarded to the GUI viewer as-is -- this relay is intentionally agnostic
     // to the payload shape (see requestVideoControl below), so new control
     // types need no change here.
@@ -317,6 +342,52 @@ export function requestVideoControl(request: { control: string } & Record<string
   if (!activeAirReply) return false;
   activeAirReply({ type: "video-control-request", ...request });
   return true;
+}
+
+function startGuiPeer(sdp: string, reply: (msg: unknown) => void, isTailscale: boolean): void {
+  if (!activeVideoTrack) return;
+  const pc = new RTCPeerConnection({});
+  const sourceTrack = activeVideoTrack;
+  const sourceReceiver = activeVideoReceiver;
+  const forwarder = forwardRtpTrack(sourceTrack);
+  activeGuiPc = pc;
+  activeGuiForwarder = forwarder;
+  activeGuiReply = reply;
+  guiRemoteDescriptionSet = false;
+  const sender = pc.addTrack(forwarder.track);
+  if (sourceReceiver && typeof sourceTrack.ssrc === "number") {
+    requestKeyFrameOnPictureLoss(sender, sourceReceiver, sourceTrack.ssrc);
+  }
+
+  pc.onIceCandidate.subscribe((candidate) => {
+    if (!candidate) return;
+    if (isTailscale && !isTailscaleCandidate(candidate.candidate)) {
+      return;
+    }
+    reply({ type: "ice-candidate", candidate: candidate.toJSON() });
+  });
+
+  pc.setRemoteDescription({ type: "offer", sdp })
+    .then(async () => {
+      guiRemoteDescriptionSet = true;
+      const buffered = pendingGuiCandidates.splice(0);
+      for (const candidate of buffered) {
+        await pc.addIceCandidate(candidate).catch((err: unknown) => {
+          console.warn(
+            "Failed to add buffered GUI ICE candidate:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      }
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      reply({ type: "answer", sdp: answer.sdp });
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("GUI WebRTC offer handling failed:", msg);
+      closeGuiPeer();
+    });
 }
 
 export function handleGuiSignalingMessage(
@@ -337,60 +408,22 @@ export function handleGuiSignalingMessage(
   }
 
   if (message.type === "offer") {
-    if (activeGuiPc) {
+    if (activeGuiPc || pendingGuiOffer) {
       reply({ type: "error", message: "A GUI viewer is already connected." });
       return;
     }
 
+    const sdp = typeof message.sdp === "string" ? message.sdp : "";
+    activeGuiReply = reply;
+    if (lastCameraSourceList) reply(lastCameraSourceList);
+    if (lastAirStatus) reply(lastAirStatus);
+
     if (!activeVideoTrack) {
-      reply({ type: "error", message: "No incoming video is available yet." });
+      pendingGuiOffer = { sdp, reply, isTailscale };
       return;
     }
 
-    const sdp = typeof message.sdp === "string" ? message.sdp : "";
-    const pc = new RTCPeerConnection({});
-    const sourceTrack = activeVideoTrack;
-    const sourceReceiver = activeVideoReceiver;
-    const forwarder = forwardRtpTrack(sourceTrack);
-    activeGuiPc = pc;
-    activeGuiForwarder = forwarder;
-    activeGuiReply = reply;
-    guiRemoteDescriptionSet = false;
-    const sender = pc.addTrack(forwarder.track);
-    if (sourceReceiver && typeof sourceTrack.ssrc === "number") {
-      requestKeyFrameOnPictureLoss(sender, sourceReceiver, sourceTrack.ssrc);
-    }
-
-    pc.onIceCandidate.subscribe((candidate) => {
-      if (!candidate) return;
-      if (isTailscale && !isTailscaleCandidate(candidate.candidate)) {
-        return;
-      }
-      reply({ type: "ice-candidate", candidate: candidate.toJSON() });
-    });
-
-    pc.setRemoteDescription({ type: "offer", sdp })
-      .then(async () => {
-        guiRemoteDescriptionSet = true;
-        const buffered = pendingGuiCandidates.splice(0);
-        for (const candidate of buffered) {
-          await pc.addIceCandidate(candidate).catch((err: unknown) => {
-            console.warn(
-              "Failed to add buffered GUI ICE candidate:",
-              err instanceof Error ? err.message : String(err),
-            );
-          });
-        }
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        reply({ type: "answer", sdp: answer.sdp });
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("GUI WebRTC offer handling failed:", msg);
-        closeGuiPeer();
-      });
-
+    startGuiPeer(sdp, reply, isTailscale);
     return;
   }
 
@@ -443,6 +476,7 @@ function closeGuiPeer(): void {
   activeGuiForwarder?.stop();
   activeGuiForwarder = null;
   activeGuiReply = null;
+  pendingGuiOffer = null;
   guiRemoteDescriptionSet = false;
   pendingGuiCandidates.length = 0;
 }
@@ -461,6 +495,10 @@ export function handleSocketClose(): void {
   activeVideoReceiver = null;
   videoRenegotiationAccepted = false;
   activeAirReply = null;
+  lastCameraSourceList = null;
+  lastAirStatus = null;
+  // Blank the GUI's battery readout rather than leave a stale percentage up.
+  activeGuiReply?.({ type: "air-status" });
   closeGuiPeer();
   pendingCandidates.length = 0;
 }

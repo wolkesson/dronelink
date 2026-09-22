@@ -3,6 +3,8 @@ const video = document.getElementById("live-video");
 const qualitySelect = document.getElementById("quality-select");
 const cameraSelect = document.getElementById("camera-select");
 const cameraSetDefaultButton = document.getElementById("camera-set-default");
+const airBattery = document.getElementById("air-battery");
+const airDataUsage = document.getElementById("air-data-usage");
 const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
 const flipVerticalCheckbox = document.getElementById("flip-vertical");
 const rotationLabel = document.getElementById("rotation-label");
@@ -78,6 +80,9 @@ socket.onmessage = async (event) => {
     } else if (message.type === "video-control-state" && message.control === "quality") {
       qualitySelect.value = message.preset;
       setStatus(message.videoActive ? "Live video connected" : "Live video paused (data-only mode)");
+    } else if (message.type === "air-status") {
+      renderAirBattery(message.battery);
+      renderAirDataUsage(message.dataUsage);
     } else if (message.type === "video-control-state" && message.control === "camera-source-list") {
       currentDefaultDeviceId = message.defaultDeviceId ?? "";
       populateCameraOptions(Array.isArray(message.devices) ? message.devices : [], message.activeDeviceId ?? "");
@@ -158,6 +163,57 @@ function relabelCameraOptions() {
     const device = lastCameraDevices[i];
     if (device) option.textContent = optionLabel(device);
   });
+}
+
+const BATTERY_LOW_PERCENT = 20;
+const BATTERY_CRITICAL_PERCENT = 10;
+
+function renderAirBattery(battery) {
+  if (!battery || typeof battery.percent !== "number") {
+    airBattery.textContent = "Air unit battery: unknown";
+    airBattery.dataset.level = "unknown";
+    airBattery.style.color = "";
+    return;
+  }
+  const charging = battery.charging === true;
+  const percent = Math.round(battery.percent);
+  let level = "ok";
+  if (!charging && percent <= BATTERY_CRITICAL_PERCENT) level = "critical";
+  else if (!charging && percent <= BATTERY_LOW_PERCENT) level = "low";
+  airBattery.dataset.level = level;
+  airBattery.style.color = level === "critical" ? "#c62828" : level === "low" ? "#ef6c00" : "";
+  const warning = level === "critical" ? " — CRITICAL, land now" : level === "low" ? " — low" : "";
+  airBattery.textContent = `Air unit battery: ${percent}%${charging ? " (charging)" : ""}${warning}`;
+}
+
+let lastDataSample = null;
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+// The air unit reports cumulative session totals; the current rate is the delta
+// between successive samples over the time they arrived.
+function renderAirDataUsage(usage) {
+  if (!usage || typeof usage.txBytes !== "number" || typeof usage.rxBytes !== "number") {
+    lastDataSample = null;
+    airDataUsage.textContent = "Air unit data: unknown";
+    return;
+  }
+  const now = performance.now();
+  const total = usage.txBytes + usage.rxBytes;
+  let rateText = "—";
+  if (lastDataSample && now > lastDataSample.at && total >= lastDataSample.total) {
+    const perSecond = ((total - lastDataSample.total) * 1000) / (now - lastDataSample.at);
+    rateText = `${formatBytes(perSecond)}/s`;
+  }
+  lastDataSample = { at: now, total };
+  airDataUsage.textContent =
+    `Air unit data: ${rateText} now, ${formatBytes(total)} this session ` +
+    `(↑ ${formatBytes(usage.txBytes)}, ↓ ${formatBytes(usage.rxBytes)})`;
 }
 
 function populateCameraOptions(devices, activeDeviceId) {

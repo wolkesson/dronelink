@@ -258,8 +258,12 @@ describe("signaling server", () => {
 
     socket.send(JSON.stringify({ type: "offer", sdp: "v=0\r\n" }));
 
+    // With no video yet the offer is held, not rejected, so the GUI can still
+    // receive control state; a control request proves the socket is live.
+    socket.send(JSON.stringify({ type: "video-control-request", control: "quality", preset: "low" }));
+
     await expect(waitForMessage(socket)).resolves.toBe(
-      JSON.stringify({ type: "error", message: "No incoming video is available yet." }),
+      JSON.stringify({ type: "error", message: "No active drone connection to apply video control to." }),
     );
     socket.close();
   });
@@ -441,6 +445,37 @@ describe("video control protocol schemas", () => {
     expect(branch.required).toEqual(["type", "control", "deviceId", "ok"]);
     expect(branch.properties.control.const).toBe("camera-set-default");
     expect(branch.properties.deviceId.type).toBe("string");
+  });
+
+  it("air-status.schema.json bounds battery percent to 0-100 and requires charging", () => {
+    const schema = JSON.parse(
+      readFileSync(new URL("../../../protocol/schemas/air-status.schema.json", import.meta.url), "utf8"),
+    ) as {
+      required: string[];
+      properties: {
+        type: { const: string };
+        battery: {
+          required: string[];
+          properties: { percent: { type: string; minimum: number; maximum: number }; charging: { type: string } };
+        };
+      };
+    };
+
+    expect(schema.required).toEqual(["type"]);
+    expect(schema.properties.type.const).toBe("air-status");
+    expect(schema.properties.battery.required).toEqual(["percent", "charging"]);
+    expect(schema.properties.battery.properties.percent).toEqual({ type: "integer", minimum: 0, maximum: 100 });
+    expect(schema.properties.battery.properties.charging.type).toBe("boolean");
+  });
+
+  it("air-status.schema.json describes dataUsage as non-negative tx/rx byte totals", () => {
+    const schema = loadSchema("air-status.schema.json") as unknown as {
+      properties: { dataUsage: { required: string[]; properties: Record<string, { type: string; minimum: number }> } };
+    };
+
+    expect(schema.properties.dataUsage.required).toEqual(["txBytes", "rxBytes"]);
+    expect(schema.properties.dataUsage.properties.txBytes).toEqual({ type: "integer", minimum: 0 });
+    expect(schema.properties.dataUsage.properties.rxBytes).toEqual({ type: "integer", minimum: 0 });
   });
 
   it("video-control-request.schema.json's 'flip' branch requires horizontal and vertical booleans", () => {
