@@ -1,13 +1,14 @@
 import type { VideoRotationDegrees } from "./WebRtcSessionManager.js";
 
-/** Per-camera flip/rotation, remembered so plugging back into the same physical camera restores it. */
+/** Per-camera flip/rotation/fill, remembered so plugging back into the same physical camera restores it. */
 export interface CameraTransform {
   horizontal: boolean;
   vertical: boolean;
   rotation: VideoRotationDegrees;
+  fill: boolean;
 }
 
-const IDENTITY_TRANSFORM: CameraTransform = { horizontal: false, vertical: false, rotation: 0 };
+const IDENTITY_TRANSFORM: CameraTransform = { horizontal: false, vertical: false, rotation: 0, fill: false };
 
 // v2: keys switched from MediaDeviceInfo.deviceId to the camera's label (see
 // CameraSettingsStore's doc comment) -- v1 data would never match anything under
@@ -27,14 +28,23 @@ function emptyState(): StoredState {
   return { perCamera: {}, defaultCameraKey: null };
 }
 
-function isCameraTransform(value: unknown): value is CameraTransform {
-  if (typeof value !== "object" || value === null) return false;
+/**
+ * The stored value as a CameraTransform, or null if it isn't one. `fill` was
+ * added after v2 shipped, so an entry without it is still accepted (as
+ * fill: false) rather than discarding that camera's saved flip/rotation.
+ */
+function toCameraTransform(value: unknown): CameraTransform | null {
+  if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.horizontal === "boolean" &&
-    typeof v.vertical === "boolean" &&
-    (v.rotation === 0 || v.rotation === 90 || v.rotation === 180 || v.rotation === 270)
-  );
+  if (
+    typeof v.horizontal !== "boolean" ||
+    typeof v.vertical !== "boolean" ||
+    !(v.rotation === 0 || v.rotation === 90 || v.rotation === 180 || v.rotation === 270) ||
+    (v.fill !== undefined && typeof v.fill !== "boolean")
+  ) {
+    return null;
+  }
+  return { horizontal: v.horizontal, vertical: v.vertical, rotation: v.rotation, fill: v.fill === true };
 }
 
 function parseState(raw: string | null): StoredState {
@@ -44,7 +54,8 @@ function parseState(raw: string | null): StoredState {
     const perCamera: Record<string, CameraTransform> = {};
     if (typeof parsed.perCamera === "object" && parsed.perCamera !== null) {
       for (const [cameraKey, transform] of Object.entries(parsed.perCamera)) {
-        if (isCameraTransform(transform)) perCamera[cameraKey] = transform;
+        const parsedTransform = toCameraTransform(transform);
+        if (parsedTransform) perCamera[cameraKey] = parsedTransform;
       }
     }
     const defaultCameraKey = typeof parsed.defaultCameraKey === "string" ? parsed.defaultCameraKey : null;
@@ -58,7 +69,7 @@ function parseState(raw: string | null): StoredState {
 
 export interface CameraSettingsStore {
   /**
-   * The saved flip/rotation for a camera, or the identity transform if nothing was
+   * The saved flip/rotation/fill for a camera, or the identity transform if nothing was
    * saved for it yet. `cameraKey` should be the camera's own label (MediaDeviceInfo.label),
    * not its deviceId -- see this module's doc comment for why.
    */
@@ -69,7 +80,7 @@ export interface CameraSettingsStore {
 }
 
 /**
- * Persists per-camera flip/rotation and the default camera choice on the air unit
+ * Persists per-camera flip/rotation/fill and the default camera choice on the air unit
  * itself (not synced to the ground side), since the phone's physical mounting --
  * and so which camera is "front"/"back" and which way it needs flipping -- is a
  * property of that phone, not of whichever ground station happens to be paired.

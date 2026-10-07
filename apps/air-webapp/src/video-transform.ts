@@ -4,6 +4,8 @@ export interface VideoTransform {
   horizontal: boolean;
   vertical: boolean;
   rotation: RotationDegrees;
+  /** Zoom a 90/270-rotated picture to fill the frame (cropping its top/bottom) instead of pillarboxing it. */
+  fill: boolean;
 }
 
 export interface TransformedVideoSource {
@@ -26,12 +28,14 @@ export interface TransformedVideoSource {
  * source track's lifecycle.
  *
  * The canvas keeps the source track's own width/height regardless of rotation, so a 90/270 rotation
- * is letterboxed (scaled to fit within those bounds) rather than swapping the outbound dimensions --
+ * is letterboxed (scaled to fit within those bounds) -- or, with `fill`, scaled to cover them,
+ * cropping the picture instead -- rather than swapping the outbound dimensions --
  * the ground side's MediaRecorder is sized once from the original SDP offer and never re-reads
  * dimensions afterward, so changing them mid-session would desync it (see
  * WebRtcSessionManager.replaceVideoTrack's docs and ARCHITECTURE.md's resolution-change limitation).
  * Flip and 180-degree rotation don't change the content's bounding box, so they fill the canvas
- * exactly with no letterboxing.
+ * exactly with no letterboxing (and `fill` has nothing to do). Fill is baked in here rather than
+ * zoomed on the ground side so the ground recording gets the filled picture too.
  */
 export function createTransformedVideoTrack(
   sourceTrack: MediaStreamTrack,
@@ -59,7 +63,7 @@ export function createTransformedVideoTrack(
   const rotatedSideways = transform.rotation === 90 || transform.rotation === 270;
   const rotatedBoundsWidth = rotatedSideways ? height : width;
   const rotatedBoundsHeight = rotatedSideways ? width : height;
-  const containScale = Math.min(width / rotatedBoundsWidth, height / rotatedBoundsHeight);
+  const fitScale = (transform.fill ? Math.max : Math.min)(width / rotatedBoundsWidth, height / rotatedBoundsHeight);
 
   let rafId = 0;
   const drawFrame = () => {
@@ -73,8 +77,8 @@ export function createTransformedVideoTrack(
     ctx.translate(width / 2, height / 2);
     ctx.rotate((transform.rotation * Math.PI) / 180);
     ctx.scale(
-      containScale * (transform.horizontal ? -1 : 1),
-      containScale * (transform.vertical ? -1 : 1),
+      fitScale * (transform.horizontal ? -1 : 1),
+      fitScale * (transform.vertical ? -1 : 1),
     );
     ctx.drawImage(sourceVideo, -width / 2, -height / 2, width, height);
     ctx.restore();
