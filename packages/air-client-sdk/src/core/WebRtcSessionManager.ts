@@ -25,8 +25,8 @@ function isVideoRotationDegrees(value: unknown): value is VideoRotationDegrees {
   return typeof value === "number" && (VIDEO_ROTATION_DEGREES as readonly number[]).includes(value);
 }
 
-// "quality", "camera-source", "camera-set-default", "flip", and "rotate" are
-// implemented today. Further ground-initiated controls (zoom, gain, contrast,
+// "quality", "camera-source", "camera-set-default", "flip", "rotate", and
+// "fill" are implemented today. Further ground-initiated controls (zoom, gain, contrast,
 // ...) are expected to extend these unions with new discriminants later --
 // ground-client-sdk's requestVideoControl() forwards any {control, ...} shape
 // unmodified, so adding a case here needs no ground-side change.
@@ -35,14 +35,16 @@ export type VideoControlRequest =
   | { control: "camera-source"; deviceId: string }
   | { control: "camera-set-default"; deviceId: string }
   | { control: "flip"; horizontal: boolean; vertical: boolean }
-  | { control: "rotate"; degrees: VideoRotationDegrees };
+  | { control: "rotate"; degrees: VideoRotationDegrees }
+  | { control: "fill"; fill: boolean };
 
 export type VideoControlState =
   | { control: "quality"; preset: VideoQualityPreset; videoActive: boolean }
   | { control: "camera-source"; deviceId: string; ok: boolean; error?: string }
   | { control: "camera-set-default"; deviceId: string; ok: boolean; error?: string }
   | { control: "flip"; horizontal: boolean; vertical: boolean; ok: boolean; error?: string }
-  | { control: "rotate"; degrees: VideoRotationDegrees; ok: boolean; error?: string };
+  | { control: "rotate"; degrees: VideoRotationDegrees; ok: boolean; error?: string }
+  | { control: "fill"; fill: boolean; ok: boolean; error?: string };
 
 /** Requested mirroring of the outbound video, e.g. to correct a phone mount that can't be oriented normally. */
 export interface VideoFlipState {
@@ -57,18 +59,20 @@ export interface CameraSourceDevice {
 }
 
 /**
- * The flip/rotation actually in effect for the currently active camera, as sent
+ * The flip/rotation/fill actually in effect for the currently active camera, as sent
  * in a camera-source-list push -- each camera can have its own saved transform
  * (see air-webapp's CameraSettingsStore), so switching cameras can silently
  * change this out from under a ground GUI that only updates it on a direct
- * flip/rotate ack. Sending it alongside every camera-source-list push (which
+ * flip/rotate/fill ack. Sending it alongside every camera-source-list push (which
  * already fires after every switch, whoever initiated it) keeps the GUI's
- * flip checkboxes/rotation label in sync with what's actually being sent.
+ * flip/fill checkboxes and rotation label in sync with what's actually being sent.
  */
 export interface VideoTransformState {
   horizontal: boolean;
   vertical: boolean;
   rotation: VideoRotationDegrees;
+  /** Zoom a 90/270-rotated picture to fill the frame (cropping) instead of pillarboxing it. */
+  fill: boolean;
 }
 
 function isVideoControlRequest(value: unknown): value is VideoControlRequest {
@@ -82,6 +86,9 @@ function isVideoControlRequest(value: unknown): value is VideoControlRequest {
   }
   if (value.control === "rotate") {
     return isVideoRotationDegrees(value.degrees);
+  }
+  if (value.control === "fill") {
+    return typeof value.fill === "boolean";
   }
   return false;
 }
@@ -115,6 +122,7 @@ export class WebRtcSessionManager {
   private cameraDefaultHandler: ((deviceId: string) => Promise<void>) | null = null;
   private flipHandler: ((flip: VideoFlipState) => Promise<void>) | null = null;
   private rotateHandler: ((degrees: VideoRotationDegrees) => Promise<void>) | null = null;
+  private fillHandler: ((fill: boolean) => Promise<void>) | null = null;
   private pendingRenegotiation: { resolve: () => void; reject: (err: Error) => void } | null = null;
   private readonly handlers = new Set<(data: Uint8Array) => void>();
   private readonly connectTimeoutMs: number;
@@ -414,9 +422,21 @@ export class WebRtcSessionManager {
   }
 
   /**
+   * Register the handler that applies a ground-requested "fill" control --
+   * whether a 90/270 rotation is zoomed to fill the (unchanged, landscape)
+   * outbound frame, cropping the picture, instead of pillarboxing it. Applied
+   * air-side, in the same app-owned canvas pipeline as rotate, so the ground
+   * recording gets the filled picture too. Rejecting the returned promise acks
+   * the request with ok: false and the rejection's message.
+   */
+  setFillHandler(handler: (fill: boolean) => Promise<void>): void {
+    this.fillHandler = handler;
+  }
+
+  /**
    * Push the current camera list, active device, default device, and the active
-   * camera's own flip/rotation to the ground side, so a GUI viewer can offer
-   * camera-source choices, show which one is marked default, and keep its flip
+   * camera's own flip/rotation/fill to the ground side, so a GUI viewer can offer
+   * camera-source choices, show which one is marked default, and keep its flip/fill
    * checkboxes/rotation label in sync with whichever camera is actually active
    * (each camera can have its own saved transform -- see VideoTransformState).
    * Unsolicited (not a reply to a request) -- call after enumerating devices and
@@ -533,6 +553,22 @@ export class WebRtcSessionManager {
           return {
             control: "rotate",
             degrees: request.degrees,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
+      case "fill": {
+        if (!this.fillHandler) {
+          return { control: "fill", fill: request.fill, ok: false, error: "No fill handler registered." };
+        }
+        try {
+          await this.fillHandler(request.fill);
+          return { control: "fill", fill: request.fill, ok: true };
+        } catch (err) {
+          return {
+            control: "fill",
+            fill: request.fill,
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           };

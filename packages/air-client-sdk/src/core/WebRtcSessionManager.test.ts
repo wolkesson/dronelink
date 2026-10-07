@@ -1195,7 +1195,7 @@ describe("WebRtcSessionManager — camera-source control", () => {
       [{ deviceId: "cam-1", label: "Front" }],
       "cam-1",
       "cam-1",
-      { horizontal: true, vertical: false, rotation: 90 },
+      { horizontal: true, vertical: false, rotation: 90, fill: true },
     );
 
     expect(socket.send).toHaveBeenCalledWith(
@@ -1205,7 +1205,7 @@ describe("WebRtcSessionManager — camera-source control", () => {
         devices: [{ deviceId: "cam-1", label: "Front" }],
         activeDeviceId: "cam-1",
         defaultDeviceId: "cam-1",
-        activeTransform: { horizontal: true, vertical: false, rotation: 90 },
+        activeTransform: { horizontal: true, vertical: false, rotation: 90, fill: true },
       }),
     );
   });
@@ -1575,6 +1575,111 @@ describe("WebRtcSessionManager — rotate control", () => {
     mgr.setRotateHandler(handler);
 
     onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "rotate", degrees: 45 }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(sentVideoControlStates(socket)).toHaveLength(0);
+  });
+});
+
+describe("WebRtcSessionManager — fill control", () => {
+  function sentVideoControlStates(socket: PairingSocket): Array<Record<string, unknown>> {
+    return (socket.send as ReturnType<typeof vi.fn>).mock.calls
+      .map((args) => JSON.parse(args[0] as string) as Record<string, unknown>)
+      .filter((m) => m.type === "video-control-state");
+  }
+
+  async function connectedManager(): Promise<{
+    mgr: WebRtcSessionManager;
+    socket: PairingSocket;
+    onMessageRef: { fn: ((data: string) => void) | null };
+  }> {
+    const { pc, openRef } = makeMockPc();
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return pc;
+      }),
+    );
+
+    const mgr = new WebRtcSessionManager();
+    const socket = makeMockSocket();
+    const onMessageRef: { fn: ((data: string) => void) | null } = { fn: null };
+    (socket.onMessage as ReturnType<typeof vi.fn>).mockImplementation((cb: (data: string) => void) => {
+      onMessageRef.fn = cb;
+    });
+
+    const connectPromise = mgr.connect(socket);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    openRef.fn?.();
+    await connectPromise;
+
+    return { mgr, socket, onMessageRef };
+  }
+
+  it("calls the registered handler with the requested fill and acks ok: true", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setFillHandler(handler);
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "fill", fill: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledWith(true);
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "fill",
+      fill: true,
+      ok: true,
+    });
+  });
+
+  it("acks ok: false with the rejection message when the handler throws", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    mgr.setFillHandler(async () => {
+      throw new Error("no video track bound");
+    });
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "fill", fill: false }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "fill",
+      fill: false,
+      ok: false,
+      error: "no video track bound",
+    });
+  });
+
+  it("acks ok: false when no fill handler has been registered", async () => {
+    const { socket, onMessageRef } = await connectedManager();
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "fill", fill: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sentVideoControlStates(socket)).toContainEqual({
+      type: "video-control-state",
+      control: "fill",
+      fill: true,
+      ok: false,
+      error: "No fill handler registered.",
+    });
+  });
+
+  it("ignores a fill request with a non-boolean fill, without calling the handler", async () => {
+    const { mgr, socket, onMessageRef } = await connectedManager();
+    const handler = vi.fn(async () => {});
+    mgr.setFillHandler(handler);
+
+    onMessageRef.fn?.(JSON.stringify({ type: "video-control-request", control: "fill", fill: "yes" }));
     await Promise.resolve();
     await Promise.resolve();
 

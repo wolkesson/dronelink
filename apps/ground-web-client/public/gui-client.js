@@ -7,6 +7,7 @@ const airBattery = document.getElementById("air-battery");
 const airDataUsage = document.getElementById("air-data-usage");
 const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
 const flipVerticalCheckbox = document.getElementById("flip-vertical");
+const zoomFillCheckbox = document.getElementById("zoom-fill");
 const rotationLabel = document.getElementById("rotation-label");
 const rotateLeftButton = document.getElementById("rotate-left");
 const rotateRightButton = document.getElementById("rotate-right");
@@ -92,6 +93,7 @@ socket.onmessage = async (event) => {
       if (message.activeTransform) {
         flipHorizontalCheckbox.checked = Boolean(message.activeTransform.horizontal);
         flipVerticalCheckbox.checked = Boolean(message.activeTransform.vertical);
+        zoomFillCheckbox.checked = Boolean(message.activeTransform.fill);
         currentRotation = message.activeTransform.rotation;
         rotationLabel.textContent = `${currentRotation}°`;
       }
@@ -124,6 +126,13 @@ socket.onmessage = async (event) => {
         setStatus("Video rotation updated");
       } else {
         setStatus(`Rotate request failed: ${message.error ?? "unknown error"}`);
+      }
+    } else if (message.type === "video-control-state" && message.control === "fill") {
+      if (message.ok) {
+        zoomFillCheckbox.checked = Boolean(message.fill);
+        setStatus("Video zoom updated");
+      } else {
+        setStatus(`Zoom request failed: ${message.error ?? "unknown error"}`);
       }
     } else if (message.type === "error" && typeof message.message === "string") {
       setStatus(message.message);
@@ -271,6 +280,16 @@ function sendFlipRequest() {
 
 flipHorizontalCheckbox.addEventListener("change", sendFlipRequest);
 flipVerticalCheckbox.addEventListener("change", sendFlipRequest);
+
+// Applied air-side like flip/rotate, so the recording gets it too: air renders a
+// 90/270 rotation pillarboxed inside the unchanged landscape frame, and fill
+// zooms the picture to cover that frame instead (cropping it). Nothing to do at
+// 0/180, where the picture already fills the frame.
+zoomFillCheckbox.addEventListener("change", () => {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "video-control-request", control: "fill", fill: zoomFillCheckbox.checked }));
+  }
+});
 
 function sendRotateRequest(degrees) {
   if (socket.readyState === WebSocket.OPEN) {

@@ -99,12 +99,22 @@ export function mountApp(root: HTMLElement): void {
   // capability -- see video-transform.ts). Reset to the active camera's own
   // saved transform on every switchCameraTo() rather than carried over from
   // whichever camera was active before (see cameraSettings).
-  let videoTransform: VideoTransform = { horizontal: false, vertical: false, rotation: 0 };
+  let videoTransform: VideoTransform = { horizontal: false, vertical: false, rotation: 0, fill: false };
   let transformedSource: TransformedVideoSource | null = null;
 
   function applyLocalPreviewTransform(): void {
-    const scaleX = videoTransform.horizontal ? -1 : 1;
-    const scaleY = videoTransform.vertical ? -1 : 1;
+    // Mirror the outbound canvas's fit/fill scaling (see video-transform.ts) so the
+    // preview shows what the ground actually receives: a 90/270 rotation turns the
+    // landscape preview box sideways, so it's scaled down to fit inside the box
+    // (pillarboxed) or, with fill, up to cover it (cropped).
+    const rotatedSideways = videoTransform.rotation === 90 || videoTransform.rotation === 270;
+    const boxWidth = videoPanel.videoEl.clientWidth || 16;
+    const boxHeight = videoPanel.videoEl.clientHeight || 9;
+    const fitScale = rotatedSideways
+      ? (videoTransform.fill ? Math.max : Math.min)(boxWidth / boxHeight, boxHeight / boxWidth)
+      : 1;
+    const scaleX = fitScale * (videoTransform.horizontal ? -1 : 1);
+    const scaleY = fitScale * (videoTransform.vertical ? -1 : 1);
     videoPanel.videoEl.style.transform = `rotate(${videoTransform.rotation}deg) scale(${scaleX}, ${scaleY})`;
   }
 
@@ -113,7 +123,8 @@ export function mountApp(root: HTMLElement): void {
     transformedSource = null;
   }
 
-  /** The track to actually send: the raw track unchanged, or a flipped/rotated canvas track when a transform is active. */
+  /** The track to actually send: the raw track unchanged, or a flipped/rotated canvas track when a transform is active.
+   * `fill` alone doesn't count -- it only changes anything combined with a rotation. */
   function outboundTrackFor(rawTrack: MediaStreamTrack): MediaStreamTrack {
     teardownTransformPipeline();
     if (!videoTransform.horizontal && !videoTransform.vertical && videoTransform.rotation === 0) {
@@ -325,6 +336,12 @@ export function mountApp(root: HTMLElement): void {
 
   sessionManager.setRotateHandler(async (degrees) => {
     videoTransform = { ...videoTransform, rotation: degrees };
+    persistActiveTransform();
+    await applyVideoTransform();
+  });
+
+  sessionManager.setFillHandler(async (fill) => {
+    videoTransform = { ...videoTransform, fill };
     persistActiveTransform();
     await applyVideoTransform();
   });

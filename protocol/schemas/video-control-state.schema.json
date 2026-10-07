@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://dronelink.local/protocol/schemas/video-control-state.schema.json",
   "title": "Video Control State",
-  "description": "Air-to-ground acknowledgment of an applied video control, forwarded to any connected GUI viewer. The `control` field discriminates the payload shape; \"quality\", \"camera-source\", \"camera-set-default\", \"flip\", and \"rotate\" are defined today, mirroring video-control-request.schema.json. \"camera-source-list\" is a related but unsolicited push (not an ack to any request) reporting air's enumerated cameras, which one is active, which one is saved as the default, and the active camera's own current flip/rotation (each camera can have its own saved transform, so a switch can change this without a direct flip/rotate request) -- sent after every switch so a GUI viewer's flip checkboxes/rotation label can stay in sync with whichever camera is actually active.",
+  "description": "Air-to-ground acknowledgment of an applied video control, forwarded to any connected GUI viewer. The `control` field discriminates the payload shape; \"quality\", \"camera-source\", \"camera-set-default\", \"flip\", \"rotate\", and \"fill\" are defined today, mirroring video-control-request.schema.json. \"camera-source-list\" is a related but unsolicited push (not an ack to any request) reporting air's enumerated cameras, which one is active, which one is saved as the default, and the active camera's own current flip/rotation/fill (each camera can have its own saved transform, so a switch can change this without a direct flip/rotate/fill request) -- sent after every switch so a GUI viewer's flip/fill checkboxes/rotation label can stay in sync with whichever camera is actually active.",
   "type": "object",
   "oneOf": [
     {
@@ -62,6 +62,17 @@
     },
     {
       "additionalProperties": false,
+      "required": ["type", "control", "fill", "ok"],
+      "properties": {
+        "type": { "const": "video-control-state" },
+        "control": { "const": "fill" },
+        "fill": { "type": "boolean" },
+        "ok": { "type": "boolean" },
+        "error": { "type": "string" }
+      }
+    },
+    {
+      "additionalProperties": false,
       "required": ["type", "control", "devices", "activeDeviceId", "defaultDeviceId", "activeTransform"],
       "properties": {
         "type": { "const": "video-control-state" },
@@ -83,11 +94,12 @@
         "activeTransform": {
           "type": ["object", "null"],
           "additionalProperties": false,
-          "required": ["horizontal", "vertical", "rotation"],
+          "required": ["horizontal", "vertical", "rotation", "fill"],
           "properties": {
             "horizontal": { "type": "boolean" },
             "vertical": { "type": "boolean" },
-            "rotation": { "enum": [0, 90, 180, 270] }
+            "rotation": { "enum": [0, 90, 180, 270] },
+            "fill": { "type": "boolean" }
           }
         }
       }

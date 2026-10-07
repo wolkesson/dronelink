@@ -391,7 +391,7 @@ describe("video control protocol schemas", () => {
   it("video-control-state.schema.json's 'camera-source' and 'camera-source-list' branches are present", () => {
     const schema = loadSchema("video-control-state.schema.json");
     const ackBranch = schema.oneOf[1];
-    const listBranch = schema.oneOf[5];
+    const listBranch = schema.oneOf[6];
 
     expect(ackBranch.required).toEqual(["type", "control", "deviceId", "ok"]);
     expect(ackBranch.properties.control.const).toBe("camera-source");
@@ -407,7 +407,7 @@ describe("video control protocol schemas", () => {
     expect(listBranch.properties.control.const).toBe("camera-source-list");
   });
 
-  it("video-control-state.schema.json's 'camera-source-list' branch describes activeTransform as nullable flip/rotation", () => {
+  it("video-control-state.schema.json's 'camera-source-list' branch describes activeTransform as nullable flip/rotation/fill", () => {
     const schema = loadSchema("video-control-state.schema.json") as unknown as {
       oneOf: Array<{
         properties: {
@@ -423,10 +423,11 @@ describe("video control protocol schemas", () => {
     const listBranch = schema.oneOf.find((b) => b.properties.control?.const === "camera-source-list");
 
     expect(listBranch?.properties.activeTransform?.type).toEqual(["object", "null"]);
-    expect(listBranch?.properties.activeTransform?.required).toEqual(["horizontal", "vertical", "rotation"]);
+    expect(listBranch?.properties.activeTransform?.required).toEqual(["horizontal", "vertical", "rotation", "fill"]);
     expect(listBranch?.properties.activeTransform?.properties.horizontal.type).toBe("boolean");
     expect(listBranch?.properties.activeTransform?.properties.vertical.type).toBe("boolean");
     expect(listBranch?.properties.activeTransform?.properties.rotation.enum).toEqual([0, 90, 180, 270]);
+    expect(listBranch?.properties.activeTransform?.properties.fill.type).toBe("boolean");
   });
 
   it("video-control-request.schema.json's 'camera-set-default' branch requires a non-empty deviceId", () => {
@@ -514,6 +515,24 @@ describe("video control protocol schemas", () => {
     expect(branch.required).toEqual(["type", "control", "degrees", "ok"]);
     expect(branch.properties.control.const).toBe("rotate");
     expect(branch.properties.degrees.enum).toEqual([0, 90, 180, 270]);
+  });
+
+  it("video-control-request.schema.json's 'fill' branch requires a fill boolean", () => {
+    const schema = loadSchema("video-control-request.schema.json");
+    const branch = schema.oneOf[5];
+
+    expect(branch.required).toEqual(["type", "control", "fill"]);
+    expect(branch.properties.control.const).toBe("fill");
+    expect(branch.properties.fill.type).toBe("boolean");
+  });
+
+  it("video-control-state.schema.json's 'fill' branch acks fill with ok/error", () => {
+    const schema = loadSchema("video-control-state.schema.json");
+    const branch = schema.oneOf[5];
+
+    expect(branch.required).toEqual(["type", "control", "fill", "ok"]);
+    expect(branch.properties.control.const).toBe("fill");
+    expect(branch.properties.fill.type).toBe("boolean");
   });
 });
 

@@ -23,32 +23,33 @@ function makeMemoryStorage(): Storage {
 describe("CameraSettingsStore", () => {
   it("returns the identity transform for a camera nothing was saved for yet", () => {
     const store = createCameraSettingsStore(makeMemoryStorage());
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0 });
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0, fill: false });
   });
 
   it("round-trips a saved transform for a given camera key", () => {
     const store = createCameraSettingsStore(makeMemoryStorage());
-    store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90 });
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: true, vertical: false, rotation: 90 });
+    store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90, fill: false });
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: true, vertical: false, rotation: 90, fill: false });
   });
 
   it("keeps transforms for different cameras independent", () => {
     const store = createCameraSettingsStore(makeMemoryStorage());
-    store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90 });
-    store.setTransform("cam-2", { horizontal: false, vertical: true, rotation: 270 });
+    store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90, fill: false });
+    store.setTransform("cam-2", { horizontal: false, vertical: true, rotation: 270, fill: false });
 
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: true, vertical: false, rotation: 90 });
-    expect(store.getTransform("cam-2")).toEqual({ horizontal: false, vertical: true, rotation: 270 });
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: true, vertical: false, rotation: 90, fill: false });
+    expect(store.getTransform("cam-2")).toEqual({ horizontal: false, vertical: true, rotation: 270, fill: false });
   });
 
   it("persists across store instances backed by the same storage", () => {
     const storage = makeMemoryStorage();
-    createCameraSettingsStore(storage).setTransform("cam-1", { horizontal: true, vertical: true, rotation: 180 });
+    createCameraSettingsStore(storage).setTransform("cam-1", { horizontal: true, vertical: true, rotation: 180, fill: false });
 
     expect(createCameraSettingsStore(storage).getTransform("cam-1")).toEqual({
       horizontal: true,
       vertical: true,
       rotation: 180,
+      fill: false,
     });
   });
 
@@ -65,15 +66,15 @@ describe("CameraSettingsStore", () => {
 
   it("setDefaultCameraKey doesn't disturb saved per-camera transforms", () => {
     const store = createCameraSettingsStore(makeMemoryStorage());
-    store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90 });
+    store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90, fill: false });
     store.setDefaultCameraKey("cam-1");
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: true, vertical: false, rotation: 90 });
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: true, vertical: false, rotation: 90, fill: false });
   });
 
   it("setTransform doesn't disturb an already-saved default", () => {
     const store = createCameraSettingsStore(makeMemoryStorage());
     store.setDefaultCameraKey("cam-1");
-    store.setTransform("cam-2", { horizontal: true, vertical: false, rotation: 90 });
+    store.setTransform("cam-2", { horizontal: true, vertical: false, rotation: 90, fill: false });
     expect(store.getDefaultCameraKey()).toBe("cam-1");
   });
 
@@ -82,8 +83,47 @@ describe("CameraSettingsStore", () => {
     storage.setItem("dronelink.air.cameraSettings.v2", "{not json");
     const store = createCameraSettingsStore(storage);
 
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0 });
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0, fill: false });
     expect(store.getDefaultCameraKey()).toBeNull();
+  });
+
+  it("round-trips fill", () => {
+    const store = createCameraSettingsStore(makeMemoryStorage());
+    store.setTransform("cam-1", { horizontal: false, vertical: false, rotation: 90, fill: true });
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 90, fill: true });
+  });
+
+  it("reads an entry saved before fill existed as fill: false, keeping its flip/rotation", () => {
+    const storage = makeMemoryStorage();
+    storage.setItem(
+      "dronelink.air.cameraSettings.v2",
+      JSON.stringify({ perCamera: { "cam-1": { horizontal: true, vertical: false, rotation: 270 } }, defaultCameraKey: null }),
+    );
+
+    expect(createCameraSettingsStore(storage).getTransform("cam-1")).toEqual({
+      horizontal: true,
+      vertical: false,
+      rotation: 270,
+      fill: false,
+    });
+  });
+
+  it("ignores an entry with a non-boolean fill", () => {
+    const storage = makeMemoryStorage();
+    storage.setItem(
+      "dronelink.air.cameraSettings.v2",
+      JSON.stringify({
+        perCamera: { "cam-1": { horizontal: true, vertical: false, rotation: 90, fill: "yes" } },
+        defaultCameraKey: null,
+      }),
+    );
+
+    expect(createCameraSettingsStore(storage).getTransform("cam-1")).toEqual({
+      horizontal: false,
+      vertical: false,
+      rotation: 0,
+      fill: false,
+    });
   });
 
   it("ignores a malformed per-camera entry but keeps the rest of the saved state", () => {
@@ -97,8 +137,8 @@ describe("CameraSettingsStore", () => {
     );
     const store = createCameraSettingsStore(storage);
 
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0 });
-    expect(store.getTransform("cam-2")).toEqual({ horizontal: false, vertical: false, rotation: 0 });
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0, fill: false });
+    expect(store.getTransform("cam-2")).toEqual({ horizontal: false, vertical: false, rotation: 0, fill: false });
     expect(store.getDefaultCameraKey()).toBe("cam-1");
   });
 
@@ -109,8 +149,8 @@ describe("CameraSettingsStore", () => {
     });
     const store = createCameraSettingsStore(storage);
 
-    expect(() => store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90 })).not.toThrow();
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0 });
+    expect(() => store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90, fill: false })).not.toThrow();
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0, fill: false });
   });
 
   it("degrades to in-memory-only (no throw) when storage.setItem throws", () => {
@@ -125,8 +165,8 @@ describe("CameraSettingsStore", () => {
 
   it("works with no storage available at all (e.g. no localStorage in this context)", () => {
     const store = createCameraSettingsStore(undefined);
-    expect(() => store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90 })).not.toThrow();
-    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0 });
+    expect(() => store.setTransform("cam-1", { horizontal: true, vertical: false, rotation: 90, fill: false })).not.toThrow();
+    expect(store.getTransform("cam-1")).toEqual({ horizontal: false, vertical: false, rotation: 0, fill: false });
     expect(store.getDefaultCameraKey()).toBeNull();
   });
 });
