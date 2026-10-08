@@ -17,6 +17,23 @@
         background: #000;
         object-fit: contain;
       }
+      #pairing-qr {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        width: 100%;
+        max-width: 960px;
+        height: 60vh;
+        max-height: 540px;
+        background: #fff;
+        color: #000;
+      }
+      #pairing-qr-code svg {
+        width: min(60vw, 360px);
+        height: min(60vw, 360px);
+      }
     </style>
   </head>
   <body>
@@ -26,6 +43,10 @@
       <p id="air-battery" role="status" data-level="unknown">Air unit battery: unknown</p>
       <p id="air-data-usage" role="status">Air unit data: unknown</p>
       <video id="live-video" autoplay playsinline controls></video>
+      <div id="pairing-qr">
+        <p>Scan with the air unit to connect</p>
+        <div id="pairing-qr-code"></div>
+      </div>
       <p>
         <label for="quality-select">Video quality</label>
         <select id="quality-select">

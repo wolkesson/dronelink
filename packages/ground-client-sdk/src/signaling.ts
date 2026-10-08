@@ -23,6 +23,7 @@ import {
 export interface GuiAssets {
   page: string;
   clientScript: string;
+  qrScript: string;
 }
 
 export interface SignalingServerOptions {
@@ -80,17 +81,28 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
       cert: tlsMaterial.cert,
     },
     (req: IncomingMessage, res: ServerResponse) => {
-      if (req.url === "/gui" || req.url === "/gui-client.js") {
+      if (req.url === "/gui" || req.url === "/gui-client.js" || req.url === "/qrcode.mjs") {
         if (!guiAssets) {
           res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
           res.end("Ground GUI assets are unavailable.\n");
           return;
         }
         const isPage = req.url === "/gui";
+        const body = isPage ? guiAssets.page : req.url === "/gui-client.js" ? guiAssets.clientScript : guiAssets.qrScript;
         res.writeHead(200, {
           "content-type": isPage ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8",
         });
-        res.end(isPage ? guiAssets.page : guiAssets.clientScript);
+        res.end(body);
+        return;
+      }
+      if (req.url === "/gui-pairing-bundle") {
+        if (!bundle) {
+          res.writeHead(503, { "content-type": "application/json; charset=utf-8" });
+          res.end(JSON.stringify({ error: "Signaling server has not finished starting." }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify(bundle));
         return;
       }
       res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
