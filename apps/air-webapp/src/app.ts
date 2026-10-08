@@ -681,7 +681,7 @@ export function mountApp(root: HTMLElement): void {
     if (!metrics) return;
 
     latestRttMs = metrics.rttMs;
-    groundPanel.setLatency(metrics.rttMs !== null ? `${Math.round(metrics.rttMs)} ms` : "—");
+    linkPanel.setLatency(metrics.rttMs !== null ? `${Math.round(metrics.rttMs)} ms` : "—");
 
     // A counter that went backwards means the peer connection was replaced, so
     // its new total is all fresh traffic.
