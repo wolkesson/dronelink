@@ -80,13 +80,13 @@ try {
       await evaluate(
         cdp,
         `(async () => {
-          const link = [...document.querySelectorAll("button")].find((x) => /binding phrase/i.test(x.textContent));
-          if (link) link.click();
+          const toggle = document.querySelector('[aria-label="Enter binding phrase"]');
+          if (toggle && toggle.getAttribute("aria-pressed") !== "true") toggle.click();
           const area = document.querySelector("textarea");
           if (!area) return "binding form not found (already paired?)";
           Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(area, ${bundle});
           area.dispatchEvent(new Event("input", { bubbles: true }));
-          document.querySelector(".dl-ground__pair-button").click();
+          document.querySelector(".dl-link__pair-button").click();
           return "pair clicked";
         })()`,
       ),

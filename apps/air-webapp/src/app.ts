@@ -15,9 +15,8 @@ import {
 import { LinkActivityTracker, type LinkActivitySnapshot } from "@dronelink/ui-kit-shared";
 import { isAndroidShell } from "./platform.js";
 import { createAppHeader } from "./components/AppHeader.js";
-import { createVideoFeedPanel } from "./components/VideoFeedPanel.js";
+import { createLinkPanel } from "./components/LinkPanel.js";
 import { createFlightControllerPanel } from "./components/FlightControllerPanel.js";
-import { createGroundConnectionPanel } from "./components/GroundConnectionPanel.js";
 import { createDisconnectButton } from "./components/DisconnectButton.js";
 import { createSessionFooter } from "./components/SessionFooter.js";
 import { formatByteRate, formatDuration, formatMbps } from "./format.js";
@@ -59,20 +58,17 @@ export function mountApp(root: HTMLElement): void {
 
   const header = createAppHeader();
 
-  const videoPanel = createVideoFeedPanel({
-    onDeviceChange: (deviceId) => void handleDeviceChange(deviceId),
-  });
-
   const fcPanel = createFlightControllerPanel({
     onConnectRequest: () => handleConnectFc(),
   });
 
-  const groundPanel = createGroundConnectionPanel({
+  const linkPanel = createLinkPanel({
     qrSupported: QrPairingScanner.isSupported(),
     onPair: (bundleText) => void handlePair(bundleText),
-    onStartScan: () => handleStartScan(),
+    onStartScan: () => void handleStartScan(),
     onCancelScan: () => void handleCancelScan(),
     onSwitchCamera: () => handleSwitchCamera(),
+    onDeviceChange: (deviceId) => void handleDeviceChange(deviceId),
   });
 
   const disconnectButton = createDisconnectButton(() => handleDisconnect());
@@ -80,8 +76,7 @@ export function mountApp(root: HTMLElement): void {
 
   root.replaceChildren(
     header.el,
-    groundPanel.el,
-    videoPanel.el,
+    linkPanel.el,
     fcPanel.el,
     disconnectButton.el,
     footer.el,
@@ -109,14 +104,14 @@ export function mountApp(root: HTMLElement): void {
     // landscape preview box sideways, so it's scaled down to fit inside the box
     // (pillarboxed) or, with fill, up to cover it (cropped).
     const rotatedSideways = videoTransform.rotation === 90 || videoTransform.rotation === 270;
-    const boxWidth = videoPanel.videoEl.clientWidth || 16;
-    const boxHeight = videoPanel.videoEl.clientHeight || 9;
+    const boxWidth = linkPanel.videoEl.clientWidth || 16;
+    const boxHeight = linkPanel.videoEl.clientHeight || 9;
     const fitScale = rotatedSideways
       ? (videoTransform.fill ? Math.max : Math.min)(boxWidth / boxHeight, boxHeight / boxWidth)
       : 1;
     const scaleX = fitScale * (videoTransform.horizontal ? -1 : 1);
     const scaleY = fitScale * (videoTransform.vertical ? -1 : 1);
-    videoPanel.videoEl.style.transform = `rotate(${videoTransform.rotation}deg) scale(${scaleX}, ${scaleY})`;
+    linkPanel.videoEl.style.transform = `rotate(${videoTransform.rotation}deg) scale(${scaleX}, ${scaleY})`;
   }
 
   function teardownTransformPipeline(): void {
@@ -178,7 +173,7 @@ export function mountApp(root: HTMLElement): void {
     } catch (err) {
       // Was silently swallowed before -- an empty device list and a failed
       // permission/getUserMedia call look identical to the user otherwise.
-      videoPanel.setError(
+      linkPanel.setVideoError(
         err instanceof Error ? `Camera list unavailable: ${err.message}` : "Camera list unavailable.",
       );
       return;
@@ -186,7 +181,7 @@ export function mountApp(root: HTMLElement): void {
 
     const devices = await navigator.mediaDevices.enumerateDevices();
     knownCameraDevices = devices.filter((d) => d.kind === "videoinput");
-    videoPanel.populateDevices(knownCameraDevices);
+    linkPanel.populateDevices(knownCameraDevices);
 
     // Open the saved default camera on our own, before any ground station has
     // attached -- the phone's mounting doesn't depend on who's watching.
@@ -205,26 +200,26 @@ export function mountApp(root: HTMLElement): void {
       videoStream.getTracks().forEach((t) => t.stop());
       videoStream = null;
     }
-    videoPanel.videoEl.srcObject = null;
-    videoPanel.setStreaming(false);
-    videoPanel.setResolution(null);
-    videoPanel.setFps(null);
-    videoPanel.setBitrate(null);
+    linkPanel.videoEl.srcObject = null;
+    linkPanel.setStreaming(false);
+    linkPanel.setResolution(null);
+    linkPanel.setFps(null);
+    linkPanel.setBitrate(null);
   }
 
   function bindVideoStream(stream: MediaStream): void {
     videoStream = stream;
-    videoPanel.videoEl.srcObject = stream;
-    videoPanel.setStreaming(true);
+    linkPanel.videoEl.srcObject = stream;
+    linkPanel.setStreaming(true);
     applyLocalPreviewTransform();
 
     const [track] = stream.getVideoTracks();
     const settings = track?.getSettings();
     if (settings?.height) {
-      videoPanel.setResolution(`${settings.height}P`);
+      linkPanel.setResolution(`${settings.height}P`);
     }
     if (settings?.frameRate) {
-      videoPanel.setFps(`${Math.round(settings.frameRate)} FPS`);
+      linkPanel.setFps(`${Math.round(settings.frameRate)} FPS`);
     }
   }
 
@@ -281,17 +276,17 @@ export function mountApp(root: HTMLElement): void {
     // The local switch (and, below, publishing it) succeeded even if the relay
     // above failed -- only the relay failure is reported to the caller.
     bindVideoStream(stream);
-    videoPanel.setSelectedDevice(deviceId);
+    linkPanel.setSelectedDevice(deviceId);
     publishCameraSources();
     if (relayError) throw relayError;
   }
 
   async function handleDeviceChange(deviceId: string): Promise<void> {
-    videoPanel.setError("");
+    linkPanel.setVideoError("");
     try {
       await switchCameraTo(deviceId);
     } catch (err) {
-      videoPanel.setError(err instanceof Error ? err.message : "Failed to open camera.");
+      linkPanel.setVideoError(err instanceof Error ? err.message : "Failed to open camera.");
     }
   }
 
@@ -354,7 +349,10 @@ export function mountApp(root: HTMLElement): void {
     publishCameraSources();
   });
 
-  void populateCameraList();
+  // The QR scan auto-starts while not connected, and needs the camera to itself -- so
+  // hold it back until the camera list (and any saved default camera) has been opened,
+  // which it then releases and reacquires once scanning ends (see handleStartScan).
+  void populateCameraList().finally(() => linkPanel.setScanAllowed(true));
 
   // Latest reading, kept so it can be sent right after pairing (the monitor's
   // first report usually lands before any socket exists) and on every change.
@@ -374,8 +372,8 @@ export function mountApp(root: HTMLElement): void {
   // --- ground connection / pairing --------------------------------------
 
   async function handlePair(bundleText: string): Promise<void> {
-    groundPanel.setError("");
-    groundPanel.setPairing(true);
+    linkPanel.setError("");
+    linkPanel.setPairing(true);
 
     try {
       await session.pair(bundleText);
@@ -404,21 +402,24 @@ export function mountApp(root: HTMLElement): void {
       publishAirStatus();
 
       header.setConnected(true);
-      groundPanel.setConnected(true);
+      linkPanel.setConnected(true);
       disconnectButton.el.disabled = false;
       footer.setState("Session active • Encryption secure (AES-256)");
     } catch (err) {
-      groundPanel.setError(
+      linkPanel.setError(
         err instanceof Error ? err.message : "Pairing or WebRTC setup failed.",
       );
+      // A scanned code that failed to pair already stopped the scan (see
+      // handleScanResult) -- go back to scanning so the operator can retry.
+      linkPanel.resyncScan();
     } finally {
-      groundPanel.setPairing(false);
+      linkPanel.setPairing(false);
     }
   }
 
-  // Binding now happens before a video source is chosen, so the scan view owns
-  // its own camera stream rather than borrowing the video-feed panel's -- there
-  // is no feed yet to piggyback on, and a dedicated stream lets scanning default
+  // The link panel scans whenever it's not connected, so the scan view owns its
+  // own camera stream rather than borrowing the video feed's -- there may be no
+  // feed yet to piggyback on, and a dedicated stream lets scanning default
   // to the rear camera and cycle through every available device independently
   // of whichever camera later gets bound as the outgoing feed.
   //
@@ -434,6 +435,15 @@ export function mountApp(root: HTMLElement): void {
   let scanDevices: MediaDeviceInfo[] = [];
   let scanDeviceIndex = -1;
   let priorVideoDeviceId: string | null = null;
+  // Starting and cancelling a scan both release/reacquire cameras asynchronously;
+  // chaining them keeps a quick toggle from reopening the feed camera while the
+  // scan stream is coming up (or vice versa).
+  let scanTransition: Promise<void> = Promise.resolve();
+
+  function queueScanTransition(step: () => Promise<void>): Promise<void> {
+    scanTransition = scanTransition.then(step, step);
+    return scanTransition;
+  }
 
   function handleScanResult(bundleText: string): void {
     void handleCancelScan().then(() => handlePair(bundleText));
@@ -444,14 +454,14 @@ export function mountApp(root: HTMLElement): void {
       scanStream.getTracks().forEach((t) => t.stop());
       scanStream = null;
     }
-    groundPanel.videoEl.srcObject = null;
-    groundPanel.setScanActive(false);
+    linkPanel.scanVideoEl.srcObject = null;
+    linkPanel.setScanActive(false);
   }
 
   async function bindScanStream(stream: MediaStream): Promise<void> {
     scanStream = stream;
-    groundPanel.videoEl.srcObject = stream;
-    groundPanel.setScanActive(true);
+    linkPanel.scanVideoEl.srcObject = stream;
+    linkPanel.setScanActive(true);
 
     const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId ?? null;
     try {
@@ -465,38 +475,42 @@ export function mountApp(root: HTMLElement): void {
       scanDevices = [];
       scanDeviceIndex = -1;
     }
-    groundPanel.setCameraSwitchAvailable(scanDevices.length > 1);
+    linkPanel.setCameraSwitchAvailable(scanDevices.length > 1);
   }
 
-  function handleStartScan(): void {
-    groundPanel.setError("");
-    priorVideoDeviceId = videoStream?.getVideoTracks()[0]?.getSettings().deviceId ?? null;
-    if (videoStream) {
-      stopVideoStream();
-    }
+  function handleStartScan(): Promise<void> {
+    return queueScanTransition(async () => {
+      linkPanel.setError("");
+      qrScanner.stop();
+      stopScanStream();
+      priorVideoDeviceId = videoStream?.getVideoTracks()[0]?.getSettings().deviceId ?? priorVideoDeviceId;
+      if (videoStream) {
+        stopVideoStream();
+      }
 
-    void navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: { ideal: "environment" } } })
-      .then(async (stream) => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
         await bindScanStream(stream);
-        qrScanner.start(groundPanel.videoEl, stream, handleScanResult);
-      })
-      .catch((err: unknown) => {
-        groundPanel.setError(err instanceof Error ? err.message : "Camera access denied.");
-      });
+        qrScanner.start(linkPanel.scanVideoEl, stream, handleScanResult);
+      } catch (err) {
+        linkPanel.setError(err instanceof Error ? err.message : "Camera access denied.");
+      }
+    });
   }
 
-  async function handleCancelScan(): Promise<void> {
-    qrScanner.stop();
-    stopScanStream();
-    scanDevices = [];
-    scanDeviceIndex = -1;
+  function handleCancelScan(): Promise<void> {
+    return queueScanTransition(async () => {
+      qrScanner.stop();
+      stopScanStream();
+      scanDevices = [];
+      scanDeviceIndex = -1;
 
-    if (priorVideoDeviceId) {
-      const deviceId = priorVideoDeviceId;
-      priorVideoDeviceId = null;
-      await handleDeviceChange(deviceId);
-    }
+      if (priorVideoDeviceId) {
+        const deviceId = priorVideoDeviceId;
+        priorVideoDeviceId = null;
+        await handleDeviceChange(deviceId);
+      }
+    });
   }
 
   function handleSwitchCamera(): void {
@@ -510,10 +524,10 @@ export function mountApp(root: HTMLElement): void {
       .getUserMedia({ video: { deviceId: { exact: nextDevice.deviceId } } })
       .then(async (stream) => {
         await bindScanStream(stream);
-        qrScanner.start(groundPanel.videoEl, stream, handleScanResult);
+        qrScanner.start(linkPanel.scanVideoEl, stream, handleScanResult);
       })
       .catch((err: unknown) => {
-        groundPanel.setError(err instanceof Error ? err.message : "Failed to switch camera.");
+        linkPanel.setError(err instanceof Error ? err.message : "Failed to switch camera.");
       });
   }
 
@@ -660,7 +674,7 @@ export function mountApp(root: HTMLElement): void {
     fcPanel.setRxRate(rxRateText, currentActivity.rxActive);
 
     if (connectedAt !== null) {
-      groundPanel.setUptime(formatDuration(Date.now() - connectedAt));
+      linkPanel.setUptime(formatDuration(Date.now() - connectedAt));
     }
 
     const metrics = await sessionManager.getConnectionMetrics();
@@ -679,9 +693,9 @@ export function mountApp(root: HTMLElement): void {
     sessionTxBytes += deltaSent;
     sessionRxBytes += deltaReceived;
     const throughputText = `${formatMbps(deltaSent)} (Up)`;
-    groundPanel.setThroughput(throughputText);
+    linkPanel.setThroughput(throughputText);
     if (videoStream) {
-      videoPanel.setBitrate(formatMbps(deltaSent));
+      linkPanel.setBitrate(formatMbps(deltaSent));
     }
 
     publishAirStatus();
@@ -696,13 +710,6 @@ export function mountApp(root: HTMLElement): void {
     lastRelayBytesSent = 0;
     lastRelayBytesReceived = 0;
 
-    // Safe no-op if no scan was in progress (e.g. the bind panel was reopened and a
-    // re-scan started after already connecting) -- releases the scan camera instead
-    // of leaking it, without reacquiring a video feed we're about to tear down anyway.
-    qrScanner.stop();
-    stopScanStream();
-    priorVideoDeviceId = null;
-
     if (transport) {
       await transport.close();
       transport = null;
@@ -713,12 +720,11 @@ export function mountApp(root: HTMLElement): void {
     header.setConnected(false);
     fcPanel.setConnected(false);
     fcPanel.setError("");
-    groundPanel.setConnected(false);
-    groundPanel.setMode("binding");
-    groundPanel.setLatency("—");
-    groundPanel.setThroughput("—");
-    groundPanel.setUptime("00:00:00");
-    videoPanel.setBitrate(null);
+    linkPanel.setConnected(false);
+    linkPanel.setLatency("—");
+    linkPanel.setThroughput("—");
+    linkPanel.setUptime("00:00:00");
+    linkPanel.setBitrate(null);
     footer.setState("Not connected");
   }
 }

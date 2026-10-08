@@ -30,6 +30,12 @@
   opacity: 0.85;
 }
 
+.dl-panel__toggles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .dl-panel__toggle {
   display: inline-flex;
   align-items: center;
