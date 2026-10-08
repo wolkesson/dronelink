@@ -1235,6 +1235,14 @@ describe("WebRtcSessionManager — camera-source control", () => {
     );
   });
 
+  it("publishAirStatus() includes round-trip latency when given", async () => {
+    const { mgr, socket } = await connectedManager();
+
+    mgr.publishAirStatus({ rttMs: 42 });
+
+    expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ type: "air-status", rttMs: 42 }));
+  });
+
   it("publishAirStatus() sends a bare air-status when no battery reading is available", async () => {
     const { mgr, socket } = await connectedManager();
 

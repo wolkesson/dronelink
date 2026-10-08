@@ -7,6 +7,8 @@ const pairingQrCode = document.getElementById("pairing-qr-code");
 const qualitySelect = document.getElementById("quality-select");
 const cameraSelect = document.getElementById("camera-select");
 const cameraSetDefaultButton = document.getElementById("camera-set-default");
+const videoLatency = document.getElementById("video-latency");
+const airDataLatency = document.getElementById("air-data-latency");
 const airBattery = document.getElementById("air-battery");
 const airDataUsage = document.getElementById("air-data-usage");
 const flipHorizontalCheckbox = document.getElementById("flip-horizontal");
@@ -22,6 +24,7 @@ const socket = new WebSocket(signalingUrl);
 let peerConnection;
 let pendingCandidates;
 let remoteDescriptionSet;
+let videoMetricsTimer;
 
 function setStatus(message) {
   status.textContent = message;
@@ -94,6 +97,32 @@ function createPeerConnection() {
   return pc;
 }
 
+function updateVideoLatency(pc) {
+  if (pc !== peerConnection) return;
+  void pc.getStats().then((report) => {
+    if (pc !== peerConnection) return;
+    let jitterBufferDelay = 0;
+    let jitterBufferEmittedCount = 0;
+    report.forEach((stat) => {
+      if (
+        stat.type === "inbound-rtp" &&
+        (stat.kind === "video" || stat.mediaType === "video") &&
+        typeof stat.jitterBufferDelay === "number" &&
+        typeof stat.jitterBufferEmittedCount === "number"
+      ) {
+        jitterBufferDelay += stat.jitterBufferDelay;
+        jitterBufferEmittedCount += stat.jitterBufferEmittedCount;
+      }
+    });
+    videoLatency.textContent =
+      jitterBufferEmittedCount > 0
+        ? `Video latency (jitter buffer): ${Math.round((jitterBufferDelay / jitterBufferEmittedCount) * 1000)} ms`
+        : "Video latency (jitter buffer): —";
+  }).catch(() => {
+    if (pc === peerConnection) videoLatency.textContent = "Video latency (jitter buffer): —";
+  });
+}
+
 async function sendOffer() {
   try {
     peerConnection.addTransceiver("video", { direction: "recvonly" });
@@ -108,8 +137,11 @@ async function sendOffer() {
 
 function reconnectPeer() {
   if (socket.readyState !== WebSocket.OPEN) return;
+  if (videoMetricsTimer !== undefined) clearInterval(videoMetricsTimer);
   peerConnection?.close();
   peerConnection = createPeerConnection();
+  videoMetricsTimer = setInterval(() => updateVideoLatency(peerConnection), 1000);
+  updateVideoLatency(peerConnection);
   pendingCandidates = [];
   remoteDescriptionSet = false;
   void sendOffer();
@@ -141,6 +173,7 @@ socket.onmessage = async (event) => {
       setStatus(message.videoActive ? "Live video connected" : "Live video paused (data-only mode)");
     } else if (message.type === "air-status") {
       renderAirBattery(message.battery);
+      renderAirDataLatency(message.rttMs);
       renderAirDataUsage(message.dataUsage);
     } else if (message.type === "video-control-state" && message.control === "camera-source-list") {
       currentDefaultDeviceId = message.defaultDeviceId ?? "";
@@ -205,6 +238,10 @@ socket.onclose = () => {
     setStatus("Video signaling disconnected");
   }
   setConnected(false);
+  if (videoMetricsTimer !== undefined) clearInterval(videoMetricsTimer);
+  videoMetricsTimer = undefined;
+  videoLatency.textContent = "Video latency (jitter buffer): —";
+  renderAirDataLatency(null);
   peerConnection?.close();
 };
 
@@ -252,6 +289,13 @@ function renderAirBattery(battery) {
   airBattery.style.color = level === "critical" ? "#c62828" : level === "low" ? "#ef6c00" : "";
   const warning = level === "critical" ? " — CRITICAL, land now" : level === "low" ? " — low" : "";
   airBattery.textContent = `Air unit battery: ${percent}%${charging ? " (charging)" : ""}${warning}`;
+}
+
+function renderAirDataLatency(rttMs) {
+  airDataLatency.textContent =
+    typeof rttMs === "number" && Number.isFinite(rttMs) && rttMs >= 0
+      ? `Data latency (round trip): ${Math.round(rttMs)} ms`
+      : "Data latency (round trip): —";
 }
 
 let lastDataSample = null;
