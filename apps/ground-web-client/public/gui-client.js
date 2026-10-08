@@ -1,5 +1,9 @@
+import { qrcode } from "./qrcode.mjs";
+
 const status = document.getElementById("status");
 const video = document.getElementById("live-video");
+const pairingQr = document.getElementById("pairing-qr");
+const pairingQrCode = document.getElementById("pairing-qr-code");
 const qualitySelect = document.getElementById("quality-select");
 const cameraSelect = document.getElementById("camera-select");
 const cameraSetDefaultButton = document.getElementById("camera-set-default");
@@ -15,13 +19,38 @@ let currentRotation = 0;
 let currentDefaultDeviceId = "";
 const signalingUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/gui-signaling`;
 const socket = new WebSocket(signalingUrl);
-const peerConnection = new RTCPeerConnection();
-const pendingCandidates = [];
-let remoteDescriptionSet = false;
+let peerConnection;
+let pendingCandidates;
+let remoteDescriptionSet;
 
 function setStatus(message) {
   status.textContent = message;
 }
+
+// Shows the pairing QR in place of the video block until the ground-air WebRTC
+// connection actually reaches "connected" -- not just while the video track is
+// paused (data-only mode), which still counts as connected.
+function setConnected(isConnected) {
+  video.style.display = isConnected ? "block" : "none";
+  pairingQr.style.display = isConnected ? "none" : "flex";
+}
+
+async function renderPairingQr() {
+  try {
+    const response = await fetch("/gui-pairing-bundle");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const bundle = await response.json();
+    const qr = qrcode(0, "M");
+    qr.addData(JSON.stringify(bundle));
+    qr.make();
+    pairingQrCode.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 4 });
+  } catch (error) {
+    pairingQrCode.textContent = "Pairing info unavailable — check the ground console.";
+  }
+}
+
+setConnected(false);
+void renderPairingQr();
 
 async function addRemoteCandidate(candidate) {
   if (!remoteDescriptionSet) {
@@ -31,25 +60,41 @@ async function addRemoteCandidate(candidate) {
   await peerConnection.addIceCandidate(candidate);
 }
 
-peerConnection.onicecandidate = (event) => {
-  if (event.candidate && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: "ice-candidate", candidate: event.candidate.toJSON() }));
-  }
-};
+// The air unit can disconnect and later reconnect without the GUI's /gui-signaling
+// WebSocket ever closing -- the ground server only tears down its GUI-facing peer
+// (webrtc.ts's closeGuiPeer) when that happens. So a failed/closed peer connection
+// here doesn't mean the session is over: it means a fresh RTCPeerConnection needs to
+// be built and offered over the same still-open socket, ready for whenever (and
+// however many times) the air side comes back.
+function createPeerConnection() {
+  const pc = new RTCPeerConnection();
 
-peerConnection.ontrack = (event) => {
-  video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
-  void video.play().catch(() => undefined);
-  setStatus("Live video connected");
-};
+  pc.onicecandidate = (event) => {
+    if (event.candidate && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "ice-candidate", candidate: event.candidate.toJSON() }));
+    }
+  };
 
-peerConnection.onconnectionstatechange = () => {
-  if (peerConnection.connectionState === "failed" || peerConnection.connectionState === "closed") {
-    setStatus(`Video connection ${peerConnection.connectionState}`);
-  }
-};
+  pc.ontrack = (event) => {
+    video.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+    void video.play().catch(() => undefined);
+    setStatus("Live video connected");
+  };
 
-socket.onopen = async () => {
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    if (pc !== peerConnection) return;
+    setConnected(state === "connected");
+    if (state === "failed" || state === "closed") {
+      setStatus(`Video connection ${state}`);
+      reconnectPeer();
+    }
+  };
+
+  return pc;
+}
+
+async function sendOffer() {
   try {
     peerConnection.addTransceiver("video", { direction: "recvonly" });
     const offer = await peerConnection.createOffer();
@@ -59,6 +104,19 @@ socket.onopen = async () => {
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Failed to start video connection");
   }
+}
+
+function reconnectPeer() {
+  if (socket.readyState !== WebSocket.OPEN) return;
+  peerConnection?.close();
+  peerConnection = createPeerConnection();
+  pendingCandidates = [];
+  remoteDescriptionSet = false;
+  void sendOffer();
+}
+
+socket.onopen = () => {
+  reconnectPeer();
 };
 
 socket.onmessage = async (event) => {
@@ -143,10 +201,11 @@ socket.onmessage = async (event) => {
 };
 
 socket.onclose = () => {
-  if (peerConnection.connectionState !== "connected") {
+  if (peerConnection?.connectionState !== "connected") {
     setStatus("Video signaling disconnected");
   }
-  peerConnection.close();
+  setConnected(false);
+  peerConnection?.close();
 };
 
 qualitySelect.addEventListener("change", () => {

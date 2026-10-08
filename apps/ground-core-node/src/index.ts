@@ -30,6 +30,7 @@ if (PAIRING_TOKEN !== undefined && !TOKEN_PATTERN.test(PAIRING_TOKEN)) {
 const guiAssets = {
   page: readFileSync(new URL("../../ground-web-client/public/index.html", import.meta.url), "utf8"),
   clientScript: readFileSync(new URL("../../ground-web-client/public/gui-client.js", import.meta.url), "utf8"),
+  qrScript: readFileSync(new URL("../../ground-web-client/public/qrcode.mjs", import.meta.url), "utf8"),
 };
 
 setDataChannelCallbacks(

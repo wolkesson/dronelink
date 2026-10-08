@@ -11,7 +11,8 @@
   "dependencies": {
     "@dronelink/ground-client-sdk": "file:../../packages/ground-client-sdk",
     "@dronelink/ui-kit-ground": "file:../../packages/ui-kit-ground",
-    "@dronelink/ui-kit-shared": "file:../../packages/ui-kit-shared"
+    "@dronelink/ui-kit-shared": "file:../../packages/ui-kit-shared",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

@@ -203,8 +203,12 @@ describe("createSignalingServer: HTTP GUI asset serving", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("serves the GUI page and client script when guiAssets are configured", async () => {
-    const guiAssets: GuiAssets = { page: "<html>gui</html>", clientScript: "console.log('gui');" };
+  it("serves the GUI page, client script, and QR script when guiAssets are configured", async () => {
+    const guiAssets: GuiAssets = {
+      page: "<html>gui</html>",
+      clientScript: "console.log('gui');",
+      qrScript: "export const qrcode = () => {};",
+    };
     const { runtime } = createRuntime({ guiAssets });
     const bundle = await runtime.start();
 
@@ -217,6 +221,22 @@ describe("createSignalingServer: HTTP GUI asset serving", () => {
     expect(script.statusCode).toBe(200);
     expect(script.headers["content-type"]).toBe("text/javascript; charset=utf-8");
     expect(script.body).toBe(guiAssets.clientScript);
+
+    const qrScript = await httpsGet(`https://${bundle.host}:${bundle.port}/qrcode.mjs`);
+    expect(qrScript.statusCode).toBe(200);
+    expect(qrScript.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+    expect(qrScript.body).toBe(guiAssets.qrScript);
+  });
+
+  it("serves the pairing bundle as JSON once the server has started", async () => {
+    const { runtime } = createRuntime();
+    const bundle = await runtime.start();
+
+    const res = await httpsGet(`https://${bundle.host}:${bundle.port}/gui-pairing-bundle`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/json; charset=utf-8");
+    expect(JSON.parse(res.body)).toEqual(bundle);
   });
 
   it("serves the default plaintext response for any other path", async () => {
