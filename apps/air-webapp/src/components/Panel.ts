@@ -10,13 +10,19 @@ export interface PanelToggleOptions {
 export interface PanelOptions {
   number: string;
   title: string;
-  toggle?: PanelToggleOptions;
+  toggles?: PanelToggleOptions[];
+}
+
+export interface PanelToggleHandle {
+  setActive(active: boolean): void;
+  setHidden(hidden: boolean): void;
 }
 
 export interface PanelHandle {
   el: HTMLElement;
   bodyEl: HTMLElement;
-  setToggleActive(active: boolean): void;
+  /** One handle per entry of `options.toggles`, in the same order. */
+  toggles: PanelToggleHandle[];
   setTitle(title: string): void;
 }
 
@@ -41,17 +47,30 @@ export function createPanel(options: PanelOptions): PanelHandle {
   title.append(numberEl, titleTextEl);
   header.appendChild(title);
 
-  let toggleBtn: HTMLButtonElement | null = null;
-  if (options.toggle) {
-    const { icon, ariaLabel, active, onClick } = options.toggle;
-    toggleBtn = document.createElement("button");
-    toggleBtn.type = "button";
-    toggleBtn.className = "dl-panel__toggle" + (active ? " dl-panel__toggle--active" : "");
-    toggleBtn.innerHTML = icon;
-    toggleBtn.setAttribute("aria-label", ariaLabel);
-    toggleBtn.setAttribute("aria-pressed", String(active));
-    toggleBtn.addEventListener("click", onClick);
-    header.appendChild(toggleBtn);
+  const toggleGroup = document.createElement("div");
+  toggleGroup.className = "dl-panel__toggles";
+
+  const toggles: PanelToggleHandle[] = (options.toggles ?? []).map(({ icon, ariaLabel, active, onClick }) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "dl-panel__toggle" + (active ? " dl-panel__toggle--active" : "");
+    btn.innerHTML = icon;
+    btn.setAttribute("aria-label", ariaLabel);
+    btn.setAttribute("aria-pressed", String(active));
+    btn.addEventListener("click", onClick);
+    toggleGroup.appendChild(btn);
+    return {
+      setActive(next: boolean) {
+        btn.classList.toggle("dl-panel__toggle--active", next);
+        btn.setAttribute("aria-pressed", String(next));
+      },
+      setHidden(hidden: boolean) {
+        btn.hidden = hidden;
+      },
+    };
+  });
+  if (toggles.length > 0) {
+    header.appendChild(toggleGroup);
   }
 
   el.appendChild(header);
@@ -63,11 +82,7 @@ export function createPanel(options: PanelOptions): PanelHandle {
   return {
     el,
     bodyEl,
-    setToggleActive(active: boolean) {
-      if (!toggleBtn) return;
-      toggleBtn.classList.toggle("dl-panel__toggle--active", active);
-      toggleBtn.setAttribute("aria-pressed", String(active));
-    },
+    toggles,
     setTitle(title: string) {
       titleTextEl.textContent = title;
     },
