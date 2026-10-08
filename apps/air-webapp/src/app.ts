@@ -55,6 +55,7 @@ export function mountApp(root: HTMLElement): void {
   let lastRelayBytesReceived = 0;
   let sessionTxBytes = 0;
   let sessionRxBytes = 0;
+  let latestRttMs: number | null = null;
 
   const header = createAppHeader();
 
@@ -361,6 +362,7 @@ export function mountApp(root: HTMLElement): void {
   function publishAirStatus(): void {
     sessionManager.publishAirStatus({
       ...(latestBattery ? { battery: latestBattery } : {}),
+      rttMs: latestRttMs,
       ...(connectedAt !== null ? { dataUsage: { txBytes: sessionTxBytes, rxBytes: sessionRxBytes } } : {}),
     });
   }
@@ -664,6 +666,7 @@ export function mountApp(root: HTMLElement): void {
     const metrics = await sessionManager.getConnectionMetrics();
     if (!metrics) return;
 
+    latestRttMs = metrics.rttMs;
     groundPanel.setLatency(metrics.rttMs !== null ? `${Math.round(metrics.rttMs)} ms` : "—");
 
     // A counter that went backwards means the peer connection was replaced, so

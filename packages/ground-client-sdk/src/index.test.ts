@@ -479,6 +479,14 @@ describe("video control protocol schemas", () => {
     expect(schema.properties.dataUsage.properties.rxBytes).toEqual({ type: "integer", minimum: 0 });
   });
 
+  it("air-status.schema.json describes nullable non-negative RTT in milliseconds", () => {
+    const schema = loadSchema("air-status.schema.json") as unknown as {
+      properties: { rttMs: { type: string[]; minimum: number } };
+    };
+
+    expect(schema.properties.rttMs).toEqual({ type: ["number", "null"], minimum: 0 });
+  });
+
   it("video-control-request.schema.json's 'flip' branch requires horizontal and vertical booleans", () => {
     const schema = loadSchema("video-control-request.schema.json");
     const branch = schema.oneOf[3];

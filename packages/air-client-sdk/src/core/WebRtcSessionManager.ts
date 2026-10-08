@@ -463,11 +463,11 @@ export class WebRtcSessionManager {
   }
 
   /**
-   * Push the air unit's own status (battery, session data usage) to the ground
+   * Push the air unit's own status (battery, RTT, session data usage) to the ground
    * side so a GUI viewer can warn before power runs out or data runs short. Unsolicited -- call on
    * every change and once after connect(). No-op before connect() has set a socket.
    */
-  publishAirStatus(status: { battery?: BatteryStatus; dataUsage?: DataUsage }): void {
+  publishAirStatus(status: { battery?: BatteryStatus; dataUsage?: DataUsage; rttMs?: number | null }): void {
     if (!this.socket) return;
     this.socket.send(JSON.stringify({ type: "air-status", ...status }));
   }
