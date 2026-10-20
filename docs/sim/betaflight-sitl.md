@@ -40,6 +40,26 @@ The motion model is "just enough plant for Betaflight's real rate/angle/position
 
 Raw results from the full run: [`msp-override-spike-2026.6.2.json`](msp-override-spike-2026.6.2.json).
 
+## Running the DroneLink chain against SITL (#82)
+
+```text
+Betaflight SITL ─tcp 5761─ tools/sitl-serial-bridge.mjs ─ws 5770─ air-webapp (?fc=) ─WebRTC─ ground-core-node ─tcp 5771─ Configurator / MSP client
+```
+
+1. Start SITL in its own directory. It keeps `eeprom.bin` there, and UART1 listens on TCP 5761. For a flying craft, use the harness instead: `msp_override_spike.py` or `capture_msp_fixture.py`.
+2. Start the bridge: `node tools/sitl-serial-bridge.mjs`. It listens on 127.0.0.1:5770 and serves one client at a time.
+3. Start the ground runtime: `BRIDGE_TCP_PORT=5771 npm start --workspace @dronelink/ground-core-node`. Its default TCP port 5761 would collide with SITL.
+4. Start air: `npm run dev --workspace @dronelink/air-webapp`. Open `https://localhost:5173/?fc=ws://localhost:5770` in desktop Chrome, pair, and click **Connect FC**. The FC panel shows "SITL bridge" instead of a baud rate.
+5. Point Betaflight Configurator, or any MSP client, at TCP `localhost:5771`.
+
+This was verified headless (Chromium via Playwright with fake media devices, mkcert TLS). An MSP client on 5771 got `BTFL 2026.6.2`, API 1.48, from SITL through the whole chain.
+
+MSP fixture for codec tests (#83):
+
+```sh
+python3 tools/sitl/capture_msp_fixture.py --bf-dir betaflight --out protocol/fixtures/betaflight-2026.6.2-sitl-msp
+```
+
 ## Findings
 
 ### 1. The override drops 300 ms after the last frame (2026.6+)

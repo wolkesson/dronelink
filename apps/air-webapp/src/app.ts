@@ -9,11 +9,12 @@ import {
   startBatteryMonitor,
   WebRtcSessionManager,
   WebSerialTransport,
+  WebSocketSerialTransport,
   type BatteryStatus,
   type SerialTransport,
 } from "@dronelink/air-client-sdk";
 import { LinkActivityTracker, type LinkActivitySnapshot } from "@dronelink/ui-kit-shared";
-import { isAndroidShell } from "./platform.js";
+import { devSerialBridgeUrl, isAndroidShell } from "./platform.js";
 import { createAppHeader } from "./components/AppHeader.js";
 import { createLinkPanel } from "./components/LinkPanel.js";
 import { createFlightControllerPanel } from "./components/FlightControllerPanel.js";
@@ -570,7 +571,19 @@ export function mountApp(root: HTMLElement): void {
     });
   }
 
+  let usingSitlBridge = false;
+
   function createSerialTransport(): SerialTransport {
+    usingSitlBridge = false;
+    // The DEV check is repeated here, not only inside devSerialBridgeUrl(), so a production
+    // build drops the SITL bridge path from the bundle entirely.
+    const bridgeUrl = import.meta.env.DEV
+      ? devSerialBridgeUrl(window.location.search, import.meta.env.DEV, isAndroidShell())
+      : null;
+    if (bridgeUrl) {
+      usingSitlBridge = true;
+      return new WebSocketSerialTransport(bridgeUrl);
+    }
     if (!isAndroidShell()) {
       return new WebSerialTransport();
     }
@@ -592,7 +605,14 @@ export function mountApp(root: HTMLElement): void {
     // requestPort() requires a transient user activation that expires after the first
     // await. NativeBridgeTransport has no such requirement (no browser permission API
     // involved), so it's safe to construct here too even though it isn't time-critical.
-    const t = createSerialTransport();
+    let t: SerialTransport;
+    try {
+      t = createSerialTransport();
+    } catch (err) {
+      connectingFc = false;
+      fcPanel.setError(err instanceof Error ? err.message : "Failed to create serial transport.");
+      return;
+    }
     fcPanel.setConnecting(true);
 
     void t
@@ -602,7 +622,7 @@ export function mountApp(root: HTMLElement): void {
         transport = t;
         fcPanel.setConnecting(false);
         fcPanel.setConnected(true);
-        fcPanel.setBaudRate(`${SERIAL_BAUD_RATE}`);
+        fcPanel.setBaudRate(usingSitlBridge ? "SITL bridge" : `${SERIAL_BAUD_RATE}`);
 
         let fcDisconnected = false;
         const handleFcDisconnect = () => {

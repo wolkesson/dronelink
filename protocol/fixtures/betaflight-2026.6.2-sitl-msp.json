@@ -1,0 +1,195 @@
+{
+  "description": "MSP v1/v2 reply frames from Betaflight SITL, one per request, concatenated in request order",
+  "sourceDevice": "Betaflight SITL (TARGET=SITL), UART1 over TCP 5761",
+  "firmware": "Betaflight 2026.6.2, MSP API 1.48",
+  "transport": "TCP (SITL UART); no baud rate",
+  "capturedAt": "2026-10-20T21:09:34+00:00",
+  "capturedWith": "tools/sitl/capture_msp_fixture.py",
+  "flightState": "armed, ANGLE + ALTHOLD + POSHOLD + MSP OVERRIDE active, virtual GPS fix, hovering",
+  "config": [
+    "feature GPS",
+    "set gps_provider = VIRTUAL",
+    "set failsafe_procedure = AUTO-LAND",
+    "set failsafe_delay = 10",
+    "set small_angle = 180",
+    "set trust_mag = ON",
+    "set ap_hover_throttle = 1275",
+    "aux 0 0 0 1700 2100 0 0",
+    "aux 1 3 1 1700 2100 0 0",
+    "aux 2 11 1 1700 2100 0 0",
+    "aux 3 1 2 1700 2100 0 0",
+    "aux 4 50 3 1700 2100 0 0",
+    "set msp_override_channels_mask = 15",
+    "set msp_override_failsafe = OFF"
+  ],
+  "requests": [
+    {
+      "name": "MSP_API_VERSION",
+      "command": 1,
+      "mspVersion": 1,
+      "request": "244d3c000101",
+      "replyOffset": 0,
+      "replyLength": 9
+    },
+    {
+      "name": "MSP_FC_VARIANT",
+      "command": 2,
+      "mspVersion": 1,
+      "request": "244d3c000202",
+      "replyOffset": 9,
+      "replyLength": 10
+    },
+    {
+      "name": "MSP_FC_VERSION",
+      "command": 3,
+      "mspVersion": 1,
+      "request": "244d3c000303",
+      "replyOffset": 19,
+      "replyLength": 18
+    },
+    {
+      "name": "MSP_BOARD_INFO",
+      "command": 4,
+      "mspVersion": 1,
+      "request": "244d3c000404",
+      "replyOffset": 37,
+      "replyLength": 63
+    },
+    {
+      "name": "MSP_BUILD_INFO",
+      "command": 5,
+      "mspVersion": 1,
+      "request": "244d3c000505",
+      "replyOffset": 100,
+      "replyLength": 46
+    },
+    {
+      "name": "MSP_RX_MAP",
+      "command": 64,
+      "mspVersion": 1,
+      "request": "244d3c004040",
+      "replyOffset": 146,
+      "replyLength": 14
+    },
+    {
+      "name": "MSP_STATUS",
+      "command": 101,
+      "mspVersion": 1,
+      "request": "244d3c006565",
+      "replyOffset": 160,
+      "replyLength": 33
+    },
+    {
+      "name": "MSP_RC",
+      "command": 105,
+      "mspVersion": 1,
+      "request": "244d3c006969",
+      "replyOffset": 193,
+      "replyLength": 38
+    },
+    {
+      "name": "MSP_RAW_GPS",
+      "command": 106,
+      "mspVersion": 1,
+      "request": "244d3c006a6a",
+      "replyOffset": 231,
+      "replyLength": 24
+    },
+    {
+      "name": "MSP_COMP_GPS",
+      "command": 107,
+      "mspVersion": 1,
+      "request": "244d3c006b6b",
+      "replyOffset": 255,
+      "replyLength": 11
+    },
+    {
+      "name": "MSP_ATTITUDE",
+      "command": 108,
+      "mspVersion": 1,
+      "request": "244d3c006c6c",
+      "replyOffset": 266,
+      "replyLength": 12
+    },
+    {
+      "name": "MSP_ALTITUDE",
+      "command": 109,
+      "mspVersion": 1,
+      "request": "244d3c006d6d",
+      "replyOffset": 278,
+      "replyLength": 12
+    },
+    {
+      "name": "MSP_ANALOG",
+      "command": 110,
+      "mspVersion": 1,
+      "request": "244d3c006e6e",
+      "replyOffset": 290,
+      "replyLength": 15
+    },
+    {
+      "name": "MSP_BOXNAMES",
+      "command": 116,
+      "mspVersion": 1,
+      "request": "244d3c007474",
+      "replyOffset": 305,
+      "replyLength": 261
+    },
+    {
+      "name": "MSP_BOXIDS",
+      "command": 119,
+      "mspVersion": 1,
+      "request": "244d3c007777",
+      "replyOffset": 566,
+      "replyLength": 33
+    },
+    {
+      "name": "MSP_GPS_RESCUE",
+      "command": 135,
+      "mspVersion": 1,
+      "request": "244d3c008787",
+      "replyOffset": 599,
+      "replyLength": 32
+    },
+    {
+      "name": "MSP_STATUS_EX",
+      "command": 150,
+      "mspVersion": 1,
+      "request": "244d3c009696",
+      "replyOffset": 631,
+      "replyLength": 33
+    },
+    {
+      "name": "MSP_SET_RAW_RC",
+      "command": 200,
+      "mspVersion": 1,
+      "request": "244d3c08c8dc05dc05fb04dc05e6",
+      "replyOffset": 664,
+      "replyLength": 6
+    },
+    {
+      "name": "MSP_API_VERSION",
+      "command": 1,
+      "mspVersion": 2,
+      "request": "24583c000100000045",
+      "replyOffset": 670,
+      "replyLength": 12
+    },
+    {
+      "name": "MSP_STATUS_EX",
+      "command": 150,
+      "mspVersion": 2,
+      "request": "24583c0096000000be",
+      "replyOffset": 682,
+      "replyLength": 36
+    },
+    {
+      "name": "unassigned command 20",
+      "command": 20,
+      "mspVersion": 1,
+      "request": "244d3c001414",
+      "replyOffset": 718,
+      "replyLength": 6
+    }
+  ]
+}

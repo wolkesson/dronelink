@@ -5,6 +5,7 @@
  *   - WebSerialTransport   — uses navigator.serial (desktop Chrome, Phases 0–2)
  *   - NativeBridgeTransport — receives bytes from the Android native shell via WebMessageChannel
  *                             (Phase 2.5+)
+ *   - WebSocketSerialTransport — dev only: a Betaflight SITL UART via tools/sitl-serial-bridge.mjs
  *
  * Nothing above this interface knows or cares about the serial protocol (MSP, MAVLink, etc.).
  * All bytes are forwarded opaquely.

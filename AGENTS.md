@@ -133,6 +133,21 @@ Node scripts in `tools/` (no extra dependencies) for driving the debug `android-
 
 Typical loop: `phone-preflight` -> `B=$(ground-up)` -> `phone-cdp pair "$B"` -> `gui-probe <host> --select 0`. The phone must be unlocked (only the user can do that), and pairing over Tailscale needs Tailscale connected on both ends; over LAN the phone must trust the mkcert root CA.
 
+### Betaflight SITL instead of a USB flight controller
+
+For flight-control work (and anything else that needs an FC without hardware), the air webapp can talk to a Betaflight SITL build through a dev-only WebSocket bridge. See [`docs/sim/betaflight-sitl.md`](./docs/sim/betaflight-sitl.md) for building SITL and the full loop. In short:
+
+```sh
+./betaflight_SITL.elf                                  # in its own directory; UART1 = tcp 5761
+node tools/sitl-serial-bridge.mjs                      # ws://127.0.0.1:5770 <-> tcp 5761
+BRIDGE_TCP_PORT=5771 npm start --workspace @dronelink/ground-core-node   # 5761 is taken by SITL
+npm run dev --workspace @dronelink/air-webapp
+# open https://localhost:5173/?fc=ws://localhost:5770, pair, click Connect FC
+# Betaflight Configurator -> TCP localhost:5771
+```
+
+`?fc=` only works on the Vite dev server (`import.meta.env.DEV`), never inside `android-shell`, and only for `ws://` loopback URLs; production builds don't contain the bridge path. `tools/sitl/` holds the Python SITL scripts (MSP Override spike, fixture capture), which drive Betaflight's own `src/test/sitl/sitl_harness.py`.
+
 ## Key design constraints
 
 - **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end in `core-transport`, `SerialTransport` implementations, and the `serial-relay` byte path. The one scoped exception is flight control (`ARCHITECTURE.md` section 7): MSP framing lives in the planned `packages/fc-msp`, and only `air-client-sdk`'s flight-control layer (link classifier, `FcLink` arbiter, identification gate, telemetry poller, supervisor) and ground-side display code may use it.

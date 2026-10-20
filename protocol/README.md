@@ -22,3 +22,9 @@ Fixtures are raw binary files (`.bin`) recorded from a real flight controller co
 ## Adding schemas
 
 Schemas are JSON Schema (draft-07) files. Validation is done in each package's own test suite against a copy of these schemas — there is no shared runtime schema-validation library yet.
+
+## Current fixtures
+
+| Fixture | Contents |
+| --- | --- |
+| `fixtures/betaflight-2026.6.2-sitl-msp.bin` / `.json` | MSP v1/v2 reply frames from Betaflight 2026.6.2 SITL, armed in ALT HOLD + POS HOLD with MSP OVERRIDE active, one reply per request (identification, status, RC, GPS, attitude, altitude, analog, box names/ids, GPS rescue config, a `MSP_SET_RAW_RC` ack, and an error reply for an unassigned command). The `.json` lists each request's raw bytes and its reply's offset/length in the `.bin`. Recorded with `tools/sitl/capture_msp_fixture.py`. |
