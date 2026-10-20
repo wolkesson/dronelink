@@ -60,6 +60,68 @@ MSP fixture for codec tests (#83):
 python3 tools/sitl/capture_msp_fixture.py --bf-dir betaflight --out protocol/fixtures/betaflight-2026.6.2-sitl-msp
 ```
 
+## Manual testing with the simulator (`tools/sitl/sim.py`)
+
+`tools/sitl/sim.py` is for hands-on testing. It runs SITL with Betaflight's harness feeding it simulated physics, virtual GPS and RC, and you play the safety pilot from the keyboard. UART1 (TCP 5761) stays free for the DroneLink chain. The simulator watches the FC over UART2 (TCP 5762), which its config enables for MSP.
+
+```sh
+python3 tools/sitl/sim.py --bf-dir ~/betaflight      # keyboard UI; SITL state lives in ./sitl-sim
+```
+
+| Key | Safety pilot action |
+| --- | --- |
+| `t` | Take off: calibrate, arm in ANGLE, climb, park the throttle at hover (1275), switch on ALT+POS HOLD |
+| `a` / `h` / `n` | Toggle ARM / ALT+POS HOLD / ANGLE |
+| `o` | Toggle the handover switch (MSP OVERRIDE) |
+| `x` | Turn the RC link off/on (TX off → Betaflight failsafe, auto-land) |
+| arrows, `q`/`e`, `r`/`f` | Move pitch/roll, yaw, throttle (sticky: they stay where you put them) |
+| space | Center the sticks (throttle back to hover once armed) |
+| `Q` | Quit (stops SITL) |
+
+The screen shows the FC's active modes and arming blockers, GPS, the safety pilot's sticks, the FC's `rcData`, and the craft's true altitude, distance, speed and heading from the simulation. The safety pilot's sticks and the FC's `rcData` only differ while something overrides over MSP. That's the phone's job once the flight-control panel exists (#88), and today any MSP client on UART1 can do it.
+
+The first start writes the config from this document to `sitl-sim/eeprom.bin`: the MSP override mask, `msp_override_failsafe = OFF`, hover throttle 1275, the AUX layout, and MSP on UART2. Changes you make through Configurator persist there. `--fresh` resets them. `--headless --takeoff [--handover] [--duration N]` flies without the UI and prints a status line every second, which is handy for scripts.
+
+### On Windows with WSL
+
+SITL doesn't build natively on Windows. Build and run it, and `sim.py`, in WSL (Ubuntu). Keep the checkout on the WSL filesystem, not under `/mnt/c`:
+
+```sh
+# WSL, once
+sudo apt install build-essential git python3
+git clone --depth 1 --branch 2026.6.2 https://github.com/betaflight/betaflight.git ~/betaflight
+make -C ~/betaflight TARGET=SITL
+
+# WSL, each session (from the dronelink checkout)
+python3 tools/sitl/sim.py --bf-dir ~/betaflight
+```
+
+The rest of DroneLink can run on Windows as usual. WSL2 forwards Windows `localhost` TCP connections into WSL, and SITL listens on all interfaces, so a bridge on Windows reaches SITL at `127.0.0.1:5761`:
+
+```powershell
+# Windows, one terminal each
+node tools/sitl-serial-bridge.mjs --target 127.0.0.1:5761
+$env:BRIDGE_TCP_PORT=5771; npm start --workspace @dronelink/ground-core-node
+npm run dev --workspace @dronelink/air-webapp
+```
+
+Then follow steps 4–5 of the previous section: open `https://localhost:5173/?fc=ws://localhost:5770` in Chrome, pair, click **Connect FC**, and connect Configurator to `tcp://localhost:5771`.
+
+If Windows can't reach port 5761, set `networkingMode=mirrored` in `%UserProfile%\.wslconfig` and restart WSL (`wsl --shutdown`). Alternatively, run the bridge inside WSL too.
+
+### What to try
+
+- **DroneLink link to a flying craft.** Press `t`, then watch Configurator over DroneLink:
+  - Setup tab: attitude
+  - GPS tab: position and satellites
+  - Modes tab: ARM, ANGLE, ALTHOLD, POSHOLD
+  - Receiver tab: the safety pilot's sticks follow the arrow keys
+- **Handover.** Press `o`: MSP OVERRIDE turns active in the Modes tab and in the simulator. Nothing else changes until something sends `MSP_SET_RAW_RC` (finding 5).
+- **RC loss.** Press `x`: Betaflight enters failsafe and the craft lands.
+- **Video at the same time.** The camera and video GUI work as usual alongside the SITL link.
+
+SITL closes a TCP client after 120 s without traffic (`serial_tcp.c`). Configurator keeps the link busy, but if nothing talks to the FC for two minutes the bridge connection drops and the air webapp shows the FC as disconnected. Click **Connect FC** again.
+
 ## Findings
 
 ### 1. The override drops 300 ms after the last frame (2026.6+)
