@@ -102,12 +102,138 @@ Camera capture (`getUserMedia`, device enumeration) is owned by `air-webapp`'s a
 Mid-session video source switching (`WebRtcSessionManager.replaceVideoTrack`, air-webapp's device picker while connected) swaps the outbound `MediaStreamTrack` in place via `RTCRtpSender.replaceTrack` and skips renegotiation entirely. The ground side has no way to learn about the swap: its `MediaRecorder` is sized once from the `videoWidth`/`videoHeight` signaled in the original SDP offer (`ground-client-sdk`'s `webrtc.ts`) and never re-reads dimensions afterward. Switching to a source with a different resolution mid-session will desync the recorder from the actual frame size and can corrupt the recording — only same-resolution swaps are safe today. The ground-initiated "Low" video quality preset (see below) has the same failure mode: it changes the encoded frame size via `scaleResolutionDownBy` with no renegotiation, so it desyncs the *recorded file's* container metadata the same way (the live GUI viewer is unaffected — it's a raw RTP relay with no static dimension metadata). Fixing this needs a new signaling message so the ground side can resize or restart the recorder when the source changes.
 
 ### Deferred
-- Ground-side GUI features beyond the live video viewer
+- Ground-side GUI features beyond the live video viewer and the flight-control panels in section 7
 - ESP32 bridge firmware and iPhone air-side support
-- Reconnection/resilience work
+- Reconnection/resilience work (the flight-control watchdogs in section 7 are not general reconnection logic)
 - Docker/deployment work
 
-## 7. Validation checklist
+## 7. Flight control over the mobile link (design)
+
+Status: design accepted for milestone "Mobile flight control in position hold" (epic #79, this section is #80). Nothing in this section is implemented yet; numbers marked *(SITL)* are defaults to be confirmed or tuned in the Betaflight SITL spike (#81).
+
+### 7.1 Scope
+
+A phone pilot (PP) in the ground web GUI flies a Betaflight multirotor in GPS **Position Hold** over the existing WebRTC link: pitch (forward/back), roll (left/right), yaw and throttle (climb/descend around the hold altitude). Arming, disarming and flight-mode changes are **never** possible over the link. A safety pilot (SP) on an RC transmitter bound directly to the FC is mandatory in this phase.
+
+Hard requirements:
+
+- No failure of the mobile link, WebRTC session, browser tab, phone app or phone↔FC USB link may lead to a fly-away. Every failure ends in one of two states: the craft **hovers in Position Hold**, or the **SP has control**.
+- Flight control is **opt-in** and the serial link is **fully transparent** unless it is both enabled and talking to a verified, supported Betaflight FC (§7.3).
+
+### 7.2 Roles and handover
+
+| Who | Owns |
+| --- | --- |
+| Safety pilot (RC, bound to the FC) | Arming, flight modes, the **handover switch** (`MSP OVERRIDE` mode on its own AUX switch), and all four sticks whenever the override is not applied |
+| Phone pilot (ground GUI) | Roll/pitch/yaw/throttle after an explicit unlock, the ABORT button, handing back |
+
+Sequence: SP arms, takes off and stabilises in POS HOLD with sticks centered → SP flips the handover switch → GUI shows *Handed over – locked* (SP sticks still fly the craft; air sends nothing) → PP completes the **unlock manoeuvre** → PP has control. The SP takes back control at any time by flipping the switch back; Betaflight stops applying the override as soon as the box is off, so this needs no cooperation from the phone or network.
+
+The **unlock manoeuvre** is a press-and-hold of the *Take control* control for 1.5 s with a visible progress ring (mouse, touch, or a held key). A click, tap, or key press shorter than the hold never unlocks. Control re-locks on ABORT, on any transition to `NEUTRAL`→`RELEASED`, when the SP takes back control, on data-channel reopen, and on FC re-identification.
+
+**ABORT** is always visible while the PP is unlocked (also Space/Esc). It immediately sets all four sticks to center and keeps sending center, so the craft hovers in POS HOLD; further commands are ignored until a new unlock. A secondary *Hand back* action sends `release`, after which the air stops overriding and the SP's sticks apply.
+
+### 7.3 Opt-in, link detection and the transparency guarantee
+
+- `flightControlEnabled` is an air-unit setting, persisted in browser storage next to `CameraSettingsStore`, **default off**. It can be changed from the air UI or the ground GUI (via the `flight-control` channel), but a change from the ground is only accepted while the supervisor is `IDLE` or `RELEASED`. Turning it off in any state forces `RELEASED` and returns the link to transparent passthrough.
+- **Passive link-type detection** always runs: a read-only tap on the FC→air byte stream classifies it as `msp-v1`, `msp-v2`, `mavlink-v1`, `mavlink-v2`, `crsf`, `unknown` or `silent`. It never writes, delays or consumes bytes.
+- **Active identification** (§7.5) only runs when the setting is on, the passive classification does not contradict MSP, and the passthrough is idle (no ground→FC serial-relay bytes for 2 s). Its requests and replies never reach the ground.
+- **Transparency guarantee:** unless the setting is on *and* identification returned `verified`, the serial path is byte-identical to today's relay in both directions — nothing injected, consumed, reordered or delayed. This covers the setting being off, INAV, ArduPilot/MAVLink, other MSP firmware, unsupported Betaflight versions, unknown protocols, timeouts and malformed replies. The existing "byte relay stays protocol-agnostic" decision therefore still holds for every non-flight-control use.
+- **Exclusive ownership while in control mode:** once the link leaves transparent mode, the passthrough is **suspended in both directions** (ground→FC bytes are dropped and counted, FC→ground bytes are not forwarded), and the ground GUI shows *Passthrough suspended – flight control active*. Read-only forwarding was rejected: Configurator would see replies to requests it never sent. Passthrough resumes when the supervisor is back in `IDLE`/`RELEASED` and the setting is turned off, or the FC link is reopened.
+
+### 7.4 Betaflight mechanism
+
+- Betaflight **MSP Override** (`USE_MSP_OVERRIDE` build option) with the `MSP OVERRIDE` mode on the SP's handover switch.
+- `msp_override_channels_mask` = roll + pitch + yaw + throttle, **never any AUX channel**, so arming and mode changes over the link are impossible by construction. The air additionally only ever writes the four stick channels in `MSP_SET_RAW_RC` (cmd 200), mapped through the FC's `MSP_RX_MAP` so a non-AETR channel map is handled correctly.
+- Per-axis meaning in POS HOLD *(SITL)*: roll/pitch = horizontal nudge/velocity, yaw = yaw rate, throttle = climb/descend rate around the hold altitude. Centered sticks = hold position, heading and altitude.
+- Stale override: when `MSP_SET_RAW_RC` stops arriving, the overridden channels must fall back to the RC receiver values *(SITL: confirm and measure the timeout, and whether a dedicated override-failsafe setting exists)*. This is the FC-side layer of §7.7 and the reason the SP keeps the sticks centered while the PP flies.
+
+### 7.5 FC identification gate
+
+Runs on every FC link (re)open, after a detected FC reboot (uptime reset in `MSP_STATUS_EX`), and when the setting is turned on. Result: `transparent(reason)` | `pending` | `verified`. Any failure, timeout or malformed reply is `transparent`.
+
+1. `MSP_API_VERSION` within the supported range.
+2. `MSP_FC_VARIANT` = `BTFL`.
+3. `MSP_FC_VERSION` in an **allowlist** (configuration, not code) containing only releases that passed the SITL drills and the bench test.
+4. `MSP_BOARD_INFO` / `MSP_BUILD_INFO` logged; build options checked if exposed *(SITL)*.
+5. `MSP_BOXNAMES`/`MSP_BOXIDS` contain `ARM`, `POS HOLD` and `MSP OVERRIDE`; the box bit positions are resolved here rather than hard-coded.
+6. `MSP_RX_MAP` read to map axes to channel indices.
+7. Override mask = exactly the four stick channels: read over MSP if possible *(SITL)*, otherwise checked functionally after handover (only the masked channels follow the override in `MSP_RC`), and as a last resort confirmed by the operator in the GUI.
+
+No `MSP_SET_RAW_RC` frame is ever written before `verified`. An identity change during a session forces `RELEASED` and re-identification.
+
+### 7.6 Control path and messages
+
+```text
+ground GUI ──WS──> ground-core-node ──RTCDataChannel "flight-control"──> air supervisor ──MSP_SET_RAW_RC──> FC
+           <──────────────────────── flight-control-state (5–10 Hz + on change) <────────── MSP telemetry poller
+```
+
+- A dedicated `flight-control` RTCDataChannel (`ordered: false`, `maxRetransmits: 0`), created by air next to `serial-relay`, so a stale command is dropped rather than queued behind serial traffic. Ground relays it without parsing, like the video-control messages. It also carries state while the link is transparent, so the GUI can show link type and the setting.
+- Commands: `fc-command { seq, sentAt, roll, pitch, yaw, throttle }` normalised to [-1, 1] around center; `fc-control { action: unlock | abort | release }`; `fc-setting { flightControlEnabled }`. Air drops any command with `seq` ≤ the last applied one.
+- State (air → ground): setting, link mode and detected link type, FC identity, supervisor state and last transition reason, handover/lock status, last applied `seq`, FC telemetry (armed, modes, RX failsafe, GPS, altitude, vario, heading, attitude, voltage) and the configured limits. Schemas live in `protocol/schemas/` (#84).
+- In control mode, `MSP_SET_RAW_RC` has priority on the serial link; telemetry polling uses the remaining budget round-robin.
+- **Command stream as heartbeat:** while the PP is unlocked (including `ABORTED`), the GUI sends `fc-command` at 20 Hz continuously — zeros when no key is held. Releasing a key only zeroes that axis; it does not stop the stream. The stream stops only on a ground dead-man trigger (window blur, tab hidden, WebSocket to `ground-core-node` lost, RTT above the gate). The air therefore reads silence as a link/UI failure, never as "the PP is hovering".
+
+### 7.7 Supervisor state machine (air)
+
+| State | Sends to FC | Entered when |
+| --- | --- | --- |
+| `IDLE` | nothing | start, or preconditions not met |
+| `HANDED_OVER` | nothing (SP still flies) | all preconditions met, incl. MSP OVERRIDE box active |
+| `ACTIVE` | latest command, clamped and slew-limited, at 20 Hz | `unlock` received in `HANDED_OVER`, or fresh command in `NEUTRAL` |
+| `NEUTRAL` | all four sticks center | no valid command (heartbeat lost) for 250 ms |
+| `ABORTED` | all four sticks center; commands ignored | `abort` in `ACTIVE`/`NEUTRAL` |
+| `RELEASED` | **nothing** (FC falls back to the SP's RC) | see below |
+
+Preconditions (checked continuously; losing any one from any state → `RELEASED`): setting on, identification `verified`, FC armed, POS HOLD active, MSP OVERRIDE active, GPS fix with enough satellites *(SITL)*, no RX failsafe, FC link healthy (an MSP reply within 500 ms), `flight-control` channel open, air page visible.
+
+`RELEASED` is also entered after 1 s without any valid command (in `NEUTRAL`, or in `ABORTED` — an aborted craft with a live heartbeat keeps hovering), on `release`, and when the setting is turned off. From `RELEASED` the craft can only be controlled again via a fresh handover and unlock. Leaving POS HOLD is treated with particular care: outside POS/ALT HOLD an overridden throttle is a raw motor command, so the supervisor stops sending in the same tick it sees the mode drop; the residual exposure is bounded by the FC's stale-override timeout *(SITL: measure)*.
+
+All timing logic takes an injected clock, so every transition is unit-testable with fake timers.
+
+### 7.8 Fail-safe matrix
+
+| Failure | Expected result | Guaranteed by |
+| --- | --- | --- |
+| Ground GUI tab closed, blurred or hidden | Center within 250 ms, then SP control after 1 s | GUI dead-man; air neutral/release timeouts |
+| Ground↔air network loss or WebRTC restart | Same | Air timeouts; channel close → `RELEASED` |
+| High latency / loss | Commands withheld while RTT > 400 ms; air goes neutral | Ground RTT gate; air timeouts |
+| Air tab frozen, WebView throttled, app killed | SP's RC values take over | FC stale-override fallback |
+| USB unplugged, FC link lost | SP's RC values take over | FC stale-override fallback; air `fc-link-lost` → `RELEASED` |
+| FC reboot or identity change | FC disarms on reboot; air releases and re-identifies | Identification gate |
+| `flightControlEnabled` turned off | SP control, then transparent | Supervisor |
+| ABORT pressed | Hover in POS HOLD until a new unlock | Supervisor `ABORTED` |
+| SP flips the handover switch back | SP control immediately | Betaflight (override box off) |
+| SP leaves POS HOLD | Air stops sending; SP control | Supervisor precondition; FC fallback |
+| GPS loss during POS HOLD | Air releases; SP control (Betaflight's own POS HOLD fallback applies) | Supervisor precondition |
+| RC link loss | Betaflight RX failsafe (GPS Rescue or land), unaffected by the override | Betaflight |
+| Commands before unlock | Never reach the FC | Supervisor `HANDED_OVER` |
+
+### 7.9 Limits and timings
+
+Defaults below are configurable and are to be justified in SITL before any hardware flight.
+
+| Parameter | Default |
+| --- | --- |
+| Command rate (ground and air) | 20 Hz |
+| Air neutral timeout | 250 ms |
+| Air release timeout (neutral/aborted with link lost) | 1 000 ms |
+| FC link health timeout | 500 ms |
+| Ground RTT gate | 400 ms |
+| Max deflection: roll/pitch, yaw, throttle | ±150 µs each around 1500 |
+| Slew limit | full range in 500 ms |
+| Unlock hold time | 1.5 s |
+| Passthrough idle time before active identification | 2 s |
+
+### 7.10 Code placement
+
+- New `packages/fc-msp`: pure TypeScript MSP v1/v2 parser/encoder and the Betaflight message set (#83). Used by `air-client-sdk` and optionally by ground for display. `core-transport` never depends on it.
+- `air-client-sdk`: the passive classifier, the `FcLink` arbiter (transparent vs. control mode), the identification gate, the telemetry poller and the supervisor (#85, #86, #93). These are the only places that parse MSP on the air side; `SerialTransport` implementations and the `serial-relay` byte path stay protocol-agnostic.
+- `ground-client-sdk`: relays the `flight-control` channel without parsing.
+- Ground GUI: the unlock/abort/dead-man/command-generation logic lives in a package (`ui-kit-ground` or SDK-level), not in the app (#87, #88).
+
+## 8. Validation checklist
 
 - `@dronelink/ground-core-node` starts standalone and resolves TLS material through `core-transport`.
 - Existing pairing QR/token flow stays unchanged.

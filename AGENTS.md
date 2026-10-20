@@ -135,7 +135,9 @@ Typical loop: `phone-preflight` -> `B=$(ground-up)` -> `phone-cdp pair "$B"` -> 
 
 ## Key design constraints
 
-- **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end; MSP/MAVLink parsing belongs only in ground-specific higher layers.
+- **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end in `core-transport`, `SerialTransport` implementations, and the `serial-relay` byte path. The one scoped exception is flight control (`ARCHITECTURE.md` section 7): MSP framing lives in the planned `packages/fc-msp`, and only `air-client-sdk`'s flight-control layer (link classifier, `FcLink` arbiter, identification gate, telemetry poller, supervisor) and ground-side display code may use it.
+- **The serial link is transparent unless flight control is opted in and verified.** With `flightControlEnabled` off (the default), or with any FC that hasn't passed the Betaflight identification gate, the relay must stay byte-identical in both directions — nothing injected, consumed, reordered or delayed. Never send any MSP frame of the air side's own before the gate reports `verified`, and never write AUX channels over the link.
+- **Flight-control failure handling falls back to center or stop, never to the last command.** Any change to the supervisor, its timeouts or the command stream must keep the fail-safe matrix in `ARCHITECTURE.md` section 7.8 true, and must be covered by fake-timer unit tests.
 - **`SerialTransport` stays behind the air SDK abstraction.** Desktop Chrome uses `WebSerialTransport`; Android WebView uses `NativeBridgeTransport`, backed by `android-shell`'s native USB bridge.
 - **Signaling stays inside the ground runtime.** There is no separate signaling service.
 - **TLS trust stays out-of-band.** Do not add in-browser cert pinning; `mkcert` or Tailscale-issued certs are the only supported trust paths.
@@ -143,8 +145,9 @@ Typical loop: `phone-preflight` -> `B=$(ground-up)` -> `phone-cdp pair "$B"` -> 
 ## What not to build yet
 
 - `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone)
-- Ground-side GUI features beyond the live video viewer
-- Reconnection / backoff / resilience logic
+- Ground-side GUI features beyond the live video viewer and the flight-control panels planned in `ARCHITECTURE.md` section 7 (milestone "Mobile flight control in position hold", epic #79)
+- General reconnection / backoff / resilience logic (the flight-control watchdogs in section 7 are in scope; automatic session reconnection is not)
+- Arming, disarming or flight-mode changes over the link, or any flight control without a safety pilot on RC
 - Docker Compose / containerized deployment
 - iPhone air-side app
 
