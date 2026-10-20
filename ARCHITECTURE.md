@@ -109,7 +109,7 @@ Mid-session video source switching (`WebRtcSessionManager.replaceVideoTrack`, ai
 
 ## 7. Flight control over the mobile link (design)
 
-Status: design accepted for milestone "Mobile flight control in position hold" (epic #79, this section is #80). Nothing in this section is implemented yet; numbers marked *(SITL)* are defaults to be confirmed or tuned in the Betaflight SITL spike (#81).
+Status: design accepted for milestone "Mobile flight control in position hold" (epic #79, this section is #80). Nothing in this section is implemented yet. Betaflight behaviour stated here was verified against Betaflight 2026.6.2 SITL in the #81 spike; see [`docs/sim/betaflight-sitl.md`](docs/sim/betaflight-sitl.md) for method, measurements and source references. Items still marked *(SITL)* are tuning values for the SITL drills (#89).
 
 ### 7.1 Scope
 
@@ -143,10 +143,13 @@ The **unlock manoeuvre** is a press-and-hold of the *Take control* control for 1
 
 ### 7.4 Betaflight mechanism
 
-- Betaflight **MSP Override** (`USE_MSP_OVERRIDE` build option) with the `MSP OVERRIDE` mode on the SP's handover switch.
-- `msp_override_channels_mask` = roll + pitch + yaw + throttle, **never any AUX channel**, so arming and mode changes over the link are impossible by construction. The air additionally only ever writes the four stick channels in `MSP_SET_RAW_RC` (cmd 200), mapped through the FC's `MSP_RX_MAP` so a non-AETR channel map is handled correctly.
-- Per-axis meaning in POS HOLD *(SITL)*: roll/pitch = horizontal nudge/velocity, yaw = yaw rate, throttle = climb/descend rate around the hold altitude. Centered sticks = hold position, heading and altitude.
-- Stale override: when `MSP_SET_RAW_RC` stops arriving, the overridden channels must fall back to the RC receiver values *(SITL: confirm and measure the timeout, and whether a dedicated override-failsafe setting exists)*. This is the FC-side layer of §7.7 and the reason the SP keeps the sticks centered while the PP flies.
+- Betaflight **MSP Override** (`USE_RX_MSP_OVERRIDE`, included in standard and SITL builds) with the `MSP OVERRIDE` mode on the SP's handover switch. **Minimum Betaflight 2026.6.1** — see stale override below.
+- `msp_override_failsafe` **must be OFF** (the default): when ON, an MSP stream counts as RX signal and hides the loss of the SP's RC link from Betaflight's failsafe (verified in SITL). It is not readable over MSP, so it is enforced by the config template and pre-flight checklist (#90).
+- `msp_override_channels_mask` = roll + pitch + yaw + throttle, **never any AUX channel**, so arming and mode changes over the link are impossible by construction. The air additionally only ever writes the four stick channels in `MSP_SET_RAW_RC` (cmd 200), mapped through the FC's `MSP_RX_MAP`: both the mask bits and the `MSP_SET_RAW_RC` payload use raw receiver channel order, not Betaflight's internal RPYT order. Verified in SITL: a frame that also carries AUX values (including ARM low) changes nothing outside the mask.
+- Per-axis meaning in ALT HOLD + POS HOLD (both boxes on the SP's hold switch): roll/pitch inside `pos_hold_deadband` (5 %) = hold; beyond it position hold is suspended and the stick flies angle mode, braking back into a hold on release (a velocity nudge, not a position offset). Yaw = yaw rate, position held while yawing. Throttle = climb/descend rate outside `alt_hold_deadband` (20 % of travel) around **`ap_hover_throttle`, not 1500** — 1500 is above the deadband with defaults and climbs. The air's neutral throttle is therefore the FC's hover throttle, read from `MSP_GPS_RESCUE`; `ap_hover_throttle` must be set to a fixed non-zero value (0 means "capture at engage", which is not readable over MSP). Centered sticks (throttle at hover throttle) = hold position, heading and altitude.
+- Stale override: from 2026.6 Betaflight only applies an MSP value to a masked channel while a frame containing that channel arrived within 300 ms (`RX_MSP_RC_FRAME_FRESH_MS`); otherwise the channel reads the RC receiver again. Measured in SITL: 303–323 ms from the last frame to the SP's values in `MSP_RC`. **4.5.x and 2025.12.x keep the last MSP value indefinitely**, which would turn a dead phone into a fly-away — hence the 2026.6.1 minimum. This is the FC-side layer of §7.7 and the reason the SP keeps the sticks centered (throttle at the hover point) while the PP flies.
+- Handback: turning the handover switch off returns the SP's values on the next RX update (43 ms in SITL), whatever the phone keeps sending.
+- After link loss the craft settles into a hold, with two bounded effects (SITL, plant-dependent magnitudes): a commanded climb/descent continues by up to `alt_hold_climb_rate` × 1 s, because alt hold moves its target ahead of the craft while the stick is deflected; and the horizontal overshoot grows with the speed at the moment of loss. Both are limited through `alt_hold_climb_rate` and the per-axis deflection limits (§7.9).
 
 ### 7.5 FC identification gate
 
@@ -154,11 +157,12 @@ Runs on every FC link (re)open, after a detected FC reboot (uptime reset in `MSP
 
 1. `MSP_API_VERSION` within the supported range.
 2. `MSP_FC_VARIANT` = `BTFL`.
-3. `MSP_FC_VERSION` in an **allowlist** (configuration, not code) containing only releases that passed the SITL drills and the bench test.
-4. `MSP_BOARD_INFO` / `MSP_BUILD_INFO` logged; build options checked if exposed *(SITL)*.
-5. `MSP_BOXNAMES`/`MSP_BOXIDS` contain `ARM`, `POS HOLD` and `MSP OVERRIDE`; the box bit positions are resolved here rather than hard-coded.
-6. `MSP_RX_MAP` read to map axes to channel indices.
-7. Override mask = exactly the four stick channels: read over MSP if possible *(SITL)*, otherwise checked functionally after handover (only the masked channels follow the override in `MSP_RC`), and as a last resort confirmed by the operator in the GUI.
+3. `MSP_FC_VERSION` (year − 2000, month, patch, then the version string) in an **allowlist** (configuration, not code) containing only releases ≥ 2026.6.1 that passed the SITL drills and the bench test.
+4. `MSP_BOARD_INFO` / `MSP_BUILD_INFO` logged.
+5. `MSP_BOXIDS` contain ARM (0), ALTHOLD (3), POS HOLD (11) and MSP OVERRIDE (50); the box bit positions are resolved here rather than hard-coded. Betaflight only lists MSP OVERRIDE when `msp_override_channels_mask` is non-zero, so its presence proves both the build option and a configured mask.
+6. `MSP_RX_MAP` read to map axes to raw channel indices. The four sticks must map to raw channels 0–3 (any permutation); a map that puts a stick on an AUX position → `transparent(unsupported-rx-map)`, since the air's 4-channel frame could not reach it.
+7. `ap_hover_throttle` read from `MSP_GPS_RESCUE`; zero (capture mode) → `transparent(hover-throttle-not-fixed)`.
+8. Override mask covers the four stick channels: not readable over MSP, so checked functionally on the first frames after unlock (each stick channel must follow the override in `MSP_RC`; any mismatch → `RELEASED` and transparent) and confirmed by the operator against the config template. AUX bits in the mask cannot be exploited: the air only ever sends a 4-channel frame, and Betaflight treats channels beyond the frame's length as stale, so they keep the SP's values.
 
 No `MSP_SET_RAW_RC` frame is ever written before `verified`. An identity change during a session forces `RELEASED` and re-identification.
 
@@ -170,7 +174,7 @@ ground GUI ──WS──> ground-core-node ──RTCDataChannel "flight-control
 ```
 
 - A dedicated `flight-control` RTCDataChannel (`ordered: false`, `maxRetransmits: 0`), created by air next to `serial-relay`, so a stale command is dropped rather than queued behind serial traffic. Ground relays it without parsing, like the video-control messages. It also carries state while the link is transparent, so the GUI can show link type and the setting.
-- Commands: `fc-command { seq, sentAt, roll, pitch, yaw, throttle }` normalised to [-1, 1] around center; `fc-control { action: unlock | abort | release }`; `fc-setting { flightControlEnabled }`. Air drops any command with `seq` ≤ the last applied one.
+- Commands: `fc-command { seq, sentAt, roll, pitch, yaw, throttle }` normalised to [-1, 1] around neutral (1500 for roll/pitch/yaw, the FC's hover throttle for throttle); `fc-control { action: unlock | abort | release }`; `fc-setting { flightControlEnabled }`. Air drops any command with `seq` ≤ the last applied one.
 - State (air → ground): setting, link mode and detected link type, FC identity, supervisor state and last transition reason, handover/lock status, last applied `seq`, FC telemetry (armed, modes, RX failsafe, GPS, altitude, vario, heading, attitude, voltage) and the configured limits. Schemas live in `protocol/schemas/` (#84).
 - In control mode, `MSP_SET_RAW_RC` has priority on the serial link; telemetry polling uses the remaining budget round-robin.
 - **Command stream as heartbeat:** while the PP is unlocked (including `ABORTED`), the GUI sends `fc-command` at 20 Hz continuously — zeros when no key is held. Releasing a key only zeroes that axis; it does not stop the stream. The stream stops only on a ground dead-man trigger (window blur, tab hidden, WebSocket to `ground-core-node` lost, RTT above the gate). The air therefore reads silence as a link/UI failure, never as "the PP is hovering".
@@ -186,9 +190,11 @@ ground GUI ──WS──> ground-core-node ──RTCDataChannel "flight-control
 | `ABORTED` | all four sticks center; commands ignored | `abort` in `ACTIVE`/`NEUTRAL` |
 | `RELEASED` | **nothing** (FC falls back to the SP's RC) | see below |
 
-Preconditions (checked continuously; losing any one from any state → `RELEASED`): setting on, identification `verified`, FC armed, POS HOLD active, MSP OVERRIDE active, GPS fix with enough satellites *(SITL)*, no RX failsafe, FC link healthy (an MSP reply within 500 ms), `flight-control` channel open, air page visible.
+Preconditions (checked continuously; losing any one from any state → `RELEASED`): setting on, identification `verified`, FC armed, POS HOLD active, MSP OVERRIDE active, GPS fix with enough satellites, no RX failsafe, FC link healthy (an MSP reply within 500 ms), `flight-control` channel open, air page visible.
 
-`RELEASED` is also entered after 1 s without any valid command (in `NEUTRAL`, or in `ABORTED` — an aborted craft with a live heartbeat keeps hovering), on `release`, and when the setting is turned off. From `RELEASED` the craft can only be controlled again via a fresh handover and unlock. Leaving POS HOLD is treated with particular care: outside POS/ALT HOLD an overridden throttle is a raw motor command, so the supervisor stops sending in the same tick it sees the mode drop; the residual exposure is bounded by the FC's stale-override timeout *(SITL: measure)*.
+`RELEASED` is also entered after 1 s without any valid command (in `NEUTRAL`, or in `ABORTED` — an aborted craft with a live heartbeat keeps hovering), on `release`, and when the setting is turned off. From `RELEASED` the craft can only be controlled again via a fresh handover and unlock. Leaving POS HOLD is treated with particular care: outside POS/ALT HOLD an overridden throttle is a raw motor command, so the supervisor stops sending in the same tick it sees the mode drop; the residual exposure is bounded by the FC's 300 ms stale-override timeout (in SITL a held 1600 throttle climbed 1.7 m in the first second after the holds were switched off while the phone kept sending).
+
+`unlock` is additionally refused unless the SP's sticks are at neutral (roll/pitch/yaw within the pos-hold deadband of 1500, throttle within the alt-hold deadband of the hover throttle). This is checkable because in `HANDED_OVER` no frame has been sent yet, so `MSP_RC` still reports the SP's raw sticks; once frames flow it reports the overridden values.
 
 All timing logic takes an injected clock, so every transition is unit-testable with fake timers.
 
@@ -212,7 +218,7 @@ All timing logic takes an injected clock, so every transition is unit-testable w
 
 ### 7.9 Limits and timings
 
-Defaults below are configurable and are to be justified in SITL before any hardware flight.
+Defaults below are configurable and are to be justified in the SITL drills (#89) before any hardware flight. The FC-side 300 ms fallback is shorter than the air's 1 s release timeout, so when the phone itself dies Betaflight hands back to the SP before the air watchdog would.
 
 | Parameter | Default |
 | --- | --- |
@@ -221,7 +227,9 @@ Defaults below are configurable and are to be justified in SITL before any hardw
 | Air release timeout (neutral/aborted with link lost) | 1 000 ms |
 | FC link health timeout | 500 ms |
 | Ground RTT gate | 400 ms |
-| Max deflection: roll/pitch, yaw, throttle | ±150 µs each around 1500 |
+| Max deflection: roll/pitch, yaw | ±150 µs around 1500 |
+| Max deflection: throttle | ±150 µs around `ap_hover_throttle` |
+| Recommended `alt_hold_climb_rate` (bounds post-loss altitude change) | 20 (2 m/s) |
 | Slew limit | full range in 500 ms |
 | Unlock hold time | 1.5 s |
 | Passthrough idle time before active identification | 2 s |
