@@ -5,7 +5,7 @@ import type { RtpPacket } from "werift";
 import { join } from "path";
 import { mkdirSync } from "fs";
 import { randomUUID } from "crypto";
-import { isTailscaleCandidate } from "@dronelink/core-transport";
+import { FLIGHT_CONTROL_CHANNEL_LABEL, isTailscaleCandidate } from "@dronelink/core-transport";
 
 type DataChannelOpenCallback = (channel: RTCDataChannel) => void;
 type DataChannelCloseCallback = () => void;
@@ -34,6 +34,11 @@ let pendingGuiOffer: { sdp: string; reply: (msg: unknown) => void; isTailscale: 
 let lastCameraSourceList: unknown = null;
 // Same idea for air-status (battery): sent on connect and on change only.
 let lastAirStatus: unknown = null;
+// The air's "flight-control" data channel, once open. Ground only routes its messages
+// (fc-state to the GUI; fc-command/fc-control/fc-setting to air) by their type; the air
+// side validates what it receives and the GUI validates what it displays.
+let activeFlightControlChannel: RTCDataChannel | null = null;
+const FLIGHT_CONTROL_GUI_TYPES = new Set(["fc-command", "fc-control", "fc-setting"]);
 // Dimensions for the recorder, read from whichever offer actually carries a video
 // track -- the initial one, or a later renegotiation offer that adds video to a
 // session that connected data-only. pc.onTrack (subscribed once, below) reads these
@@ -251,6 +256,10 @@ export function handleSignalingMessage(
     });
 
     pc.onDataChannel.subscribe((channel) => {
+      if (channel.label === FLIGHT_CONTROL_CHANNEL_LABEL) {
+        attachFlightControlChannel(channel);
+        return;
+      }
       if (channel.label !== "serial-relay") return;
 
       const openChannel = () => {
@@ -338,6 +347,44 @@ export function handleSignalingMessage(
   }
 }
 
+function attachFlightControlChannel(channel: RTCDataChannel): void {
+  const open = () => {
+    activeFlightControlChannel = channel;
+    activeGuiReply?.({ type: "fc-channel", open: true });
+  };
+  channel.onMessage.subscribe((data) => {
+    if (typeof data !== "string") return;
+    let message: unknown;
+    try {
+      message = JSON.parse(data);
+    } catch {
+      return;
+    }
+    if (isRecord(message) && message.type === "fc-state") {
+      activeGuiReply?.(message);
+    }
+  });
+  // Unlike serial-relay, losing this channel doesn't end the session: video and the
+  // serial link carry on, and the air side's supervisor has already released control.
+  channel.onclose = () => {
+    if (activeFlightControlChannel !== channel) return;
+    activeFlightControlChannel = null;
+    activeGuiReply?.({ type: "fc-channel", open: false });
+  };
+  if (channel.readyState === "open") {
+    open();
+  } else {
+    channel.onopen = open;
+  }
+}
+
+/** Forwards a GUI flight-control message to air; false when the channel isn't open. */
+export function sendFlightControl(message: Record<string, unknown>): boolean {
+  if (!activeFlightControlChannel || activeFlightControlChannel.readyState !== "open") return false;
+  activeFlightControlChannel.send(JSON.stringify(message));
+  return true;
+}
+
 export function requestVideoControl(request: { control: string } & Record<string, unknown>): boolean {
   if (!activeAirReply) return false;
   activeAirReply({ type: "video-control-request", ...request });
@@ -397,6 +444,16 @@ export function handleGuiSignalingMessage(
 ): void {
   if (!isRecord(message)) return;
 
+  if (typeof message.type === "string" && FLIGHT_CONTROL_GUI_TYPES.has(message.type)) {
+    // fc-command is a 20 Hz stream: dropping it while there is no channel is the point
+    // (the air side's watchdog sees silence). The idempotent one-shot messages get an
+    // error so the GUI can show why its action had no effect.
+    if (!sendFlightControl(message) && message.type !== "fc-command") {
+      reply({ type: "error", message: "No flight-control channel to the drone." });
+    }
+    return;
+  }
+
   if (message.type === "video-control-request") {
     if (typeof message.control !== "string") return;
     const { type: _type, ...request } = message;
@@ -417,6 +474,8 @@ export function handleGuiSignalingMessage(
     activeGuiReply = reply;
     if (lastCameraSourceList) reply(lastCameraSourceList);
     if (lastAirStatus) reply(lastAirStatus);
+    // A GUI starts out assuming the flight-control channel is closed.
+    if (activeFlightControlChannel) reply({ type: "fc-channel", open: true });
 
     if (!activeVideoTrack) {
       pendingGuiOffer = { sdp, reply, isTailscale };
@@ -497,6 +556,10 @@ export function handleSocketClose(): void {
   activeAirReply = null;
   lastCameraSourceList = null;
   lastAirStatus = null;
+  if (activeFlightControlChannel) {
+    activeFlightControlChannel = null;
+    activeGuiReply?.({ type: "fc-channel", open: false });
+  }
   // Blank the GUI's battery readout rather than leave a stale percentage up.
   activeGuiReply?.({ type: "air-status" });
   closeGuiPeer();

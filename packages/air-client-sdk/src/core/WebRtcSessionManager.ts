@@ -1,5 +1,12 @@
 import type { BatteryStatus } from "./BatteryMonitor.js";
-import { isTailscaleCandidate } from "@dronelink/core-transport";
+import {
+  FLIGHT_CONTROL_CHANNEL_INIT,
+  FLIGHT_CONTROL_CHANNEL_LABEL,
+  isTailscaleCandidate,
+  parseFlightControlGroundMessage,
+  type FlightControlGroundMessage,
+  type FlightControlState,
+} from "@dronelink/core-transport";
 import type { PairingSocket } from "./PairingSession.js";
 
 export type SessionState = "IDLE" | "CONNECTING" | "CONNECTED" | "FAILED";
@@ -115,6 +122,10 @@ export class WebRtcSessionManager {
   private pc: RTCPeerConnection | null = null;
   private socket: PairingSocket | null = null;
   private dataChannel: RTCDataChannel | null = null;
+  private flightControlChannel: RTCDataChannel | null = null;
+  private flightControlHandler: ((message: FlightControlGroundMessage) => void) | null = null;
+  private readonly flightControlChannelListeners = new Set<(open: boolean) => void>();
+  private rejectedFlightControlCount = 0;
   private videoSender: RTCRtpSender | null = null;
   private videoQualityPreset: VideoQualityPreset = "auto";
   private currentVideoTrack: MediaStreamTrack | null = null;
@@ -164,6 +175,18 @@ export class WebRtcSessionManager {
         }
       }
     };
+
+    // Flight control gets its own unordered, never-retransmitted channel so a stale stick
+    // command is dropped rather than queued behind serial traffic or a lost packet.
+    const fc = this.pc.createDataChannel(FLIGHT_CONTROL_CHANNEL_LABEL, { ...FLIGHT_CONTROL_CHANNEL_INIT });
+    this.flightControlChannel = fc;
+    fc.onopen = () => this.notifyFlightControlChannel(true);
+    fc.onclose = () => {
+      if (this.flightControlChannel !== fc) return;
+      this.flightControlChannel = null;
+      this.notifyFlightControlChannel(false);
+    };
+    fc.onmessage = (event: MessageEvent) => this.receiveFlightControlMessage(event.data);
 
     // Forward our ICE candidates to the ground over the signaling socket.
     // When pairing over Tailscale, only forward candidates in 100.64.0.0/10.
@@ -702,8 +725,69 @@ export class WebRtcSessionManager {
     return metrics;
   }
 
+  /**
+   * Receives every valid ground -> air flight-control message (fc-command, fc-control,
+   * fc-setting). Invalid messages never reach it; they are counted instead (see
+   * rejectedFlightControlMessages). Pass null to stop receiving.
+   */
+  setFlightControlHandler(handler: ((message: FlightControlGroundMessage) => void) | null): void {
+    this.flightControlHandler = handler;
+  }
+
+  /** Sends an fc-state report; false (nothing sent) while the flight-control channel isn't open. */
+  sendFlightControlState(state: FlightControlState): boolean {
+    const channel = this.flightControlChannel;
+    if (!channel || channel.readyState !== "open") return false;
+    channel.send(JSON.stringify(state));
+    return true;
+  }
+
+  get flightControlChannelOpen(): boolean {
+    return this.flightControlChannel?.readyState === "open";
+  }
+
+  /** Ground messages rejected as invalid since this manager was created. */
+  get rejectedFlightControlMessages(): number {
+    return this.rejectedFlightControlCount;
+  }
+
+  /** Notified with true when the flight-control channel opens and false when it closes. */
+  onFlightControlChannelChange(listener: (open: boolean) => void): () => void {
+    this.flightControlChannelListeners.add(listener);
+    return () => {
+      this.flightControlChannelListeners.delete(listener);
+    };
+  }
+
+  private notifyFlightControlChannel(open: boolean): void {
+    for (const listener of this.flightControlChannelListeners) {
+      listener(open);
+    }
+  }
+
+  private receiveFlightControlMessage(data: unknown): void {
+    let message: FlightControlGroundMessage | null = null;
+    if (typeof data === "string") {
+      try {
+        message = parseFlightControlGroundMessage(JSON.parse(data));
+      } catch {
+        message = null;
+      }
+    }
+    if (!message) {
+      this.rejectedFlightControlCount++;
+      return;
+    }
+    this.flightControlHandler?.(message);
+  }
+
   /** Tear down the peer connection and data channel. Safe to call when already idle. */
   disconnect(): void {
+    const flightControlWasOpen = this.flightControlChannelOpen;
+    const flightControl = this.flightControlChannel;
+    this.flightControlChannel = null;
+    flightControl?.close();
+    if (flightControlWasOpen) this.notifyFlightControlChannel(false);
     this.dataChannel?.close();
     this.pc?.close();
     this.dataChannel = null;
