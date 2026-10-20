@@ -3,7 +3,7 @@
   "sourceDevice": "Betaflight SITL (TARGET=SITL), UART1 over TCP 5761",
   "firmware": "Betaflight 2026.6.2, MSP API 1.48",
   "transport": "TCP (SITL UART); no baud rate",
-  "capturedAt": "2026-10-20T21:09:34+00:00",
+  "capturedAt": "2026-10-20T21:15:11+00:00",
   "capturedWith": "tools/sitl/capture_msp_fixture.py",
   "flightState": "armed, ANGLE + ALTHOLD + POSHOLD + MSP OVERRIDE active, virtual GPS fix, hovering",
   "config": [
@@ -133,14 +133,14 @@
       "mspVersion": 1,
       "request": "244d3c007474",
       "replyOffset": 305,
-      "replyLength": 261
+      "replyLength": 308
     },
     {
       "name": "MSP_BOXIDS",
       "command": 119,
       "mspVersion": 1,
       "request": "244d3c007777",
-      "replyOffset": 566,
+      "replyOffset": 613,
       "replyLength": 33
     },
     {
@@ -148,7 +148,7 @@
       "command": 135,
       "mspVersion": 1,
       "request": "244d3c008787",
-      "replyOffset": 599,
+      "replyOffset": 646,
       "replyLength": 32
     },
     {
@@ -156,7 +156,7 @@
       "command": 150,
       "mspVersion": 1,
       "request": "244d3c009696",
-      "replyOffset": 631,
+      "replyOffset": 678,
       "replyLength": 33
     },
     {
@@ -164,7 +164,7 @@
       "command": 200,
       "mspVersion": 1,
       "request": "244d3c08c8dc05dc05fb04dc05e6",
-      "replyOffset": 664,
+      "replyOffset": 711,
       "replyLength": 6
     },
     {
@@ -172,7 +172,7 @@
       "command": 1,
       "mspVersion": 2,
       "request": "24583c000100000045",
-      "replyOffset": 670,
+      "replyOffset": 717,
       "replyLength": 12
     },
     {
@@ -180,7 +180,7 @@
       "command": 150,
       "mspVersion": 2,
       "request": "24583c0096000000be",
-      "replyOffset": 682,
+      "replyOffset": 729,
       "replyLength": 36
     },
     {
@@ -188,7 +188,7 @@
       "command": 20,
       "mspVersion": 1,
       "request": "244d3c001414",
-      "replyOffset": 718,
+      "replyOffset": 765,
       "replyLength": 6
     }
   ]

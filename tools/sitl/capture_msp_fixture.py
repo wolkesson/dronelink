@@ -80,9 +80,16 @@ def read_reply(sock, version, timeout=2.0):
         start = buf.find(header)
         if start >= 0:
             if version == 1 and len(buf) >= start + 5:
-                end = start + 5 + buf[start + 3] + 1
-                if len(buf) >= end:
-                    return buf[start:end]
+                size, header_len = buf[start + 3], 5
+                if size == 255:  # jumbo frame: the real size follows the command as a u16
+                    if len(buf) < start + 7:
+                        size = None
+                    else:
+                        size, header_len = struct.unpack_from("<H", buf, start + 5)[0], 7
+                if size is not None:
+                    end = start + header_len + size + 1
+                    if len(buf) >= end:
+                        return buf[start:end]
             if version == 2 and len(buf) >= start + 8:
                 size = struct.unpack_from("<H", buf, start + 6)[0]
                 end = start + 8 + size + 1
