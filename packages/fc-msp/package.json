@@ -1,0 +1,26 @@
+{
+  "name": "@dronelink/fc-msp",
+  "version": "0.1.0",
+  "description": "MSP v1/v2 framing and the Betaflight message set used by flight control",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
+  }
+}

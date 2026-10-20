@@ -27,6 +27,9 @@ packages/
     QR scanner
     browser WebRTC session manager
     serial transport abstractions
+  fc-msp/
+    MSP v1/v2 framing (streaming parser, encoders)
+    Betaflight message set for flight control
   ui-kit-shared/
     shared UI-facing presentation helpers
   ui-kit-ground/
