@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dronelink.local/protocol/schemas/flight-control-command.schema.json",
+  "title": "Flight Control Command",
+  "description": "Ground-to-air messages on the 'flight-control' RTCDataChannel (unordered, no retransmits), sent by the ground GUI and relayed by the ground runtime. fc-command is a continuous 20 Hz stream while the phone pilot is unlocked; stick values are normalized to [-1, 1] around neutral (1500 us for roll/pitch/yaw, the FC's ap_hover_throttle for throttle) and the air side maps and clamps them. The air drops an fc-command whose seq is not newer than the last one it applied. fc-control and fc-setting are idempotent: the GUI resends them until the air's fc-state reflects them. See ARCHITECTURE.md section 7.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "seq", "sentAt", "roll", "pitch", "yaw", "throttle"],
+      "properties": {
+        "type": { "const": "fc-command" },
+        "seq": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "sentAt": { "type": "number", "minimum": 0, "description": "Ground wall-clock time in ms, for diagnostics only." },
+        "roll": { "$ref": "#/definitions/axis" },
+        "pitch": { "$ref": "#/definitions/axis" },
+        "yaw": { "$ref": "#/definitions/axis" },
+        "throttle": { "$ref": "#/definitions/axis" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "action"],
+      "properties": {
+        "type": { "const": "fc-control" },
+        "action": {
+          "enum": ["unlock", "abort", "release"],
+          "description": "unlock: completed unlock manoeuvre. abort: hover (all sticks neutral) and lock. release: stop overriding, the safety pilot's RC applies."
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "flightControlEnabled"],
+      "properties": {
+        "type": { "const": "fc-setting" },
+        "flightControlEnabled": { "type": "boolean" }
+      }
+    }
+  ],
+  "definitions": {
+    "axis": { "type": "number", "minimum": -1, "maximum": 1 }
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dronelink.local/protocol/schemas/flight-control-state.schema.json",
+  "title": "Flight Control State",
+  "description": "fc-state: air-to-ground report on the 'flight-control' RTCDataChannel, sent at 5-10 Hz and on every change, and relayed by the ground runtime to the GUI as-is. It carries the opt-in setting, the serial link mode and detected link type, the FC identity, the supervisor state, FC telemetry and the active limits. The channel is unordered, so the GUI keeps the newest by sentAt. fc-channel: sent by the ground runtime itself (not air) to the GUI when the air's flight-control channel opens or closes, and when a GUI attaches. See ARCHITECTURE.md section 7.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sentAt", "flightControlEnabled", "link", "fc", "supervisor", "telemetry", "limits", "rejectedMessages"],
+      "properties": {
+        "type": { "const": "fc-state" },
+        "sentAt": { "type": "number", "minimum": 0, "description": "Air wall-clock time in ms." },
+        "flightControlEnabled": { "type": "boolean" },
+        "link": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "reason", "detectedType"],
+          "properties": {
+            "mode": { "enum": ["transparent", "pending", "verified"] },
+            "reason": { "type": ["string", "null"], "description": "Why the link is transparent, e.g. setting-disabled, not-betaflight, version-not-allowed." },
+            "detectedType": { "enum": ["msp-v1", "msp-v2", "mavlink-v1", "mavlink-v2", "crsf", "unknown", "silent"] }
+          }
+        },
+        "fc": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["variant", "version", "apiVersion", "board"],
+              "properties": {
+                "variant": { "type": "string" },
+                "version": { "type": "string" },
+                "apiVersion": { "type": "string" },
+                "board": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "supervisor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reason", "lastAppliedSeq"],
+          "properties": {
+            "state": { "enum": ["IDLE", "HANDED_OVER", "ACTIVE", "NEUTRAL", "ABORTED", "RELEASED"] },
+            "reason": { "type": ["string", "null"], "description": "Reason for the last transition, e.g. aborted, sp-took-control, link-timeout, pos-hold-lost, setting-disabled." },
+            "lastAppliedSeq": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/count" }] }
+          }
+        },
+        "telemetry": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["armed", "modes", "rxFailsafe", "gps", "altitudeM", "varioMS", "headingDeg", "rollDeg", "pitchDeg", "voltageV"],
+              "properties": {
+                "armed": { "type": "boolean" },
+                "modes": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "enum": ["ANGLE", "HORIZON", "ALTHOLD", "POSHOLD", "MSP_OVERRIDE", "FAILSAFE", "GPSRESCUE"] }
+                },
+                "rxFailsafe": { "type": "boolean" },
+                "gps": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["fix", "numSat", "latitude", "longitude"],
+                  "properties": {
+                    "fix": { "type": "boolean" },
+                    "numSat": { "$ref": "#/definitions/count" },
+                    "latitude": { "type": ["number", "null"] },
+                    "longitude": { "type": ["number", "null"] }
+                  }
+                },
+                "altitudeM": { "type": ["number", "null"] },
+                "varioMS": { "type": ["number", "null"] },
+                "headingDeg": { "type": ["number", "null"] },
+                "rollDeg": { "type": ["number", "null"] },
+                "pitchDeg": { "type": ["number", "null"] },
+                "voltageV": { "type": ["number", "null"] }
+              }
+            }
+          ]
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commandRateHz", "neutralTimeoutMs", "releaseTimeoutMs", "hoverThrottleUs", "maxDeflectionUs"],
+          "properties": {
+            "commandRateHz": { "type": "number", "exclusiveMinimum": 0 },
+            "neutralTimeoutMs": { "type": "number", "minimum": 0 },
+            "releaseTimeoutMs": { "type": "number", "minimum": 0 },
+            "hoverThrottleUs": { "oneOf": [{ "type": "null" }, { "$ref": "#/definitions/count" }] },
+            "maxDeflectionUs": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["roll", "pitch", "yaw", "throttle"],
+              "properties": {
+                "roll": { "$ref": "#/definitions/count" },
+                "pitch": { "$ref": "#/definitions/count" },
+                "yaw": { "$ref": "#/definitions/count" },
+                "throttle": { "$ref": "#/definitions/count" }
+              }
+            }
+          }
+        },
+        "rejectedMessages": { "$ref": "#/definitions/count" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "open"],
+      "properties": {
+        "type": { "const": "fc-channel" },
+        "open": { "type": "boolean" }
+      }
+    }
+  ],
+  "definitions": {
+    "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+  }
+}
