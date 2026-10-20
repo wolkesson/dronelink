@@ -17,6 +17,7 @@ This is an npm workspaces monorepo (`apps/*`, `packages/*`).
 | `packages/core-transport` | TypeScript | Shared pairing/token protocol, TLS helpers (mkcert/Tailscale), transport primitives |
 | `packages/ground-client-sdk` | TypeScript | Ground-side signaling server, WebRTC peer, TCP bridge, video sink runtime |
 | `packages/air-client-sdk` | TypeScript | Air-side pairing/session state, QR scanning, WebRTC relay, serial transport abstractions |
+| `packages/fc-msp` | TypeScript | MSP v1/v2 framing and the Betaflight message set for flight control; pure TS, no Node/browser APIs (enforced by lint) |
 | `packages/ui-kit-shared` | TypeScript | Shared UI-facing presentation helpers |
 | `packages/ui-kit-ground` | TypeScript | Ground-only UI-facing scaffold |
 | `apps/ground-core-node` | Node.js + TypeScript | Headless ground runtime: composes `ground-client-sdk` only (signaling host + relay) |
@@ -49,8 +50,8 @@ Per-package scripts (run from repo root via `--workspace`, or `cd` into the pack
 ```sh
 npm run build          --workspace @dronelink/<pkg>   # tsc --noEmit (air-webapp also runs vite build)
 npm run lint           --workspace @dronelink/<pkg>   # eslint src --ext .ts[,.tsx]
-npm test               --workspace @dronelink/<pkg>   # vitest run (core-transport, ground-client-sdk, air-client-sdk, ui-kit-shared only)
-npm run test:coverage  --workspace @dronelink/<pkg>   # vitest run --coverage (same four packages)
+npm test               --workspace @dronelink/<pkg>   # vitest run (core-transport, fc-msp, ground-client-sdk, air-client-sdk, ui-kit-shared, air-webapp)
+npm run test:coverage  --workspace @dronelink/<pkg>   # vitest run --coverage (same packages)
 ```
 
 Each package's `vitest.config.ts` sets `coverage.reporter` to `[["text", { skipFull: false }], "html", "clover", "json"]`. This overrides Vitest's own default of hiding 100%-covered files from the text report when it detects it's running under an AI agent (`std-env`'s `isAgent`, triggered by env vars like `CLAUDECODE`/`AI_AGENT`). Don't remove `skipFull: false` to "clean up" verbose coverage output — a hidden row is indistinguishable from a file that isn't measured at all, which is misleading when verifying that a file reached full coverage.
@@ -79,10 +80,12 @@ npm test --workspace @dronelink/ui-kit-shared
 
 # air-side
 npm run build --workspace @dronelink/core-transport
+npm run build --workspace @dronelink/fc-msp
 npm run build --workspace @dronelink/air-client-sdk
 npm run build --workspace @dronelink/ui-kit-shared
 npm run build --workspace @dronelink/air-webapp
 npm test --workspace @dronelink/core-transport
+npm test --workspace @dronelink/fc-msp
 npm test --workspace @dronelink/air-client-sdk
 npm test --workspace @dronelink/ui-kit-shared
 ```
@@ -133,9 +136,26 @@ Node scripts in `tools/` (no extra dependencies) for driving the debug `android-
 
 Typical loop: `phone-preflight` -> `B=$(ground-up)` -> `phone-cdp pair "$B"` -> `gui-probe <host> --select 0`. The phone must be unlocked (only the user can do that), and pairing over Tailscale needs Tailscale connected on both ends; over LAN the phone must trust the mkcert root CA.
 
+### Betaflight SITL instead of a USB flight controller
+
+For flight-control work (and anything else that needs an FC without hardware), the air webapp can talk to a Betaflight SITL build through a dev-only WebSocket bridge. See [`docs/sim/betaflight-sitl.md`](./docs/sim/betaflight-sitl.md) for building SITL and the full loop. In short:
+
+```sh
+./betaflight_SITL.elf                                  # in its own directory; UART1 = tcp 5761
+node tools/sitl-serial-bridge.mjs                      # ws://127.0.0.1:5770 <-> tcp 5761
+BRIDGE_TCP_PORT=5771 npm start --workspace @dronelink/ground-core-node   # 5761 is taken by SITL
+npm run dev --workspace @dronelink/air-webapp
+# open https://localhost:5173/?fc=ws://localhost:5770, pair, click Connect FC
+# Betaflight Configurator -> TCP localhost:5771
+```
+
+`?fc=` only works on the Vite dev server (`import.meta.env.DEV`), never inside `android-shell`, and only for `ws://` loopback URLs; production builds don't contain the bridge path. `tools/sitl/` holds the Python SITL scripts (MSP Override spike, fixture capture), which drive Betaflight's own `src/test/sitl/sitl_harness.py`.
+
 ## Key design constraints
 
-- **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end; MSP/MAVLink parsing belongs only in ground-specific higher layers.
+- **No protocol parsing in shared transport layers.** Serial data stays opaque end-to-end in `core-transport`, `SerialTransport` implementations, and the `serial-relay` byte path. The one scoped exception is flight control (`ARCHITECTURE.md` section 7): MSP framing lives in the planned `packages/fc-msp`, and only `air-client-sdk`'s flight-control layer (link classifier, `FcLink` arbiter, identification gate, telemetry poller, supervisor) and ground-side display code may use it.
+- **The serial link is transparent unless flight control is opted in and verified.** With `flightControlEnabled` off (the default), or with any FC that hasn't passed the Betaflight identification gate, the relay must stay byte-identical in both directions — nothing injected, consumed, reordered or delayed. Never send any MSP frame of the air side's own before the gate reports `verified`, and never write AUX channels over the link.
+- **Flight-control failure handling falls back to center or stop, never to the last command.** Any change to the supervisor, its timeouts or the command stream must keep the fail-safe matrix in `ARCHITECTURE.md` section 7.8 true, and must be covered by fake-timer unit tests.
 - **`SerialTransport` stays behind the air SDK abstraction.** Desktop Chrome uses `WebSerialTransport`; Android WebView uses `NativeBridgeTransport`, backed by `android-shell`'s native USB bridge.
 - **Signaling stays inside the ground runtime.** There is no separate signaling service.
 - **TLS trust stays out-of-band.** Do not add in-browser cert pinning; `mkcert` or Tailscale-issued certs are the only supported trust paths.
@@ -143,8 +163,9 @@ Typical loop: `phone-preflight` -> `B=$(ground-up)` -> `phone-cdp pair "$B"` -> 
 ## What not to build yet
 
 - `bridge-firmware` (ESP32 WiFi/BLE UART bridge for iPhone)
-- Ground-side GUI features beyond the live video viewer
-- Reconnection / backoff / resilience logic
+- Ground-side GUI features beyond the live video viewer and the flight-control panels planned in `ARCHITECTURE.md` section 7 (milestone "Mobile flight control in position hold", epic #79)
+- General reconnection / backoff / resilience logic (the flight-control watchdogs in section 7 are in scope; automatic session reconnection is not)
+- Arming, disarming or flight-mode changes over the link, or any flight control without a safety pilot on RC
 - Docker Compose / containerized deployment
 - iPhone air-side app
 
@@ -160,7 +181,7 @@ Typical loop: `phone-preflight` -> `B=$(ground-up)` -> `phone-cdp pair "$B"` -> 
 Path-scoped GitHub Actions, all running root `npm ci` then the relevant workspace build/lint/test commands:
 
 - `ground-ci.yml` — triggers on `apps/ground-core-node`, `apps/ground-web-client`, `packages/core-transport`, `packages/ground-client-sdk`, `packages/ui-kit-ground`, `packages/ui-kit-shared`, `protocol`.
-- `webapp-ci.yml` — triggers on `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`.
+- `webapp-ci.yml` — triggers on `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/fc-msp`, `packages/ui-kit-shared`, `protocol`.
 - `android-ci.yml` — triggers on `android-shell`, `apps/air-webapp`, `packages/core-transport`, `packages/air-client-sdk`, `packages/ui-kit-shared`, `protocol`. Builds the `air-webapp` PWA bundle via `npm ci`, runs `android-shell`'s Kotlin unit tests (`./gradlew testDebugUnitTest`), then builds the debug APK with Gradle (JDK 17) and uploads both the test report and the APK as workflow artifacts. No lint step yet.
 - `android-release.yml` — triggers when a GitHub Release (including a pre-release) is published, or manually via `workflow_dispatch` with a `tag` input (needed to backfill an existing release, since re-publishing one via draft-toggle does not fire the `release` trigger). Rebuilds the same debug-signed APK as `android-ci.yml` at the given tag and attaches it to that release as `dronelink-android-<tag>.apk` via `gh release upload`. The APK is debug-signed (no dedicated release keystore exists yet); it doesn't touch the release's title, body, or prerelease flag.
 

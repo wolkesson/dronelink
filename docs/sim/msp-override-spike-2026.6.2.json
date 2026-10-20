@@ -1,0 +1,157 @@
+{
+  "flight_boxids_has_msp_override": true,
+  "A_sp_hover_5s": {
+    "horiz_m": 0.0,
+    "alt_m": -0.32,
+    "heading_deg": 0.0
+  },
+  "B_handover_without_frames": {
+    "rcData_rpyt": [
+      1500,
+      1500,
+      1500,
+      1275
+    ],
+    "follows_sp_sticks": true,
+    "drift_3s": {
+      "horiz_m": 0.0,
+      "alt_m": 0.03,
+      "heading_deg": 0.0
+    }
+  },
+  "C_neutral_override_5s": {
+    "horiz_m": 0.0,
+    "alt_m": 0.3,
+    "heading_deg": 0.0
+  },
+  "D_throttle_1500_for_5s": {
+    "climb_m": 1.19,
+    "climb_rate_mps": 0.24
+  },
+  "E_pitch_1650_3s": {
+    "moved_m": 1.4,
+    "speed_mps": 0.66,
+    "rcData_pitch": 1650
+  },
+  "E_after_release_4s": {
+    "speed_mps": 0.18,
+    "hold_3s": {
+      "horiz_m": 0.29,
+      "alt_m": 0.1,
+      "heading_deg": -0.0
+    }
+  },
+  "F_yaw_1650_3s": {
+    "heading_change_deg": -142.1,
+    "horiz_drift_m": 0.06
+  },
+  "G_sender_killed_revert_after_last_frame_ms": [
+    303,
+    323,
+    323,
+    311,
+    311
+  ],
+  "G_after_last_kill_1hz_[dist_m,dalt_m,speed_mps]": [
+    [
+      4.9,
+      0.37,
+      4.76
+    ],
+    [
+      8.97,
+      1.05,
+      3.31
+    ],
+    [
+      11.2,
+      1.83,
+      1.18
+    ],
+    [
+      11.35,
+      2.52,
+      0.73
+    ],
+    [
+      9.97,
+      3.04,
+      1.92
+    ],
+    [
+      7.73,
+      3.48,
+      2.49
+    ],
+    [
+      5.32,
+      3.9,
+      2.53
+    ],
+    [
+      3.42,
+      4.32,
+      2.22
+    ],
+    [
+      2.78,
+      4.73,
+      1.7
+    ],
+    [
+      3.24,
+      5.11,
+      1.16
+    ],
+    [
+      3.82,
+      5.47,
+      0.69
+    ],
+    [
+      4.15,
+      5.78,
+      0.38
+    ],
+    [
+      4.25,
+      6.06,
+      0.28
+    ],
+    [
+      4.21,
+      6.28,
+      0.32
+    ],
+    [
+      4.16,
+      6.45,
+      0.34
+    ]
+  ],
+  "G_modes_ok": true,
+  "H_sp_takeback": {
+    "revert_ms": 43,
+    "sender_still_running": true
+  },
+  "I_aux_in_frame": {
+    "still_armed": true,
+    "holds_still_active": true,
+    "rcData_aux1_4": [
+      2000,
+      2000,
+      2000,
+      2000
+    ]
+  },
+  "J_holds_off_with_throttle_1600_1s": {
+    "climb_m": 1.7
+  },
+  "K_rc_loss_with_frames": {
+    "failsafe": true
+  },
+  "failsafe_override_on_boxids_has_msp_override": true,
+  "L_failsafe_override_on_rc_loss": {
+    "failsafe": false
+  }
+}

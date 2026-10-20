@@ -6,3 +6,4 @@ export * from "./core/WebRtcSessionManager.js";
 export * from "./transport/NativeBridgeTransport.js";
 export * from "./transport/SerialTransport.js";
 export * from "./transport/WebSerialTransport.js";
+export * from "./transport/WebSocketSerialTransport.js";

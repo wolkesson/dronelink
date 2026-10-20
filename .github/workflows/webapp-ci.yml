@@ -20,6 +20,7 @@ jobs:
               - "apps/air-webapp/**"
               - "packages/core-transport/**"
               - "packages/air-client-sdk/**"
+              - "packages/fc-msp/**"
               - "packages/ui-kit-shared/**"
               - "protocol/**"
               - ".github/workflows/webapp-ci.yml"
@@ -53,6 +54,7 @@ jobs:
       - name: Build
         run: |
           npm run build --workspace @dronelink/core-transport
+          npm run build --workspace @dronelink/fc-msp
           npm run build --workspace @dronelink/air-client-sdk
           npm run build --workspace @dronelink/ui-kit-shared
           npm run build --workspace @dronelink/air-webapp
@@ -60,6 +62,7 @@ jobs:
       - name: Lint
         run: |
           npm run lint --workspace @dronelink/core-transport
+          npm run lint --workspace @dronelink/fc-msp
           npm run lint --workspace @dronelink/air-client-sdk
           npm run lint --workspace @dronelink/ui-kit-shared
           npm run lint --workspace @dronelink/air-webapp
@@ -67,5 +70,6 @@ jobs:
       - name: Test
         run: |
           npm test --workspace @dronelink/core-transport
+          npm test --workspace @dronelink/fc-msp
           npm test --workspace @dronelink/air-client-sdk
           npm test --workspace @dronelink/ui-kit-shared
