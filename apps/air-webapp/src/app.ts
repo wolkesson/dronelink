@@ -77,6 +77,9 @@ export function mountApp(root: HTMLElement): void {
     onEnabledChange: (enabled) => flightControl.setFlightControlEnabled(enabled, "air"),
   });
   flightControl.onStateChange((state) => flightControlPanel.render(state));
+  // Dev builds only: lets tools/sitl/drills timestamp every fc-state transition. Dropped from
+  // production bundles, like the ?fc= SITL bridge.
+  if (import.meta.env.DEV) (window as unknown as { __dronelinkFlightControl?: unknown }).__dronelinkFlightControl = flightControl;
   flightControlPanel.render(flightControl.buildState());
   // A hidden or unloading page releases flight control (ARCHITECTURE.md 7.7): a backgrounded
   // WebView may be throttled, so it can't be trusted to keep the command stream honest.
