@@ -1,7 +1,7 @@
 import qrcodeTerminal from "qrcode-terminal";
-import { readFileSync } from "node:fs";
 import { TOKEN_PATTERN } from "@dronelink/core-transport";
 import { createSignalingServer, setDataChannelCallbacks, startBridge, stopBridge } from "@dronelink/ground-client-sdk";
+import { loadGuiAssets } from "./gui-assets.js";
 
 const PORT = Number(process.env.SIGNAL_PORT ?? 8443);
 const HOST = process.env.SIGNAL_HOST ?? "localhost";
@@ -27,11 +27,7 @@ if (PAIRING_TOKEN !== undefined && !TOKEN_PATTERN.test(PAIRING_TOKEN)) {
   process.exit(1);
 }
 
-const guiAssets = {
-  page: readFileSync(new URL("../../ground-web-client/public/index.html", import.meta.url), "utf8"),
-  clientScript: readFileSync(new URL("../../ground-web-client/public/gui-client.js", import.meta.url), "utf8"),
-  qrScript: readFileSync(new URL("../../ground-web-client/public/qrcode.mjs", import.meta.url), "utf8"),
-};
+const guiAssets = loadGuiAssets();
 
 setDataChannelCallbacks(
   (channel) => {

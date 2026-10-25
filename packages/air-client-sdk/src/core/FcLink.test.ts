@@ -362,6 +362,17 @@ describe("FcLink control mode", () => {
     expect(link.healthy).toBe(true);
   });
 
+  it("stays healthy when its own polling is throttled (background tab: timers fire once a second)", async () => {
+    const { link, events } = setup(true, { telemetryIntervalMs: 1_000, housekeepingIntervalMs: 1_000 });
+    link.start();
+    await vi.advanceTimersByTimeAsync(3_100);
+    expect(link.mode).toBe("control");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(link.healthy).toBe(true);
+    expect(events).not.toContain("health");
+    expect(link.mode).toBe("control");
+  });
+
   it("falls back to passthrough when re-identification finds a different FC", async () => {
     const { fc, link, toGround } = setup(true);
     link.start();

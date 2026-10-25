@@ -26,7 +26,7 @@ packages/
   ground-client-sdk/   # ground-side signaling/WebRTC/TCP-bridge runtime logic
   air-client-sdk/      # air-side pairing/session/serial transport logic
   ui-kit-shared/       # cross-side UI-facing presentation helpers
-  ui-kit-ground/       # ground-only UI-facing scaffold
+  ui-kit-ground/       # ground-only UI logic (flight-control panel, unlock, dead-man)
 protocol/              # schemas, fixtures, wire-format docs
 android-shell/         # native Android WebView shell (see android-shell/README.md)
 bridge-firmware/       # future work, do not touch yet

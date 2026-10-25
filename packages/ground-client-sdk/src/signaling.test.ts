@@ -226,6 +226,25 @@ describe("createSignalingServer: HTTP GUI asset serving", () => {
     expect(qrScript.statusCode).toBe(200);
     expect(qrScript.headers["content-type"]).toBe("text/javascript; charset=utf-8");
     expect(qrScript.body).toBe(guiAssets.qrScript);
+
+    const missing = await httpsGet(`https://${bundle.host}:${bundle.port}/flight-control.js`);
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("serves the flight-control bundle when it is configured", async () => {
+    const guiAssets: GuiAssets = {
+      page: "<html>gui</html>",
+      clientScript: "",
+      qrScript: "",
+      flightControlScript: "export function mountFlightControl() {}",
+    };
+    const { runtime } = createRuntime({ guiAssets });
+    const bundle = await runtime.start();
+
+    const script = await httpsGet(`https://${bundle.host}:${bundle.port}/flight-control.js`);
+    expect(script.statusCode).toBe(200);
+    expect(script.headers["content-type"]).toBe("text/javascript; charset=utf-8");
+    expect(script.body).toBe(guiAssets.flightControlScript);
   });
 
   it("serves the pairing bundle as JSON once the server has started", async () => {

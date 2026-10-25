@@ -169,7 +169,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
     fc.replies[MspCommand.STATUS_EX] = statusPayload(0b0111);
     await stream(300);
     expect(controller.supervisorState).toBe("IDLE"); // released, then the switch is seen off
-    expect(controller.buildState().supervisor.reason).toBe("handover-ended");
+    // IDLE then reports what blocks a new handover: the switch is off.
+    expect(controller.buildState().supervisor.reason).toBe("sp-took-control");
   });
 
   it("releases and makes the link transparent when MSP_RC doesn't follow the override", async () => {

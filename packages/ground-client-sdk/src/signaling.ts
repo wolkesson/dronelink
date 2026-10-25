@@ -24,6 +24,8 @@ export interface GuiAssets {
   page: string;
   clientScript: string;
   qrScript: string;
+  /** The flight-control panel bundle (ground-web-client), served as /flight-control.js. */
+  flightControlScript?: string;
 }
 
 export interface SignalingServerOptions {
@@ -81,14 +83,19 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
       cert: tlsMaterial.cert,
     },
     (req: IncomingMessage, res: ServerResponse) => {
-      if (req.url === "/gui" || req.url === "/gui-client.js" || req.url === "/qrcode.mjs") {
-        if (!guiAssets) {
+      if (req.url === "/gui" || req.url === "/gui-client.js" || req.url === "/qrcode.mjs" || req.url === "/flight-control.js") {
+        if (!guiAssets || (req.url === "/flight-control.js" && guiAssets.flightControlScript === undefined)) {
           res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
           res.end("Ground GUI assets are unavailable.\n");
           return;
         }
         const isPage = req.url === "/gui";
-        const body = isPage ? guiAssets.page : req.url === "/gui-client.js" ? guiAssets.clientScript : guiAssets.qrScript;
+        const scripts: Record<string, string | undefined> = {
+          "/gui-client.js": guiAssets.clientScript,
+          "/qrcode.mjs": guiAssets.qrScript,
+          "/flight-control.js": guiAssets.flightControlScript,
+        };
+        const body = isPage ? guiAssets.page : scripts[req.url]!;
         res.writeHead(200, {
           "content-type": isPage ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8",
         });

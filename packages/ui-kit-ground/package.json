@@ -1,7 +1,7 @@
 {
   "name": "@dronelink/ui-kit-ground",
   "version": "0.1.0",
-  "description": "Ground-only UI presentation scaffold",
+  "description": "Ground-only UI logic: flight-control panel view model, unlock, command stream and dead-man",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,13 +9,20 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.0.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@dronelink/core-transport": "file:../core-transport"
   }
 }
