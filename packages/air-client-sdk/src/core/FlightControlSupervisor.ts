@@ -301,7 +301,13 @@ export class FlightControlSupervisor {
     const failure = this.preconditionFailure();
     switch (this.current) {
       case "IDLE":
-        if (failure === null) this.transition("HANDED_OVER", "handover");
+        if (failure === null) {
+          this.transition("HANDED_OVER", "handover");
+        } else if (failure !== this.currentReason) {
+          // Not a transition: the reason tells the GUI why the SP can't hand over yet.
+          this.currentReason = failure;
+          this.emit();
+        }
         return;
       case "RELEASED": {
         // A fresh handover needs the SP's switch seen off first (or the setting/link reset).

@@ -90,7 +90,7 @@ describe("FlightControlController", () => {
       flightControlEnabled: false,
       link: { mode: "transparent", reason: "no-fc-link", detectedType: "silent" },
       fc: null,
-      supervisor: { state: "IDLE", reason: null, lastAppliedSeq: null },
+      supervisor: { state: "IDLE", reason: "setting-disabled", lastAppliedSeq: null },
       telemetry: null,
       limits: { commandRateHz: 20, hoverThrottleUs: null },
       rejectedMessages: 2,
@@ -147,6 +147,7 @@ describe("FlightControlController", () => {
       fc: { variant: "BTFL", version: "2026.6.2", apiVersion: "1.48", board: "Board" },
       limits: { hoverThrottleUs: 1300 },
     });
+    fake.emit("telemetry"); // the first feed changes the supervisor's IDLE reason, which publishes
     const count = session.sent.length;
     fake.emit("telemetry");
     expect(session.sent).toHaveLength(count);

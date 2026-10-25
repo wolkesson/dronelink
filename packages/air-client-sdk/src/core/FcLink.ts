@@ -57,7 +57,11 @@ export interface FcTelemetry {
 export interface FcLinkConfig {
   /** No ground->FC bytes for this long before active identification may start. */
   passthroughIdleMs: number;
-  /** No MSP reply for this long in control mode -> fc-link-lost. */
+  /**
+   * A request written this long ago with no MSP reply since -> fc-link-lost (control mode).
+   * Measured from the oldest unanswered request, not the last reply, so a page whose timers
+   * the browser throttles (a background tab polls once a second) doesn't look like a dead FC.
+   */
   linkHealthTimeoutMs: number;
   /** One telemetry request per interval at most (the serial budget). */
   telemetryIntervalMs: number;
@@ -150,7 +154,8 @@ export class FcLink {
   private poller: unknown = null;
   private guardTimer: unknown = null;
   private lastGroundByteAt: number | null = null;
-  private lastReplyAt: number | null = null;
+  /** When the oldest request still without any reply after it was written; null when caught up. */
+  private unansweredSince: number | null = null;
   private linkHealthy = true;
   private identifying = false;
   private identifyRun = 0;
@@ -337,7 +342,7 @@ export class FcLink {
     for (const frame of this.parser.push(bytes)) {
       if (frame.direction === "request") continue;
       gotReply = true;
-      this.lastReplyAt = this.clock.now();
+      this.unansweredSince = null;
       this.resolvePending(frame.command, frame.direction === "response" ? frame.payload : null);
       if (this.currentMode === "control") this.applyTelemetry(frame.command, frame.direction === "response" ? frame.payload : null);
     }
@@ -397,6 +402,8 @@ export class FcLink {
         this.rcFrame = null;
         if (isRc && this.currentMode !== "control") continue;
         try {
+          // Marked before the write: a reply can arrive before write() resolves.
+          if (this.currentMode === "control") this.unansweredSince ??= this.clock.now();
           await this.transport.write(frame);
           if (isRc) this.rcFramesWritten++;
         } catch {
@@ -527,7 +534,7 @@ export class FcLink {
   // --- control mode -------------------------------------------------------
 
   private startControl(): void {
-    this.lastReplyAt = this.clock.now();
+    this.unansweredSince = null;
     this.linkHealthy = true;
     this.telemetryIndex = 0;
     this.telemetryInFlight = false;
@@ -559,8 +566,8 @@ export class FcLink {
   }
 
   private checkHealth(now: number): void {
-    if (!this.linkHealthy || this.lastReplyAt === null) return;
-    if (now - this.lastReplyAt >= this.config.linkHealthTimeoutMs) {
+    if (!this.linkHealthy || this.unansweredSince === null) return;
+    if (now - this.unansweredSince >= this.config.linkHealthTimeoutMs) {
       this.linkHealthy = false;
       this.emit("health");
     }

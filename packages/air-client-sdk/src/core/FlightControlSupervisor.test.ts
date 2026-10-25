@@ -121,10 +121,13 @@ describe("FlightControlSupervisor: handover", () => {
     expect(s.frames).toEqual([]);
   });
 
-  it.each(PRECONDITION_LOSSES)("stays IDLE without %s", (_reason, loss) => {
+  it.each(PRECONDITION_LOSSES)("stays IDLE without %s, and says so", (reason, loss) => {
     const s = setup();
     s.supervisor.update({ ...goodInputs(), ...(typeof loss === "function" ? loss() : loss) });
-    expect(s.supervisor.state).toBe("IDLE");
+    expect(s.supervisor.snapshot).toMatchObject({ state: "IDLE", reason });
+    const notified = s.snapshots.length;
+    s.supervisor.update({});
+    expect(s.snapshots).toHaveLength(notified); // an unchanged reason isn't re-announced
   });
 
   it("drops and counts commands while locked, and ignores abort there", () => {
