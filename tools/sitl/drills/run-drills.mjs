@@ -279,18 +279,25 @@ function mspResponse(cmd, payload) {
   return frame;
 }
 
-/** MSP v1 frames (cmd numbers) in a byte stream, by direction marker. */
+/** MSP v1 frames (cmd numbers) in a byte stream: requests ('<'), or replies ('>' and errors '!'). Handles jumbo frames. */
 function mspFrames(buf, direction = 0x3c) {
+  const directions = direction === 0x3c ? [0x3c] : [0x3e, 0x21];
   const out = [];
   for (let i = 0; i + 5 < buf.length; i++) {
-    if (buf[i] !== 0x24 || buf[i + 1] !== 0x4d || buf[i + 2] !== direction) continue;
-    const size = buf[i + 3];
-    if (i + 6 + size > buf.length) break;
+    if (buf[i] !== 0x24 || buf[i + 1] !== 0x4d || !directions.includes(buf[i + 2])) continue;
+    let size = buf[i + 3];
+    let header = 5;
+    if (size === 0xff) {
+      if (i + 7 > buf.length) break;
+      size = buf[i + 5] | (buf[i + 6] << 8);
+      header = 7;
+    }
+    if (i + header + size + 1 > buf.length) break;
     let x = 0;
-    for (let k = i + 3; k < i + 5 + size; k++) x ^= buf[k];
-    if (x === buf[i + 5 + size]) {
+    for (let k = i + 3; k < i + header + size; k++) x ^= buf[k];
+    if (x === buf[i + header + size]) {
       out.push(buf[i + 4]);
-      i += 5 + size;
+      i += header + size;
     }
   }
   return out;
@@ -530,8 +537,25 @@ async function guiUnlock() {
   await chain.gui.keyboard.down("Enter");
   await sleep(1_700);
   await chain.gui.keyboard.up("Enter");
-  await waitFor("air ACTIVE after unlock", async () => (await airNow())?.sup === "ACTIVE", 4_000);
+  try {
+    await waitFor("air ACTIVE after unlock", async () => (await airNow())?.sup === "ACTIVE", 4_000);
+  } catch (error) {
+    throw new Error(`${error.message}; GUI: ${JSON.stringify(await guiDiag())}`);
+  }
 }
+
+/** What the GUI showed, for failure messages. */
+const guiDiag = () =>
+  chain.gui
+    .evaluate(() => ({
+      go: document.querySelector(".fcp-go")?.textContent,
+      red: [...document.querySelectorAll(".fcp-go-list .fcp-bad")].map((li) => li.textContent),
+      take: { hidden: document.querySelector(".fcp-take")?.hidden, disabled: document.querySelector(".fcp-take")?.disabled },
+      deadman: document.querySelector(".fcp-deadman:not([hidden])")?.textContent ?? null,
+      error: document.querySelector(".fcp-error:not([hidden])")?.textContent ?? null,
+      focused: document.hasFocus(),
+    }))
+    .catch((e) => String(e));
 
 // --- getting into a scenario's starting state ---------------------------------------------
 
@@ -981,6 +1005,11 @@ const SCENARIOS = [
       await waitSwitchSeenOff();
       await chain.simClient.pilot({ override: true });
       await waitFor("HANDED_OVER", async () => (await airNow())?.sup === "HANDED_OVER", 6_000);
+      // The previous scenario's last frames stay applied for Betaflight's 300 ms stale window.
+      await waitFor("FC on the SP's sticks", async () => {
+        const recent = await chain.simClient.samples(Date.now() - 200);
+        return recent.length > 3 && recent.every((s) => classify(s) === "sp");
+      }, 3_000);
       const t0 = Date.now();
       // A rogue client streams full-deflection commands; the GUI user mashes the keys.
       const ws = new WebSocket(`wss://localhost:${PORTS.signal}/gui-signaling`, { rejectUnauthorized: false });
@@ -996,13 +1025,14 @@ const SCENARIOS = [
       const air = await airLog(t0);
       const toFc = chain.proxy.bytes("toFc", t0);
       const setRawRc = mspFrames(toFc).filter((c) => c === 200).length;
-      const nonSp = samples.filter((s) => classify(s) !== "sp").length;
+      const offSp = samples.filter((s) => classify(s) !== "sp");
+      const nonSp = offSp.length;
       return {
         samples,
         checks: [
           check("still HANDED_OVER (locked)", air.at(-1)?.sup ?? (await airNow())?.sup, (air.at(-1)?.sup ?? (await airNow())?.sup) === "HANDED_OVER", "HANDED_OVER"),
           check("MSP_SET_RAW_RC frames written to the FC", setRawRc, setRawRc === 0, "0"),
-          check("FC samples not on the SP's sticks", nonSp, nonSp === 0, "0"),
+          check("FC samples not on the SP's sticks", nonSp ? `${nonSp}: ${JSON.stringify(offSp.slice(0, 3).map((s) => [Math.round(s[0] - t0), s[1].slice(0, 4), s[7].slice(0, 4)]))}` : 0, nonSp === 0, "0"),
         ],
       };
     },
@@ -1150,6 +1180,7 @@ const SCENARIOS = [
       });
       const commands = [1, 2, 3, 4, 5, 101, 105, 106, 108, 109, 110, 116, 119, 150];
       let timeouts = 0;
+      const unanswered = new Set();
       for (let i = 0; i < 300; i++) {
         const frame = mspRequest(commands[i % commands.length]);
         sent.push(frame);
@@ -1158,6 +1189,7 @@ const SCENARIOS = [
         const ok = await Promise.race([replied.then(() => true), sleep(1_000).then(() => false)]);
         if (!ok) {
           timeouts++;
+          unanswered.add(commands[i % commands.length]);
           pending = null;
           buf = Buffer.alloc(0);
         }
@@ -1175,7 +1207,7 @@ const SCENARIOS = [
       return {
         samples: [],
         checks: [
-          check("round trips answered", 300 - timeouts, timeouts === 0, "300"),
+          check("round trips answered", `${300 - timeouts}${unanswered.size ? ` (no reply to ${[...unanswered].join(",")})` : ""}`, timeouts === 0, "300"),
           check("FC received exactly the client's bytes", `${toFc.length} vs ${clientSent.length} B`, toFc.equals(clientSent), "identical"),
           check("client received exactly the FC's bytes", `${clientGot.length} vs ${fromFc.length} B`, clientGot.equals(fromFc), "identical"),
           check("bytes written to the FC while idle", idleWrites, idleWrites === 0, "0"),

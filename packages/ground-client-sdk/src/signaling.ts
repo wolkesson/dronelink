@@ -189,6 +189,9 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
 
   wss.on("connection", configureAirSignalingSocket);
   guiWss.on("connection", (socket) => {
+    const reply = (msg: unknown) => {
+      socket.send(JSON.stringify(msg));
+    };
     socket.on("message", (data) => {
       let signalingMessage: unknown;
       try {
@@ -197,13 +200,11 @@ export function createSignalingServer(options: SignalingServerOptions): Signalin
         logger.warn("Received malformed GUI signaling message");
         return;
       }
-      handleGuiSignalingMessage(signalingMessage, (msg) => {
-        socket.send(JSON.stringify(msg));
-      }, tlsProvider === "tailscale");
+      handleGuiSignalingMessage(signalingMessage, reply, tlsProvider === "tailscale");
     });
 
     socket.on("close", () => {
-      handleGuiSocketClose();
+      handleGuiSocketClose(reply);
     });
   });
 

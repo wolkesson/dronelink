@@ -876,6 +876,38 @@ describe("video-control-request / video-control-state relay", () => {
   });
 });
 
+describe("handleGuiSocketClose: only the active viewer's socket ends the session", () => {
+  it("ignores another GUI socket closing, e.g. a second tab refused as already connected", async () => {
+    await connectVideoSource();
+    const viewer = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, viewer);
+    await vi.waitFor(() => expect(viewer).toHaveBeenCalledWith(expect.objectContaining({ type: "answer" })));
+    const stray = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, stray);
+    expect(stray).toHaveBeenCalledWith({ type: "error", message: "A GUI viewer is already connected." });
+
+    handleGuiSocketClose(stray);
+    viewer.mockClear();
+    handleSignalingMessage({ type: "video-control-state", control: "quality", preset: "low", videoActive: true }, vi.fn());
+    expect(viewer).toHaveBeenCalledWith(expect.objectContaining({ type: "video-control-state" }));
+
+    handleGuiSocketClose(viewer);
+    viewer.mockClear();
+    handleSignalingMessage({ type: "video-control-state", control: "quality", preset: "high", videoActive: true }, vi.fn());
+    expect(viewer).not.toHaveBeenCalled();
+  });
+
+  it("ends a pending offer when its own socket closes", () => {
+    const pending = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, pending); // no video yet: pending
+    handleGuiSocketClose(pending);
+    const next = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, next);
+    expect(next).not.toHaveBeenCalledWith({ type: "error", message: "A GUI viewer is already connected." });
+    handleGuiSocketClose(next);
+  });
+});
+
 describe("handleSocketClose / handleGuiSocketClose: teardown", () => {
   it("logs a warning instead of throwing when the recorder fails to stop", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
