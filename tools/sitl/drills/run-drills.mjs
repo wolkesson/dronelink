@@ -766,10 +766,10 @@ const SCENARIOS = [
     name: "Network blackhole between ground and air",
     requires: "root",
     async run() {
-      const t0 = await establishFlying();
+      await establishFlying();
       chain.impair = start("netimpair", "python3", [join(HERE, "netimpair.py"), "blackhole"], { ready: /active/ });
       await chain.impair.ready;
-      return heartbeatLoss(t0);
+      return heartbeatLoss(Date.now()); // the fault starts when the rule is in place
     },
   },
   ...[
@@ -780,9 +780,10 @@ const SCENARIOS = [
     name: `${ms} ms latency + 20 % loss`,
     requires: "nfqueue",
     async run() {
-      const t0 = await establishFlying();
+      await establishFlying();
       chain.impair = start("netimpair", "python3", [join(HERE, "netimpair.py"), "delay", "--ms", String(ms), "--loss", "20"], { ready: /active/ });
       await chain.impair.ready;
+      const t0 = Date.now(); // the fault starts when the rule is in place
       const { samples, air } = await collect(t0, 12_000);
       const gui = await guiLog(t0);
       const gate = gui.find((e) => /round trip above|too late/.test(e.deadman));
