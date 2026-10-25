@@ -434,8 +434,12 @@ const AIR_HOOK = `(() => {
 })()`;
 
 async function airOpen() {
-  if (chain.air) await chain.air.context().close().catch(() => undefined);
-  const context = await chain.browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 420, height: 1000 } });
+  // A reload keeps the air unit's browser storage (the flight-control setting lives there), so
+  // reuse the context; only the first open, or a dead browser context, makes a new one.
+  let context = chain.air && !chain.air.isClosed() ? chain.air.context() : null;
+  if (chain.air && !chain.air.isClosed()) await chain.air.close().catch(() => undefined);
+  context ??= chain.airContext ?? (await chain.browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 420, height: 1000 } }));
+  chain.airContext = context;
   chain.air = await context.newPage();
   await chain.air.goto(`http://localhost:${PORTS.air}/?fc=ws://localhost:${PORTS.bridge}`);
   await waitFor("air flight-control hook", () => chain.air.evaluate(AIR_HOOK), 20_000);
