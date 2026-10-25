@@ -21,6 +21,10 @@ export interface FcIdentity {
   target: string;
   build: string;
   hoverThrottleUs: number;
+  /** MSP_BOXIDS order, which pairs with the flight mode flag bits in MSP_STATUS_EX. */
+  boxIds: number[];
+  /** Raw receiver channel per function, in Betaflight's internal order R, P, Y, T, AUX1.. */
+  rxMap: number[];
 }
 
 export type IdentificationResult =
@@ -172,6 +176,8 @@ export class FcIdentificationGate {
         target: boardInfo.targetName ?? boardInfo.boardIdentifier,
         build: `${buildInfo.buildDate} ${buildInfo.buildTime} ${buildInfo.gitRevision}`.trim(),
         hoverThrottleUs,
+        boxIds,
+        rxMap,
       };
       options.onIdentity?.(identity);
       this.current = { mode: "verified", reason: null, identity };

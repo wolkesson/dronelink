@@ -1,5 +1,8 @@
 import {
   createCameraSettingsStore,
+  createFlightControlSettingsStore,
+  FcLink,
+  FlightControlController,
   NATIVE_BRIDGE_PORT_MESSAGE,
   NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE,
   NativeBridgeTransport,
@@ -18,6 +21,7 @@ import { devSerialBridgeUrl, isAndroidShell } from "./platform.js";
 import { createAppHeader } from "./components/AppHeader.js";
 import { createLinkPanel } from "./components/LinkPanel.js";
 import { createFlightControllerPanel } from "./components/FlightControllerPanel.js";
+import { createFlightControlPanel } from "./components/FlightControlPanel.js";
 import { createDisconnectButton } from "./components/DisconnectButton.js";
 import { createSessionFooter } from "./components/SessionFooter.js";
 import { formatByteRate, formatDuration, formatMbps } from "./format.js";
@@ -36,6 +40,7 @@ export function mountApp(root: HTMLElement): void {
   const cameraSettings = createCameraSettingsStore();
 
   let transport: SerialTransport | null = null;
+  let fcLink: FcLink | null = null;
   let videoStream: MediaStream | null = null;
   let connectedAt: number | null = null;
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
@@ -63,6 +68,17 @@ export function mountApp(root: HTMLElement): void {
     onConnectRequest: () => handleConnectFc(),
   });
 
+  // Flight control is opt-in and off by default; the setting lives on this phone (ARCHITECTURE.md 7.3).
+  const flightControl = new FlightControlController({
+    session: sessionManager,
+    settings: createFlightControlSettingsStore(),
+  });
+  const flightControlPanel = createFlightControlPanel({
+    onEnabledChange: (enabled) => flightControl.setFlightControlEnabled(enabled, "air"),
+  });
+  flightControl.onStateChange((state) => flightControlPanel.render(state));
+  flightControlPanel.render(flightControl.buildState());
+
   const linkPanel = createLinkPanel({
     qrSupported: QrPairingScanner.isSupported(),
     onPair: (bundleText) => void handlePair(bundleText),
@@ -79,6 +95,7 @@ export function mountApp(root: HTMLElement): void {
     header.el,
     linkPanel.el,
     fcPanel.el,
+    flightControlPanel.el,
     disconnectButton.el,
     footer.el,
   );
@@ -624,21 +641,29 @@ export function mountApp(root: HTMLElement): void {
         fcPanel.setConnected(true);
         fcPanel.setBaudRate(usingSitlBridge ? "SITL bridge" : `${SERIAL_BAUD_RATE}`);
 
+        // Every serial byte goes through the FcLink arbiter: an opaque, byte-identical relay
+        // unless flight control is enabled and a supported Betaflight FC has been verified.
+        const link = new FcLink({ transport: t, flightControlEnabled: flightControl.flightControlEnabled });
+        fcLink = link;
+
         let fcDisconnected = false;
         const handleFcDisconnect = () => {
           if (fcDisconnected) return;
           fcDisconnected = true;
           unsubSerial();
           unsubWebRtc();
+          unsubClosed();
+          link.stop();
+          if (fcLink === link) fcLink = null;
           transport = null;
           fcPanel.setConnected(false);
         };
 
-        const unsubSerial = t.subscribe((bytes) => {
-          if (bytes.length === 0) {
-            handleFcDisconnect();
-            return;
-          }
+        // An empty chunk from the transport means the FC disconnected; FcLink reports it as closed.
+        const unsubClosed = link.onChange((event) => {
+          if (event === "closed") handleFcDisconnect();
+        });
+        const unsubSerial = link.onGroundBound((bytes) => {
           // The FC can now be connected before the ground station is paired, so bytes
           // may arrive with no data channel to relay them over yet -- sendBytes() throws
           // in that case. Drop them rather than crash the serial read loop; there's
@@ -650,8 +675,10 @@ export function mountApp(root: HTMLElement): void {
         });
         const unsubWebRtc = sessionManager.subscribe((bytes) => {
           activityTracker.recordReceive(bytes.length);
-          void transport?.write(bytes);
+          link.writeFromGround(bytes);
         });
+        flightControl.attachLink(link);
+        link.start();
       })
       .catch((err: unknown) => {
         connectingFc = false;
@@ -730,10 +757,12 @@ export function mountApp(root: HTMLElement): void {
     lastRelayBytesSent = 0;
     lastRelayBytesReceived = 0;
 
-    if (transport) {
-      await transport.close();
-      transport = null;
-    }
+    // Stopping the link runs handleFcDisconnect(), which clears `transport`; close the one it had.
+    const openTransport = transport;
+    fcLink?.stop();
+    fcLink = null;
+    transport = null;
+    await openTransport?.close();
     sessionManager.disconnect();
     session.socket?.close(1000, "client disconnect");
 

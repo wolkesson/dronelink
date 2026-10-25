@@ -51,6 +51,7 @@ export class LinkTypeClassifier {
   private sawBytes = false;
   private lastByteAt: number | null = null;
   private buffer = new Uint8Array(0);
+  private observingSince = 0;
 
   constructor(private readonly silenceTimeoutMs = 2_000) {}
 
@@ -88,11 +89,17 @@ export class LinkTypeClassifier {
 
   tick(now = Date.now()): DetectedLinkType {
     if (this.lastByteAt === null) {
-      if (now >= this.silenceTimeoutMs) this.detected = "silent";
+      if (now - this.observingSince >= this.silenceTimeoutMs) this.detected = "silent";
     } else if (now - this.lastByteAt >= this.silenceTimeoutMs) {
       this.detected = "silent";
     }
     return this.detected;
+  }
+
+  /** Starts a fresh observation window at `now`, e.g. when the FC link opens. */
+  begin(now: number): void {
+    this.reset();
+    this.observingSince = now;
   }
 
   reset(): void {
