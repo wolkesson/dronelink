@@ -46,11 +46,13 @@ Raw results from the full run: [`msp-override-spike-2026.6.2.json`](msp-override
 Betaflight SITL ─tcp 5761─ tools/sitl-serial-bridge.mjs ─ws 5770─ air-webapp (?fc=) ─WebRTC─ ground-core-node ─tcp 5771─ Configurator / MSP client
 ```
 
+[sitl-port-map.html](sitl-port-map.html) maps every process and port in this chain, including the simulator feeds and the WSL setup below. Open it in a browser.
+
 1. Start SITL in its own directory. It keeps `eeprom.bin` there, and UART1 listens on TCP 5761. For a flying craft, use the harness instead: `msp_override_spike.py` or `capture_msp_fixture.py`.
 2. Start the bridge: `node tools/sitl-serial-bridge.mjs`. It listens on 127.0.0.1:5770 and serves one client at a time.
 3. Start the ground runtime: `BRIDGE_TCP_PORT=5771 npm start --workspace @dronelink/ground-core-node`. Its default TCP port 5761 would collide with SITL.
 4. Start air: `npm run dev --workspace @dronelink/air-webapp`. Open `https://localhost:5173/?fc=ws://localhost:5770` in desktop Chrome, pair, and click **Connect FC**. The FC panel shows "SITL bridge" instead of a baud rate.
-5. Point Betaflight Configurator, or any MSP client, at TCP `localhost:5771`.
+5. Point Betaflight Configurator, or any MSP client, at TCP `localhost:5771`. In Configurator, choose **Manual Selection** and enter `tcp://localhost:5771`. This needs the desktop (Tauri) build of Betaflight App. The web version at app.betaflight.com, installed as a PWA or not, can't open raw TCP: it treats every manual address as a WebSocket, so a `tcp://` address fails with "Failed to connect to the selected port".
 
 This was verified headless (Chromium via Playwright with fake media devices, mkcert TLS). An MSP client on 5771 got `BTFL 2026.6.2`, API 1.48, from SITL through the whole chain.
 
@@ -105,9 +107,11 @@ $env:BRIDGE_TCP_PORT=5771; npm start --workspace @dronelink/ground-core-node
 npm run dev --workspace @dronelink/air-webapp
 ```
 
-Then follow steps 4–5 of the previous section: open `https://localhost:5173/?fc=ws://localhost:5770` in Chrome, pair, click **Connect FC**, and connect Configurator to `tcp://localhost:5771`.
+Then follow steps 4–5 of the previous section: open `https://localhost:5173/?fc=ws://localhost:5770` in Chrome, pair, click **Connect FC**, and connect the desktop Configurator to `tcp://localhost:5771`.
 
 If Windows can't reach port 5761, set `networkingMode=mirrored` in `%UserProfile%\.wslconfig` and restart WSL (`wsl --shutdown`). Alternatively, run the bridge inside WSL too.
+
+If a connection to 5761 opens but MSP gets no reply, from WSL too, the problem is SITL, not networking. At startup, SITL's TCP thread can free a UART's server stream before it starts listening. The port still binds, and `ss -tln` shows `LISTEN` with a growing Recv-Q, but nothing ever accepts the connection. `sim.py` probes UART1 after launch and relaunches SITL when this happens. If you start SITL some other way, restart it.
 
 ### What to try
 

@@ -19,6 +19,8 @@ build/
 # ─── Python (tools/sitl) ─────────────────────────────────────────────────────
 __pycache__/
 *.pyc
+# sim.py's default --workdir: SITL eeprom.bin, sitl.log, scenario_config.txt
+sitl-sim/
 
 # ─── Test / coverage ─────────────────────────────────────────────────────────
 coverage/

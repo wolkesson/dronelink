@@ -22,6 +22,7 @@ stick channels, msp_override_failsafe OFF, hover throttle 1275, ALTHOLD+POSHOLD 
 import argparse
 import math
 import os
+import socket
 import struct
 import sys
 import threading
@@ -30,6 +31,8 @@ import time
 import msp_override_spike as spike
 
 MONITOR_PORT = 5762  # UART2; UART1 (5761) stays free for DroneLink
+DRONELINK_PORT = 5761
+MSP_API_VERSION = 1
 MSP_RC = 105
 MSP_RAW_GPS = 106
 
@@ -294,6 +297,36 @@ def run_headless(sitl, fdm, pilot, monitor, takeoff, handover, duration):
         time.sleep(1.0)
 
 
+def uart1_answers():
+    """True if UART1 replies to MSP. Connects and disconnects, leaving the port free."""
+    try:
+        with socket.create_connection(("127.0.0.1", DRONELINK_PORT), timeout=1) as sock:
+            h.Msp(sock).request(MSP_API_VERSION, timeout=1.0)
+            return True
+    except (OSError, TimeoutError, RuntimeError):
+        return False
+
+
+def start_sitl(sitl, attempts=3):
+    """Starts SITL and makes sure UART1 is served, relaunching if not.
+
+    Betaflight SITL races at startup: serTcpOpen() creates each UART's dyad server stream in
+    state CLOSED on the main thread while the TCP thread is already in dyad_update(), whose
+    destroyClosedStreams() can free it before dyad_listenEx() runs. The port still binds and
+    listens, but dyad never polls it again, so clients connect and hang. sitl.start() only
+    proves UART2; this covers UART1, which DroneLink uses.
+    """
+    for attempt in range(attempts):
+        sitl.start()
+        if uart1_answers():
+            return
+        print(f"[sim] SITL is not serving UART1 (tcp {DRONELINK_PORT}), relaunching "
+              f"({attempt + 1}/{attempts})", flush=True)
+        sitl.stop()
+        time.sleep(2.0)
+    raise RuntimeError(f"SITL did not serve UART1 (tcp {DRONELINK_PORT}) after {attempts} launches")
+
+
 def main():
     global h
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -327,7 +360,7 @@ def main():
     monitor = None
     try:
         try:
-            sitl.start()
+            start_sitl(sitl)
         except RuntimeError as err:
             sys.exit(f"[sim] could not start SITL: {err}. Is another SITL still running? "
                      f"An eeprom.bin from elsewhere may also lack MSP on UART2: retry with --fresh.")
@@ -338,6 +371,7 @@ def main():
         monitor.start()
         pilot = Pilot(rc)
         print(f"[sim] SITL running (log: {workdir}/sitl.log); DroneLink: node tools/sitl-serial-bridge.mjs", flush=True)
+        print(f"[sim] Exposing DroneLink on TCP port {DRONELINK_PORT}")
         if args.headless:
             run_headless(sitl, fdm, pilot, monitor, args.takeoff, args.handover, args.duration)
         else:
