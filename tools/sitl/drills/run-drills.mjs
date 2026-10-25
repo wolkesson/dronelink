@@ -74,7 +74,7 @@ const BOX = { ARM: 0, ALTHOLD: 3, POSHOLD: 11, FAILSAFE: 27, OVERRIDE: 50 };
 const LIMITS = {
   neutralMs: 300, // air centers the sticks after a lost heartbeat / ABORT
   releaseMs: 1200, // air RELEASED after a lost heartbeat
-  fcFallbackMs: 450, // FC back on the SP's sticks after the air stops sending (300 ms stale + RX)
+  fcFallbackMs: 400, // FC back on the SP's sticks after the last frame (300 ms stale + RX feed + sampling)
   spTakebackMs: 150, // FC on the SP's sticks after the switch flips back (next RX frame)
   settleMs: 4000, // drift is measured from fault + settle ...
   windowMs: 4000, // ... over this window
@@ -722,16 +722,33 @@ async function heartbeatLoss(t0, { neutralFromFc = true } = {}) {
 }
 
 /** Faults where the air can't send at all (5, 6): the FC's own stale-override fallback. */
+/** ms from the last MSP_SET_RAW_RC the FC received to the first sample on the SP's sticks. */
+function afterLastFrame(samples, from) {
+  const tSpAbs = firstAt(samples, from, "sp");
+  const lastFrame = chain.proxy.chunks
+    .filter((c) => c.dir === "toFc" && c.t <= (tSpAbs ?? Infinity) && mspFrames(c.bytes).includes(200))
+    .at(-1)?.t;
+  return tSpAbs !== undefined && lastFrame !== undefined ? Math.round(tSpAbs - lastFrame) : null;
+}
+
 async function fcFallback(t0) {
   const { samples, air } = await collect(t0, LIMITS.settleMs + LIMITS.windowMs + 500);
-  const tSp = rel(firstAt(samples, t0, "sp"), t0);
+  const tSpAbs = firstAt(samples, t0, "sp");
+  const tSp = rel(tSpAbs, t0);
   const lastPp = rel(lastAt(samples, t0, "pp"), t0);
+  // Betaflight's stale-override timer runs from the last frame it received, which can be a few
+  // tens of ms after t0 (the fault takes effect asynchronously): anchor on the proxy's capture.
+  const lastFrame = chain.proxy.chunks
+    .filter((c) => c.dir === "toFc" && c.t <= (tSpAbs ?? Infinity) && mspFrames(c.bytes).includes(200))
+    .at(-1)?.t;
+  const afterLastFrame = tSpAbs !== undefined && lastFrame !== undefined ? Math.round(tSpAbs - lastFrame) : null;
   return {
     air,
     samples,
     checks: [
-      check("FC back on the SP's sticks (ms)", tSp, tSp !== null && tSp <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
-      check("no PP command after the fallback (last PP sample, ms)", lastPp, lastPp === null || lastPp <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+      check("FC back on the SP's sticks after the last frame (ms)", afterLastFrame, afterLastFrame !== null && afterLastFrame <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+      check("... after the fault (ms, measured)", tSp, tSp !== null, "report"),
+      check("no PP command after the fallback (last PP sample, ms)", lastPp, lastPp === null || (tSp !== null && lastPp < tSp), "before the fallback"),
       ...driftChecks(drift(samples, t0)),
     ],
   };
@@ -988,7 +1005,8 @@ const SCENARIOS = [
       return {
         samples,
         checks: [
-          check("FC back on the SP's sticks during the drop (ms)", tSp, tSp !== null && tSp <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+          check("FC back on the SP's sticks during the drop, after the last frame (ms)", afterLastFrame(samples, t0), afterLastFrame(samples, t0) !== null && afterLastFrame(samples, t0) <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+          check("... after the drop (ms, measured)", tSp, tSp !== null, "report"),
           check("locked after reconnect: no HANDED_OVER with the switch left on", handedOver ? "handed over" : reason, !handedOver && reason === "awaiting-fresh-handover", "awaiting-fresh-handover"),
           check("GUI does not offer the unlock", offered ? "offered" : "not offered", !offered, "not offered"),
           check("fresh handover + unlock works", unlocked ? "ACTIVE" : "no", unlocked, "ACTIVE"),
@@ -1148,8 +1166,9 @@ const SCENARIOS = [
         checks: [
           check("air released (ms)", released ? `${rel(released.t, t0)} (${released.reason})` : "no", released && released.t - t0 <= 100, "≤ 100"),
           check("link transparent (ms)", rel(transparent?.t, t0), transparent && transparent.t - t0 <= 100, "≤ 100"),
-          check("FC on the SP's sticks (ms)", tSp, tSp !== null && tSp <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
-          check("no PP command after (last PP sample, ms)", lastPp, lastPp === null || lastPp <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+          check("FC on the SP's sticks after the last frame (ms)", afterLastFrame(samples, t0), afterLastFrame(samples, t0) !== null && afterLastFrame(samples, t0) <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+          check("... after the switch-off (ms, measured)", tSp, tSp !== null, "report"),
+          check("no PP command after that (last PP sample, ms)", lastPp, lastPp === null || (tSp !== null && lastPp < tSp), "before it"),
           ...driftChecks(drift(samples, t0)),
         ],
       };
