@@ -26,13 +26,22 @@ describe("LinkTypeClassifier", () => {
     const classifier = new LinkTypeClassifier();
     expect(classifier.push(new Uint8Array([0xfe, 0, 1, 1, 1, 0, 0, 0]), 1)).toBe("mavlink-v1");
     expect(classifier.push(new Uint8Array([0xfd, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0]), 2)).toBe("mavlink-v2");
+    expect(new LinkTypeClassifier().push(new Uint8Array([0xfe, 10, 0]), 3)).toBe("unknown");
+    expect(new LinkTypeClassifier().push(new Uint8Array([0xfe, 10, 0, 1, 1, 1]), 4)).toBe("unknown");
+    expect(new LinkTypeClassifier().push(new Uint8Array([0xfd, 0, 1, 0]), 4)).toBe("unknown");
+    expect(new LinkTypeClassifier().push(new Uint8Array([0xfd, 10, 0, 0, 1, 1, 1, 0, 0, 0]), 5)).toBe("unknown");
+    expect(new LinkTypeClassifier().push(new Uint8Array([0xfd, 0, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0]), 6)).toBe("unknown");
   });
 
   it("validates CRSF checksums and leaves noise unknown", () => {
     expect(new LinkTypeClassifier().push(crsfFrame(), 1)).toBe("crsf");
     const classifier = new LinkTypeClassifier();
     expect(classifier.push(new Uint8Array([1, 2, 3, 4, 5]), 1)).toBe("unknown");
-    expect(classifier.tick(2_001)).toBe("silent");
+    expect(classifier.push(new Uint8Array([0xc8, 1, 0, 0]), 2)).toBe("unknown");
+    expect(classifier.push(new Uint8Array([0xc8, 3, 0x16, 0, 0]), 3)).toBe("unknown");
+    expect(classifier.push(encodeMspV1("request", 1), 4)).toBe("unknown");
+    expect(classifier.push(new Uint8Array(), 5)).toBe("unknown");
+    expect(classifier.tick(2_004)).toBe("silent");
   });
 
   it("reports silence and resets its observation state", () => {

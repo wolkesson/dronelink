@@ -34,6 +34,11 @@
         width: min(60vw, 360px);
         height: min(60vw, 360px);
       }
+      #flight-control-state {
+        padding: 0.75rem;
+        border: 1px solid #888;
+        max-width: 960px;
+      }
     </style>
   </head>
   <body>
@@ -44,6 +49,14 @@
       <p id="air-data-latency" role="status">Data latency (round trip): —</p>
       <p id="air-battery" role="status" data-level="unknown">Air unit battery: unknown</p>
       <p id="air-data-usage" role="status">Air unit data: unknown</p>
+      <section id="flight-control-state" aria-live="polite">
+        <h2>Flight control diagnostics</h2>
+        <p id="flight-control-diagnostic">Waiting for air unit state…</p>
+        <label>
+          <input type="checkbox" id="flight-control-enabled" disabled />
+          Enable flight control on air unit
+        </label>
+      </section>
       <video id="live-video" autoplay playsinline controls></video>
       <div id="pairing-qr">
         <p>Scan with the air unit to connect</p>

@@ -17,8 +17,14 @@ const zoomFillCheckbox = document.getElementById("zoom-fill");
 const rotationLabel = document.getElementById("rotation-label");
 const rotateLeftButton = document.getElementById("rotate-left");
 const rotateRightButton = document.getElementById("rotate-right");
+const flightControlDiagnostic = document.getElementById("flight-control-diagnostic");
+const flightControlEnabledCheckbox = document.getElementById("flight-control-enabled");
 let currentRotation = 0;
 let currentDefaultDeviceId = "";
+let flightControlState;
+let flightControlChannelOpen = false;
+let pendingFlightControlSetting = null;
+let flightControlSettingTimer;
 const signalingUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/gui-signaling`;
 const socket = new WebSocket(signalingUrl);
 let peerConnection;
@@ -28,6 +34,34 @@ let videoMetricsTimer;
 
 function setStatus(message) {
   status.textContent = message;
+}
+
+function renderFlightControlState() {
+  const state = flightControlState;
+  if (!state) return;
+  const identity = state.fc
+    ? `${state.fc.variant} ${state.fc.version} · ${state.fc.board}`
+    : "FC identity unavailable";
+  const details = [
+    `Link ${state.link.detectedType} · ${state.link.mode}`,
+    identity,
+    `Supervisor ${state.supervisor.state}`,
+    state.link.reason,
+  ].filter(Boolean);
+  flightControlDiagnostic.textContent = details.join(" · ");
+  flightControlEnabledCheckbox.checked = state.flightControlEnabled;
+  const canChange = state.supervisor.state === "IDLE" || state.supervisor.state === "RELEASED";
+  flightControlEnabledCheckbox.disabled = !flightControlChannelOpen || !canChange;
+  if (pendingFlightControlSetting === state.flightControlEnabled) {
+    pendingFlightControlSetting = null;
+    if (flightControlSettingTimer !== undefined) clearInterval(flightControlSettingTimer);
+    flightControlSettingTimer = undefined;
+  }
+}
+
+function sendFlightControlSetting() {
+  if (pendingFlightControlSetting === null || socket.readyState !== WebSocket.OPEN || !flightControlChannelOpen) return;
+  socket.send(JSON.stringify({ type: "fc-setting", flightControlEnabled: pendingFlightControlSetting }));
 }
 
 // Shows the pairing QR in place of the video block until the ground-air WebRTC
@@ -168,6 +202,19 @@ socket.onmessage = async (event) => {
       }
     } else if (message.type === "ice-candidate" && message.candidate) {
       await addRemoteCandidate(message.candidate);
+    } else if (message.type === "fc-channel") {
+      flightControlChannelOpen = message.open === true;
+      flightControlEnabledCheckbox.disabled = !flightControlChannelOpen;
+      if (!flightControlChannelOpen && flightControlSettingTimer !== undefined) {
+        clearInterval(flightControlSettingTimer);
+        flightControlSettingTimer = undefined;
+        pendingFlightControlSetting = null;
+      } else {
+        sendFlightControlSetting();
+      }
+    } else if (message.type === "fc-state") {
+      flightControlState = message;
+      renderFlightControlState();
     } else if (message.type === "video-control-state" && message.control === "quality") {
       qualitySelect.value = message.preset;
       setStatus(message.videoActive ? "Live video connected" : "Live video paused (data-only mode)");
@@ -243,7 +290,20 @@ socket.onclose = () => {
   videoLatency.textContent = "Video latency (jitter buffer): —";
   renderAirDataLatency(null);
   peerConnection?.close();
+  flightControlChannelOpen = false;
+  flightControlEnabledCheckbox.disabled = true;
+  if (flightControlSettingTimer !== undefined) clearInterval(flightControlSettingTimer);
+  flightControlSettingTimer = undefined;
 };
+
+flightControlEnabledCheckbox.addEventListener("change", () => {
+  if (!flightControlChannelOpen) return;
+  pendingFlightControlSetting = flightControlEnabledCheckbox.checked;
+  sendFlightControlSetting();
+  if (flightControlSettingTimer === undefined) {
+    flightControlSettingTimer = setInterval(sendFlightControlSetting, 500);
+  }
+});
 
 qualitySelect.addEventListener("change", () => {
   if (socket.readyState === WebSocket.OPEN) {

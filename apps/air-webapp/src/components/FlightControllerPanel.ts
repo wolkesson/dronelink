@@ -3,9 +3,11 @@ import { createPanel } from "./Panel.js";
 import { createStatusPill } from "./StatusPill.js";
 import { createStatRow, type StatRowHandle } from "./StatRow.js";
 import { icons } from "./icons.js";
+import type { DetectedLinkType, FcLinkMode } from "@dronelink/core-transport";
 
 export interface FlightControllerPanelOptions {
   onConnectRequest: () => void;
+  onFlightControlSettingChange: (enabled: boolean) => void;
 }
 
 export interface FlightControllerPanelHandle {
@@ -16,6 +18,13 @@ export interface FlightControllerPanelHandle {
   setTxRate(text: string, active: boolean): void;
   setRxRate(text: string, active: boolean): void;
   setError(message: string): void;
+  setFlightControlSetting(enabled: boolean): void;
+  setFlightControlStatus(
+    mode: FcLinkMode,
+    detectedType: DetectedLinkType,
+    reason: string | null,
+    identity?: { variant: string; version: string; board: string } | null,
+  ): void;
 }
 
 /**
@@ -71,7 +80,29 @@ export function createFlightControllerPanel(
   const txRow: StatRowHandle = createStatRow("TX Rate", "0 B/s");
   const rxRow: StatRowHandle = createStatRow("RX Rate", "0 B/s");
 
-  panel.bodyEl.append(connectRow, helper, errorEl, statusRow, baudRow.el, txRow.el, rxRow.el);
+  const flightControlRow = document.createElement("label");
+  flightControlRow.className = "dl-fc__setting";
+  const flightControlToggle = document.createElement("input");
+  flightControlToggle.type = "checkbox";
+  flightControlToggle.addEventListener("change", () => options.onFlightControlSettingChange(flightControlToggle.checked));
+  const flightControlLabel = document.createElement("span");
+  flightControlLabel.textContent = "Enable experimental flight control";
+  flightControlRow.append(flightControlToggle, flightControlLabel);
+
+  const flightControlStatus = document.createElement("p");
+  flightControlStatus.className = "dl-fc__diagnostic";
+
+  panel.bodyEl.append(
+    connectRow,
+    helper,
+    errorEl,
+    statusRow,
+    baudRow.el,
+    txRow.el,
+    rxRow.el,
+    flightControlRow,
+    flightControlStatus,
+  );
 
   function render(connected: boolean) {
     connectRow.hidden = connected;
@@ -111,6 +142,13 @@ export function createFlightControllerPanel(
     setError(message: string) {
       errorEl.hidden = message.length === 0;
       errorEl.textContent = message;
+    },
+    setFlightControlSetting(enabled: boolean) {
+      flightControlToggle.checked = enabled;
+    },
+    setFlightControlStatus(mode, detectedType, reason, identity) {
+      const identityText = identity ? ` · ${identity.variant} ${identity.version} (${identity.board})` : "";
+      flightControlStatus.textContent = `FC detection: ${detectedType} · ${mode}${identityText}${reason ? ` · ${reason}` : ""}`;
     },
   };
 }

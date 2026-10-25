@@ -1,5 +1,9 @@
 import {
   createCameraSettingsStore,
+  createFlightControlSettingsStore,
+  FcIdentificationGate,
+  LinkTypeClassifier,
+  MspProbeBroker,
   NATIVE_BRIDGE_PORT_MESSAGE,
   NATIVE_BRIDGE_PORT_RECONNECT_MESSAGE,
   NativeBridgeTransport,
@@ -11,8 +15,10 @@ import {
   WebSerialTransport,
   WebSocketSerialTransport,
   type BatteryStatus,
+  type FcIdentity,
   type SerialTransport,
 } from "@dronelink/air-client-sdk";
+import type { FlightControlState } from "@dronelink/core-transport";
 import { LinkActivityTracker, type LinkActivitySnapshot } from "@dronelink/ui-kit-shared";
 import { devSerialBridgeUrl, isAndroidShell } from "./platform.js";
 import { createAppHeader } from "./components/AppHeader.js";
@@ -31,6 +37,9 @@ export function mountApp(root: HTMLElement): void {
   const sessionManager = new WebRtcSessionManager();
   const activityTracker = new LinkActivityTracker();
   const qrScanner = new QrPairingScanner();
+  const flightControlSettings = createFlightControlSettingsStore();
+  const linkTypeClassifier = new LinkTypeClassifier();
+  const identificationGate = new FcIdentificationGate();
   // Per-camera flip/rotation and the default camera, kept on this phone (not synced
   // to the ground side) since they describe how *this* phone is physically mounted.
   const cameraSettings = createCameraSettingsStore();
@@ -56,11 +65,75 @@ export function mountApp(root: HTMLElement): void {
   let sessionTxBytes = 0;
   let sessionRxBytes = 0;
   let latestRttMs: number | null = null;
+  let probeBroker: MspProbeBroker | null = null;
+  let lastGroundSerialByteAt = Date.now();
+  let identificationAttemptStarted = false;
+  let fcIdentificationTimer: ReturnType<typeof setInterval> | null = null;
+  let flightControlStateTimer: ReturnType<typeof setInterval> | null = null;
 
   const header = createAppHeader();
 
   const fcPanel = createFlightControllerPanel({
     onConnectRequest: () => handleConnectFc(),
+    onFlightControlSettingChange: (enabled) => handleFlightControlSettingChange(enabled),
+  });
+  fcPanel.setFlightControlSetting(flightControlSettings.isEnabled());
+  fcPanel.setFlightControlStatus(
+    identificationGate.result.mode,
+    linkTypeClassifier.detectedType,
+    identificationGate.result.reason,
+  );
+
+  function publishFlightControlState(): void {
+    const result = identificationGate.result;
+    const identity: FcIdentity | null = result.mode === "verified" ? result.identity : null;
+    const state: FlightControlState = {
+      type: "fc-state",
+      sentAt: Date.now(),
+      flightControlEnabled: flightControlSettings.isEnabled(),
+      link: { mode: result.mode, reason: result.reason, detectedType: linkTypeClassifier.detectedType },
+      fc: identity
+        ? { variant: identity.variant, version: identity.version, apiVersion: identity.apiVersion, board: identity.board }
+        : null,
+      supervisor: { state: "IDLE", reason: null, lastAppliedSeq: null },
+      telemetry: null,
+      limits: {
+        commandRateHz: 20,
+        neutralTimeoutMs: 250,
+        releaseTimeoutMs: 1_000,
+        hoverThrottleUs: identity?.hoverThrottleUs ?? null,
+        maxDeflectionUs: { roll: 150, pitch: 150, yaw: 150, throttle: 150 },
+      },
+      rejectedMessages: sessionManager.rejectedFlightControlMessages,
+    };
+    fcPanel.setFlightControlSetting(state.flightControlEnabled);
+    fcPanel.setFlightControlStatus(state.link.mode, state.link.detectedType, state.link.reason, identity);
+    sessionManager.sendFlightControlState(state);
+  }
+
+  function handleFlightControlSettingChange(enabled: boolean): void {
+    flightControlSettings.setEnabled(enabled);
+    identificationAttemptStarted = false;
+    if (enabled) {
+      identificationGate.reset("identification-required");
+    } else {
+      probeBroker?.cancel();
+      identificationGate.disable();
+    }
+    publishFlightControlState();
+  }
+
+  sessionManager.setFlightControlHandler((message) => {
+    if (message.type === "fc-setting") {
+      // Until the air-side supervisor is implemented, it remains IDLE, the only state
+      // in which a remote setting change is accepted.
+      handleFlightControlSettingChange(message.flightControlEnabled);
+    }
+  });
+  sessionManager.onFlightControlChannelChange((open) => {
+    if (flightControlStateTimer !== null) clearInterval(flightControlStateTimer);
+    flightControlStateTimer = open ? setInterval(publishFlightControlState, 150) : null;
+    publishFlightControlState();
   });
 
   const linkPanel = createLinkPanel({
@@ -573,6 +646,38 @@ export function mountApp(root: HTMLElement): void {
 
   let usingSitlBridge = false;
 
+  function forwardFcBytes(bytes: Uint8Array): void {
+    if (bytes.length === 0 || sessionManager.state !== "CONNECTED") return;
+    activityTracker.recordTransmit(bytes.length);
+    sessionManager.sendBytes(bytes);
+  }
+
+  async function maybeIdentifyFc(): Promise<void> {
+    const currentTransport = transport;
+    const currentBroker = probeBroker;
+    const previousType = linkTypeClassifier.detectedType;
+    const detectedType = linkTypeClassifier.tick();
+    if (previousType !== detectedType) publishFlightControlState();
+    if (!flightControlSettings.isEnabled() || !currentTransport || !currentBroker || identificationAttemptStarted) return;
+    if (Date.now() - lastGroundSerialByteAt < 2_000) return;
+    identificationAttemptStarted = true;
+    await identificationGate.identify({
+      enabled: true,
+      detectedType,
+      passthroughIdle: true,
+      request: (command) => currentBroker.request(command, forwardFcBytes),
+      onIdentity: (identity) => {
+        console.info("Verified flight controller", {
+          board: identity.board,
+          target: identity.target,
+          build: identity.build,
+          version: identity.version,
+        });
+      },
+    });
+    publishFlightControlState();
+  }
+
   function createSerialTransport(): SerialTransport {
     usingSitlBridge = false;
     // The DEV check is repeated here, not only inside devSerialBridgeUrl(), so a production
@@ -620,18 +725,42 @@ export function mountApp(root: HTMLElement): void {
       .then(() => {
         connectingFc = false;
         transport = t;
+        linkTypeClassifier.reset();
+        identificationAttemptStarted = false;
+        if (flightControlSettings.isEnabled()) identificationGate.reset("identification-required");
+        else identificationGate.disable();
         fcPanel.setConnecting(false);
         fcPanel.setConnected(true);
         fcPanel.setBaudRate(usingSitlBridge ? "SITL bridge" : `${SERIAL_BAUD_RATE}`);
+        const currentBroker = new MspProbeBroker((bytes) => t.write(bytes));
+        probeBroker = currentBroker;
+        lastGroundSerialByteAt = Date.now();
+        if (fcIdentificationTimer !== null) clearInterval(fcIdentificationTimer);
+        fcIdentificationTimer = setInterval(() => void maybeIdentifyFc(), 250);
+        if (flightControlStateTimer !== null && sessionManager.flightControlChannelOpen) {
+          clearInterval(flightControlStateTimer);
+          flightControlStateTimer = setInterval(publishFlightControlState, 150);
+        }
+        publishFlightControlState();
 
         let fcDisconnected = false;
         const handleFcDisconnect = () => {
           if (fcDisconnected) return;
           fcDisconnected = true;
+          if (fcIdentificationTimer !== null) {
+            clearInterval(fcIdentificationTimer);
+            fcIdentificationTimer = null;
+          }
+          currentBroker.cancel();
+          if (probeBroker === currentBroker) probeBroker = null;
           unsubSerial();
           unsubWebRtc();
           transport = null;
+          linkTypeClassifier.reset();
+          identificationGate.reset("fc-link-lost");
+          identificationAttemptStarted = false;
           fcPanel.setConnected(false);
+          publishFlightControlState();
         };
 
         const unsubSerial = t.subscribe((bytes) => {
@@ -639,17 +768,33 @@ export function mountApp(root: HTMLElement): void {
             handleFcDisconnect();
             return;
           }
+          const previousType = linkTypeClassifier.detectedType;
+          linkTypeClassifier.push(bytes);
+          const result = identificationGate.result;
+          fcPanel.setFlightControlStatus(
+            result.mode,
+            linkTypeClassifier.detectedType,
+            result.reason,
+            result.mode === "verified" ? result.identity : null,
+          );
+          if (previousType !== linkTypeClassifier.detectedType) publishFlightControlState();
           // The FC can now be connected before the ground station is paired, so bytes
           // may arrive with no data channel to relay them over yet -- sendBytes() throws
           // in that case. Drop them rather than crash the serial read loop; there's
           // nothing meaningful to buffer towards (MSP telemetry is a live stream, not a
           // queue), so relaying resumes cleanly once the ground link comes up.
-          if (sessionManager.state !== "CONNECTED") return;
-          activityTracker.recordTransmit(bytes.length);
-          sessionManager.sendBytes(bytes);
+          const relayBytes = currentBroker.receive(bytes);
+          forwardFcBytes(relayBytes);
         });
         const unsubWebRtc = sessionManager.subscribe((bytes) => {
           activityTracker.recordReceive(bytes.length);
+          lastGroundSerialByteAt = Date.now();
+          if (currentBroker.hasPendingRequest) {
+            currentBroker.cancel();
+            identificationGate.reset("passthrough-busy");
+            identificationAttemptStarted = false;
+            publishFlightControlState();
+          }
           void transport?.write(bytes);
         });
       })
@@ -734,6 +879,18 @@ export function mountApp(root: HTMLElement): void {
       await transport.close();
       transport = null;
     }
+    if (fcIdentificationTimer !== null) {
+      clearInterval(fcIdentificationTimer);
+      fcIdentificationTimer = null;
+    }
+    if (flightControlStateTimer !== null) {
+      clearInterval(flightControlStateTimer);
+      flightControlStateTimer = null;
+    }
+    probeBroker?.cancel();
+    probeBroker = null;
+    identificationGate.disable();
+    linkTypeClassifier.reset();
     sessionManager.disconnect();
     session.socket?.close(1000, "client disconnect");
 

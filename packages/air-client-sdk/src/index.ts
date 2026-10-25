@@ -3,6 +3,7 @@ export * from "./core/CameraSettingsStore.js";
 export * from "./core/FcIdentificationGate.js";
 export * from "./core/FlightControlSettingsStore.js";
 export * from "./core/LinkTypeClassifier.js";
+export * from "./core/MspProbeBroker.js";
 export * from "./core/PairingSession.js";
 export * from "./core/QrPairingScanner.js";
 export * from "./core/WebRtcSessionManager.js";

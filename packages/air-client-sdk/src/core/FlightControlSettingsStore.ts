@@ -7,15 +7,23 @@ export interface FlightControlSettingsStore {
 
 /** Air-unit opt-in setting. Missing, malformed, or unavailable storage always means off. */
 export function createFlightControlSettingsStore(
-  storage: Pick<Storage, "getItem" | "setItem"> | undefined = globalThis.localStorage,
+  storage?: Pick<Storage, "getItem" | "setItem">,
 ): FlightControlSettingsStore {
+  let resolvedStorage = storage;
+  if (resolvedStorage === undefined) {
+    try {
+      resolvedStorage = globalThis.localStorage;
+    } catch {
+      resolvedStorage = undefined;
+    }
+  }
   let enabled = false;
   let storageFailed = false;
 
   function read(): boolean {
-    if (!storage || storageFailed) return enabled;
+    if (!resolvedStorage || storageFailed) return enabled;
     try {
-      return storage.getItem(STORAGE_KEY) === "true";
+      return resolvedStorage.getItem(STORAGE_KEY) === "true";
     } catch {
       storageFailed = true;
       return enabled;
@@ -27,7 +35,7 @@ export function createFlightControlSettingsStore(
     setEnabled(value) {
       enabled = value;
       try {
-        storage?.setItem(STORAGE_KEY, String(value));
+        resolvedStorage?.setItem(STORAGE_KEY, String(value));
       } catch {
         storageFailed = true;
         // Storage is best-effort; keep the in-memory choice for this page session.

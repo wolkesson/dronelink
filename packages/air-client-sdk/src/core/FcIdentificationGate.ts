@@ -57,16 +57,16 @@ function versionText(version: ReturnType<typeof decodeFcVersion>): string {
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => resolve(null), timeoutMs);
     promise.then(
       (value) => {
         clearTimeout(timeout);
         resolve(value);
       },
-      () => {
+      (error: unknown) => {
         clearTimeout(timeout);
-        resolve(null);
+        reject(error);
       },
     );
   });
@@ -163,7 +163,6 @@ export class FcIdentificationGate {
       const hoverThrottleUs = decodeGpsRescueConfig(rescuePayload).hoverThrottle;
       if (hoverThrottleUs === 0) return this.reject("hover-throttle-not-fixed");
 
-      if (generation !== this.generation) return this.current;
       const identity: FcIdentity = {
         variant,
         version,

@@ -90,3 +90,18 @@
   display: flex;
   color: var(--dl-text-dim);
 }
+
+.dl-fc__setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dl-text-dim);
+  font-size: 11px;
+}
+
+.dl-fc__diagnostic {
+  margin: 0;
+  color: var(--dl-text-faint);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
