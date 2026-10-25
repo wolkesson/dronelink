@@ -19,7 +19,7 @@ This is an npm workspaces monorepo (`apps/*`, `packages/*`).
 | `packages/air-client-sdk` | TypeScript | Air-side pairing/session state, QR scanning, WebRTC relay, serial transport abstractions |
 | `packages/fc-msp` | TypeScript | MSP v1/v2 framing and the Betaflight message set for flight control; pure TS, no Node/browser APIs (enforced by lint) |
 | `packages/ui-kit-shared` | TypeScript | Shared UI-facing presentation helpers |
-| `packages/ui-kit-ground` | TypeScript | Ground-only UI-facing scaffold |
+| `packages/ui-kit-ground` | TypeScript | Ground-only UI logic, DOM-free and unit-tested: the flight-control panel's view model, hold-to-unlock, command stream and dead-man (`FlightControlGui`) |
 | `apps/ground-core-node` | Node.js + TypeScript | Headless ground runtime: composes `ground-client-sdk` only (signaling host + relay) |
 | `apps/ground-web-client` | TypeScript + browser | Ground-side live video GUI composition |
 | `apps/air-webapp` | TypeScript (Vite PWA) | Air-side PWA composition shell |
@@ -50,7 +50,7 @@ Per-package scripts (run from repo root via `--workspace`, or `cd` into the pack
 ```sh
 npm run build          --workspace @dronelink/<pkg>   # tsc --noEmit (air-webapp also runs vite build)
 npm run lint           --workspace @dronelink/<pkg>   # eslint src --ext .ts[,.tsx]
-npm test               --workspace @dronelink/<pkg>   # vitest run (core-transport, fc-msp, ground-client-sdk, air-client-sdk, ui-kit-shared, air-webapp)
+npm test               --workspace @dronelink/<pkg>   # vitest run (core-transport, fc-msp, ground-client-sdk, air-client-sdk, ui-kit-shared, ui-kit-ground, air-webapp)
 npm run test:coverage  --workspace @dronelink/<pkg>   # vitest run --coverage (same packages)
 ```
 
@@ -77,6 +77,7 @@ npm run build --workspace @dronelink/ground-web-client
 npm test --workspace @dronelink/core-transport
 npm test --workspace @dronelink/ground-client-sdk
 npm test --workspace @dronelink/ui-kit-shared
+npm test --workspace @dronelink/ui-kit-ground
 
 # air-side
 npm run build --workspace @dronelink/core-transport

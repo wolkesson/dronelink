@@ -83,6 +83,7 @@ jobs:
           npm test --workspace @dronelink/core-transport
           npm test --workspace @dronelink/ground-client-sdk
           npm test --workspace @dronelink/ui-kit-shared
+          npm test --workspace @dronelink/ui-kit-ground
         # TODO: once SITL service container is enabled above, pass SITL_PORT env var:
         # env:
         #   SITL_PORT: 5761

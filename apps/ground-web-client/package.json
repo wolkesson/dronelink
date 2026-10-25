@@ -9,6 +9,7 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
+    "@dronelink/core-transport": "file:../../packages/core-transport",
     "@dronelink/ground-client-sdk": "file:../../packages/ground-client-sdk",
     "@dronelink/ui-kit-ground": "file:../../packages/ui-kit-ground",
     "@dronelink/ui-kit-shared": "file:../../packages/ui-kit-shared",

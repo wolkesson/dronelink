@@ -112,7 +112,7 @@ Mid-session video source switching (`WebRtcSessionManager.replaceVideoTrack`, ai
 
 ## 7. Flight control over the mobile link (design)
 
-Status: design accepted for milestone "Mobile flight control in position hold" (epic #79, this section is #80). Implemented so far: the MSP library (#83), the flight-control channel (#84), link detection and the identification gate (#93), the `FcLink` arbiter with the telemetry poller (#85), and the safety supervisor (#86); the ground GUI (#87, #88) is not. Betaflight behaviour stated here was verified against Betaflight 2026.6.2 SITL in the #81 spike; see [`docs/sim/betaflight-sitl.md`](docs/sim/betaflight-sitl.md) for method, measurements and source references. Items still marked *(SITL)* are tuning values for the SITL drills (#89).
+Status: design accepted for milestone "Mobile flight control in position hold" (epic #79, this section is #80). Implemented so far: the MSP library (#83), the flight-control channel (#84), link detection and the identification gate (#93), the `FcLink` arbiter with the telemetry poller (#85), the safety supervisor (#86), and the ground GUI's telemetry and control panel (#87, #88). Betaflight behaviour stated here was verified against Betaflight 2026.6.2 SITL in the #81 spike; see [`docs/sim/betaflight-sitl.md`](docs/sim/betaflight-sitl.md) for method, measurements and source references. Items still marked *(SITL)* are tuning values for the SITL drills (#89).
 
 ### 7.1 Scope
 
@@ -250,6 +250,14 @@ Defaults below are configurable and are to be justified in the SITL drills (#89)
     - **Defaults:** unlock tolerances are ±25 µs on roll/pitch/yaw and ±50 µs on throttle around the hover throttle, and the minimum is 8 GPS satellites. All are `SupervisorConfig` defaults, to be tuned in the SITL drills (#89).
 - `ground-client-sdk`: relays the `flight-control` channel without parsing.
 - Ground GUI: the unlock/abort/dead-man/command-generation logic lives in a package (`ui-kit-ground` or SDK-level), not in the app (#87, #88).
+  - **Implemented (#87, #88):** `ui-kit-ground`'s `FlightControlGui` (DOM-free, fake-timer unit tests) holds all of it:
+    - **View model:** link type and mode with readable reasons, FC identity, the handover banner, a go/no-go checklist mirroring the supervisor's preconditions plus the 400 ms RTT gate, telemetry, and STALE after 1 s without `fc-state`.
+    - **Unlock:** the 1.5 s hold, offered only when the air reports `HANDED_OVER` (or `ABORTED`) with go/no-go green. Mouse, touch or a held Enter all work; OS key repeat is ignored.
+    - **Command stream:** `fc-command` at 20 Hz from the moment an unlock is sent, with zeros when idle and zeros while `ABORTED`.
+    - **Re-sent until confirmed:** `abort` on every tick until the air reports `ABORTED`; `release`, `unlock` and `fc-setting` until `fc-state` reflects them. Each is dropped after 3 s.
+    - **Dead-man:** window blur, hidden tab, WebSocket loss, flight-control channel closed, RTT above 400 ms (from the air's `air-status` RTT) or stale state each stop the stream and release every held key or pad.
+    - **Command age:** the GUI remembers when it sent each `seq`; the age is from sending the `lastAppliedSeq` an `fc-state` reports to receiving that report, so it includes up to one report interval.
+  - **Delivery:** `ground-web-client/src/flight-control.ts` is the DOM layer (panel, pads, sliders, keyboard, the take-control ring, and an ABORT bar pinned to the viewport while the PP holds control). `ground-core-node` bundles it with esbuild at startup and serves it as `/flight-control.js`, which the existing `gui-client.js` imports dynamically. Gamepad support (optional in #88) is not implemented yet.
 
 ## 8. Validation checklist
 

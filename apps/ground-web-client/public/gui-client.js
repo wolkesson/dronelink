@@ -26,6 +26,23 @@ let pendingCandidates;
 let remoteDescriptionSet;
 let videoMetricsTimer;
 
+// The flight-control panel (#87/#88) is a separate bundle built by ground-core-node from
+// ground-web-client/src. Loaded dynamically so the video GUI keeps working without it.
+let flightControl = null;
+const flightControlRoot = document.getElementById("flight-control");
+import("/flight-control.js")
+  .then(({ mountFlightControl }) => {
+    flightControl = mountFlightControl(flightControlRoot, {
+      send: (message) => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+      },
+    });
+    flightControl.setSocketOpen(socket.readyState === WebSocket.OPEN);
+  })
+  .catch(() => {
+    flightControlRoot.textContent = "Flight-control panel unavailable.";
+  });
+
 function setStatus(message) {
   status.textContent = message;
 }
@@ -148,6 +165,7 @@ function reconnectPeer() {
 }
 
 socket.onopen = () => {
+  flightControl?.setSocketOpen(true);
   reconnectPeer();
 };
 
@@ -158,6 +176,9 @@ socket.onmessage = async (event) => {
   } catch {
     return;
   }
+
+  if (message?.type === "air-status") flightControl?.setRtt(typeof message.rttMs === "number" ? message.rttMs : null);
+  if (flightControl?.handleMessage(message)) return;
 
   try {
     if (message.type === "answer" && typeof message.sdp === "string") {
@@ -234,6 +255,8 @@ socket.onmessage = async (event) => {
 };
 
 socket.onclose = () => {
+  flightControl?.setSocketOpen(false);
+  flightControl?.setRtt(null);
   if (peerConnection?.connectionState !== "connected") {
     setStatus("Video signaling disconnected");
   }
