@@ -149,7 +149,11 @@ npm run dev --workspace @dronelink/air-webapp
 # Betaflight Configurator -> TCP localhost:5771
 ```
 
-`?fc=` only works on the Vite dev server (`import.meta.env.DEV`), never inside `android-shell`, and only for `ws://` loopback URLs; production builds don't contain the bridge path. `tools/sitl/` holds the Python SITL scripts (MSP Override spike, fixture capture), which drive Betaflight's own `src/test/sitl/sitl_harness.py`.
+`?fc=` only works on the Vite dev server (`import.meta.env.DEV`), never inside `android-shell`, and only for `ws://` loopback URLs; production builds don't contain the bridge path. `tools/sitl/` holds the Python SITL scripts, which drive Betaflight's own `src/test/sitl/sitl_harness.py`:
+
+- `sim.py`: a manual simulator. It flies SITL with simulated physics, GPS and RC, and you play the safety pilot from the keyboard. UART1 stays free for DroneLink. On Windows, run it in WSL.
+- `msp_override_spike.py`: the MSP Override spike.
+- `capture_msp_fixture.py`: fixture capture.
 
 ## Key design constraints
 
