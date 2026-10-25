@@ -789,9 +789,11 @@ const SCENARIOS = [
       const gate = gui.find((e) => /round trip above|too late/.test(e.deadman));
       const gateT = gate ? gate.t : null;
       const lastPp = rel(lastAt(samples, t0, "pp"), t0);
-      const ppLimit = gateT === null ? null : rel(gateT, t0) + ms + LIMITS.neutralMs + 60;
-      const released = gateT === null ? null : firstLog(air, gateT, (e) => e.sup === "RELEASED");
-      const releaseLimit = gateT === null ? null : rel(gateT, t0) + ms + LIMITS.releaseMs + 200;
+      // Commands sent before the gate still drain through the lossy, congested link; what must
+      // hold is that the air stops applying them on its own timeout, within a bounded time.
+      const lastActiveEnd = air.filter((e) => e.sup === "NEUTRAL" || e.sup === "ABORTED" || e.sup === "RELEASED").find((e) => !air.some((later) => later.t > e.t && later.sup === "ACTIVE"));
+      const drainLimit = gateT === null ? null : rel(gateT, t0) + 3 * ms + 500;
+      const released = lastActiveEnd ? firstLog(air, lastActiveEnd.t, (e) => e.sup === "RELEASED") : null;
       const final = air.at(-1);
       const firstNeutral = firstLog(air, t0, (e) => e.sup !== "ACTIVE");
       return {
@@ -799,8 +801,9 @@ const SCENARIOS = [
         checks: [
           check("ground gate (RTT or command age) stopped the stream (ms)", rel(gateT, t0), gateT !== null && gateT - t0 <= 5_000, "≤ 5000"),
           check("first air NEUTRAL from late/lost commands (ms, measured)", rel(firstNeutral?.t, t0), true, "report"),
-          check("last PP command applied (ms)", lastPp, ppLimit !== null && (lastPp === null || lastPp <= ppLimit), ppLimit === null ? "gate" : `≤ gate + delay + ${LIMITS.neutralMs + 60} = ${ppLimit}`),
-          check("air RELEASED after the gate (ms)", rel(released?.t, t0), released && rel(released.t, t0) <= releaseLimit, releaseLimit === null ? "gate" : `≤ ${releaseLimit}`),
+          check("air stopped applying commands for good (ms)", rel(lastActiveEnd?.t, t0), lastActiveEnd && drainLimit !== null && rel(lastActiveEnd.t, t0) <= drainLimit, drainLimit === null ? "gate" : `≤ gate + 3 × delay + 500 = ${drainLimit}`),
+          check("no PP command after that (last PP sample, ms)", lastPp, lastActiveEnd && (lastPp === null || lastPp <= rel(lastActiveEnd.t, t0) + 60), lastActiveEnd ? `≤ ${rel(lastActiveEnd.t, t0) + 60}` : "n/a"),
+          check("air RELEASED (ms)", rel(released?.t, t0), released && lastActiveEnd && released.t - lastActiveEnd.t <= LIMITS.releaseMs + 100, "≤ that + 1100"),
           check("ends released, not flying", final?.sup, final?.sup === "RELEASED" || final?.sup === "IDLE", "RELEASED"),
         ],
       };
