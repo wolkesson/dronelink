@@ -140,6 +140,7 @@ describe("describeReason", () => {
     expect(describeReason("unlock-refused:something-new")).toBe("unlock refused: something-new");
     expect(describeReason("hover-throttle-not-fixed")).toMatch(/ap_hover_throttle/);
     expect(describeReason("awaiting-fresh-handover")).toMatch(/flip it off and on again/);
+    expect(describeReason("air-stalled")).toMatch(/stalled/);
     expect(describeReason("brand-new-reason")).toBe("brand-new-reason");
   });
 });

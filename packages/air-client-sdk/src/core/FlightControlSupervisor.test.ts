@@ -344,6 +344,57 @@ describe("FlightControlSupervisor: ACTIVE", () => {
     expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "telemetry-stale" });
   });
 
+  describe("after the air itself stalls (frozen tab) longer than Betaflight's stale window", () => {
+    /** Time passes without any timer running, as in a paused page. */
+    const freeze = (ms: number) => vi.setSystemTime(Date.now() + ms);
+
+    it("releases on the first queued command instead of applying it", () => {
+      const s = setup();
+      activate(s);
+      s.command({ roll: 1 });
+      vi.advanceTimersByTime(50);
+      const sent = s.frames.length;
+      freeze(3_000);
+      s.command({ pitch: 1 });
+      expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "air-stalled" });
+      vi.advanceTimersByTime(1_000);
+      expect(s.frames).toHaveLength(sent);
+      expect(s.supervisor.droppedCommands).toBe(1);
+    });
+
+    it("releases on the first tick", () => {
+      const s = setup();
+      reach(s, "ABORTED");
+      const sent = s.frames.length;
+      freeze(400);
+      vi.advanceTimersByTime(50);
+      expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "air-stalled" });
+      expect(s.frames).toHaveLength(sent);
+    });
+
+    it("releases when the watchdog fires first", () => {
+      const s = setup();
+      activate(s);
+      vi.advanceTimersByTime(10);
+      s.command(); // watchdog due at 260, between the ticks at 250 and 300
+      vi.advanceTimersByTime(240); // the tick at 250 sends a frame
+      const sent = s.frames.length;
+      freeze(301);
+      vi.advanceTimersByTime(10); // the watchdog fires first
+      expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "air-stalled" });
+      expect(s.frames).toHaveLength(sent);
+    });
+
+    it("tolerates ordinary jitter below the window", () => {
+      const s = setup();
+      activate(s);
+      s.command({ roll: 1 });
+      freeze(250);
+      s.command({ roll: 1 });
+      expect(s.supervisor.state).toBe("ACTIVE");
+    });
+  });
+
   it("releases after 1 s without a command and stops sending", () => {
     const s = setup();
     activate(s);

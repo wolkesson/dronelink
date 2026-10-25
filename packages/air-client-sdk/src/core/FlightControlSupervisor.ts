@@ -52,6 +52,12 @@ export interface SupervisorConfig {
   /** After unlock, MSP_RC must show the sent stick values within this long. */
   maskCheckTimeoutMs: number;
   maskCheckToleranceUs: number;
+  /**
+   * A gap this long since the last frame means Betaflight has already given the sticks back to
+   * the SP (RX_MSP_RC_FRAME_FRESH_MS): the air was stalled (frozen tab, throttled WebView) and
+   * must release rather than resume with commands that queued up meanwhile.
+   */
+  frameGapReleaseMs: number;
 }
 
 export const DEFAULT_SUPERVISOR_CONFIG: SupervisorConfig = {
@@ -66,6 +72,7 @@ export const DEFAULT_SUPERVISOR_CONFIG: SupervisorConfig = {
   throttleNeutralToleranceUs: 50,
   maskCheckTimeoutMs: 1_000,
   maskCheckToleranceUs: 2,
+  frameGapReleaseMs: 300,
 };
 
 export interface SupervisorSnapshot {
@@ -142,6 +149,7 @@ export class FlightControlSupervisor {
   private dropped = 0;
   private refused = 0;
   private framesSent = 0;
+  private lastFrameAt = 0;
   private disposed = false;
   /** The SP's MSP OVERRIDE switch has been seen off since the last handover or reset. */
   private switchSeenOff = false;
@@ -204,6 +212,10 @@ export class FlightControlSupervisor {
       return;
     }
     if (!SENDING_STATES.has(this.current)) {
+      this.dropped++;
+      return;
+    }
+    if (this.releaseIfStalled()) {
       this.dropped++;
       return;
     }
@@ -350,6 +362,7 @@ export class FlightControlSupervisor {
     if (SENDING_STATES.has(next)) {
       if (!SENDING_STATES.has(previous)) {
         this.lastTickAt = this.clock.now();
+        this.lastFrameAt = this.clock.now();
         this.ticker = this.clock.setInterval(() => this.tick(), 1_000 / this.config.commandRateHz);
       }
       this.armWatchdog();
@@ -371,9 +384,22 @@ export class FlightControlSupervisor {
     const due = Math.max(0, timeout - (this.clock.now() - this.lastCommandAt));
     this.watchdog = this.clock.setTimeout(() => {
       this.watchdog = null;
+      if (this.releaseIfStalled()) return;
       this.evaluate();
       if (SENDING_STATES.has(this.current) && !this.checkHeartbeat()) this.armWatchdog();
     }, due);
+  }
+
+  /**
+   * While sending: if the air itself stalled for longer than Betaflight's stale-override window,
+   * the FC already flies the SP's sticks again. Resuming would take them back from the SP, so
+   * release instead (SITL drill #89, scenario 5). True if it released.
+   */
+  private releaseIfStalled(): boolean {
+    // Callers only run while sending (command in a sending state, the ticker, the watchdog).
+    if (this.clock.now() - this.lastFrameAt <= this.config.frameGapReleaseMs) return false;
+    this.transition("RELEASED", "air-stalled");
+    return true;
   }
 
   /** NEUTRAL after the neutral timeout, RELEASED after the release timeout; true if it transitioned. */
@@ -398,6 +424,7 @@ export class FlightControlSupervisor {
   // --- the 20 Hz command stream ---------------------------------------------
 
   private tick(): void {
+    if (this.releaseIfStalled()) return;
     this.evaluate();
     if (!SENDING_STATES.has(this.current)) return;
     if (this.checkHeartbeat()) return;
@@ -429,6 +456,7 @@ export class FlightControlSupervisor {
     values.forEach((value, axis) => {
       raw[identity.rxMap[axis]] = value;
     });
+    this.lastFrameAt = now;
     this.sentFrames.push({ at: now, values });
     if (this.sentFrames.length > MASK_HISTORY) this.sentFrames.shift();
     this.framesSent++;

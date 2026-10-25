@@ -439,8 +439,38 @@ const AIR_HOOK = `(() => {
   };
   fc.onStateChange(push);
   push(fc.buildState());
+  // Count every ground message the air actually receives (diagnostics for a lost unlock).
+  const session = fc.session;
+  const original = session.flightControlHandler;
+  window.__fcIn = { n: 0, last: null, lastControl: null };
+  session.flightControlHandler = (m) => {
+    window.__fcIn.n++;
+    window.__fcIn.last = { t: Date.now(), type: m.type };
+    if (m.type === "fc-control") window.__fcIn.lastControl = { t: Date.now(), action: m.action };
+    original?.(m);
+  };
   return true;
 })()`;
+
+/** What the air saw, for failure messages. */
+const airDiag = () =>
+  chain.air
+    .evaluate(async () => {
+      const session = window.__dronelinkFlightControl?.session;
+      const stats = [];
+      const report = await session?.pc?.getStats().catch(() => null);
+      report?.forEach((r) => {
+        if (r.type === "data-channel") stats.push({ label: r.label, state: r.state, in: r.messagesReceived, out: r.messagesSent });
+      });
+      return {
+        received: window.__fcIn,
+        now: Date.now(),
+        rejected: session?.rejectedFlightControlMessages,
+        channel: session?.flightControlChannel?.readyState,
+        stats,
+      };
+    })
+    .catch((e) => String(e));
 
 async function airOpen() {
   // A reload keeps the air unit's browser storage (the flight-control setting lives there), so
@@ -542,7 +572,7 @@ async function guiUnlock() {
   try {
     await waitFor("air ACTIVE after unlock", async () => (await airNow())?.sup === "ACTIVE", 4_000);
   } catch (error) {
-    throw new Error(`${error.message}; GUI: ${JSON.stringify(await guiDiag())}`);
+    throw new Error(`${error.message}; GUI: ${JSON.stringify(await guiDiag())}; air: ${JSON.stringify(await airDiag())}`);
   }
 }
 

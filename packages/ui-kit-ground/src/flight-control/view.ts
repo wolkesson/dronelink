@@ -83,6 +83,7 @@ export function describeReason(reason: string | null): string {
     "not-verified": "FC not verified",
     "channel-closed": "flight-control channel closed",
     "page-hidden": "air app hidden or in the background",
+    "air-stalled": "air app stalled (frozen or throttled) and the FC handed the sticks back",
     "telemetry-stale": "FC telemetry stale",
     "sp-took-control": "safety pilot switched the handover off",
     "pos-hold-lost": "POS HOLD switched off",
