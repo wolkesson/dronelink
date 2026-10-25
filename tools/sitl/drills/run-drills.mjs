@@ -757,17 +757,22 @@ const SCENARIOS = [
       await chain.impair.ready;
       const { samples, air } = await collect(t0, 12_000);
       const gui = await guiLog(t0);
-      const leftActive = firstLog(air, t0, (e) => e.sup !== "ACTIVE");
-      const backActive = leftActive ? firstLog(air, leftActive.t + 1, (e) => e.sup === "ACTIVE") : null;
-      const gate = gui.find((e) => /round trip above/.test(e.deadman));
-      const settled = leftActive ? rel(lastAt(samples, leftActive.t, "pp"), t0) : null;
+      const gate = gui.find((e) => /round trip above|too late/.test(e.deadman));
+      const gateT = gate ? gate.t : null;
+      const lastPp = rel(lastAt(samples, t0, "pp"), t0);
+      const ppLimit = gateT === null ? null : rel(gateT, t0) + ms + LIMITS.neutralMs + 60;
+      const released = gateT === null ? null : firstLog(air, gateT, (e) => e.sup === "RELEASED");
+      const releaseLimit = gateT === null ? null : rel(gateT, t0) + ms + LIMITS.releaseMs + 200;
+      const final = air.at(-1);
+      const firstNeutral = firstLog(air, t0, (e) => e.sup !== "ACTIVE");
       return {
         samples,
         checks: [
-          check("ground RTT gate stopped the stream (ms)", rel(gate?.t, t0), gate, "yes"),
-          check("air left ACTIVE (ms)", rel(leftActive?.t, t0), leftActive && leftActive.t - t0 <= 10_000, "≤ 10000"),
-          check("never ACTIVE again while impaired", backActive ? rel(backActive.t, t0) : "no", !backActive, "no"),
-          check("no PP command after the air left ACTIVE (last PP sample, ms)", settled, leftActive && (settled === null || settled <= rel(leftActive.t, t0) + LIMITS.neutralMs + 60), "≤ left + 360"),
+          check("ground gate (RTT or command age) stopped the stream (ms)", rel(gateT, t0), gateT !== null && gateT - t0 <= 5_000, "≤ 5000"),
+          check("first air NEUTRAL from late/lost commands (ms, measured)", rel(firstNeutral?.t, t0), true, "report"),
+          check("last PP command applied (ms)", lastPp, ppLimit !== null && (lastPp === null || lastPp <= ppLimit), ppLimit === null ? "gate" : `≤ gate + delay + ${LIMITS.neutralMs + 60} = ${ppLimit}`),
+          check("air RELEASED after the gate (ms)", rel(released?.t, t0), released && rel(released.t, t0) <= releaseLimit, releaseLimit === null ? "gate" : `≤ ${releaseLimit}`),
+          check("ends released, not flying", final?.sup, final?.sup === "RELEASED" || final?.sup === "IDLE", "RELEASED"),
         ],
       };
     },

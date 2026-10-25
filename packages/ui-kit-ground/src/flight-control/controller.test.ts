@@ -268,6 +268,35 @@ describe("FlightControlGui: dead-man", () => {
     expect(s.commands().at(-1)).toMatchObject({ throttle: 0 }); // the held key was released
   });
 
+  it("stops when commands reach the air late, even while the RTT looks fine, until the air releases", async () => {
+    const s = setup();
+    await run(s, 200, () => fcState("ACTIVE"));
+    const recent = s.commands().at(-1)!;
+    await run(s, 100, () => fcState("ACTIVE", { lastAppliedSeq: recent.seq })); // ~100 ms old: fine
+    expect(s.gui.view.deadMan).toEqual([]);
+
+    const late = s.commands().at(-1)!;
+    await vi.advanceTimersByTimeAsync(650);
+    s.air(fcState("ACTIVE", { lastAppliedSeq: late.seq }));
+    expect(s.gui.view.commandAgeMs).toBeGreaterThan(600);
+    expect(s.gui.view.deadMan).toEqual(["commands-late"]);
+    const stopped = s.commands().length;
+    await run(s, 300, () => fcState("NEUTRAL", { lastAppliedSeq: late.seq })); // latched through NEUTRAL
+    expect(s.commands()).toHaveLength(stopped);
+    await run(s, 100, () => fcState("RELEASED", { reason: "heartbeat-lost" }));
+    expect(s.gui.view.deadMan).toEqual([]);
+  });
+
+  it("doesn't latch on a late report while ABORTED (the hover heartbeat must go on)", async () => {
+    const s = setup();
+    await run(s, 200, () => fcState("ABORTED"));
+    const old = s.commands()[0];
+    s.air(fcState("ABORTED", { lastAppliedSeq: old.seq }));
+    await run(s, 200, () => fcState("ABORTED", { lastAppliedSeq: old.seq }));
+    expect(s.gui.view.deadMan).toEqual([]);
+    expect(s.gui.view.streaming).toBe(true);
+  });
+
   it("stops when the air's state goes stale", async () => {
     const s = setup();
     await run(s, 200, () => fcState("ACTIVE"));

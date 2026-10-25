@@ -9,7 +9,21 @@ import { HoldToConfirm } from "./hold-to-confirm.js";
 import { StickInput, type StickValues } from "./stick-input.js";
 import { describeFlightControl, RTT_GATE_MS, type FlightControlView } from "./view.js";
 
-export type DeadManReason = "window-blurred" | "page-hidden" | "socket-closed" | "channel-closed" | "rtt-high" | "state-stale";
+export type DeadManReason =
+  | "window-blurred"
+  | "page-hidden"
+  | "socket-closed"
+  | "channel-closed"
+  | "rtt-high"
+  | "commands-late"
+  | "state-stale";
+
+/**
+ * While the air is ACTIVE, the age of the command it last applied (send -> report received) above
+ * this stops the stream: the RTT gate plus one 200 ms report interval. Unlike the RTT from WebRTC
+ * stats, it can't go stale under heavy latency (SITL drill #89, scenario 4).
+ */
+export const COMMAND_AGE_GATE_MS = RTT_GATE_MS + 200;
 
 export const DEAD_MAN_TEXT: Record<DeadManReason, string> = {
   "window-blurred": "window lost focus",
@@ -17,6 +31,7 @@ export const DEAD_MAN_TEXT: Record<DeadManReason, string> = {
   "socket-closed": "connection to the ground station lost",
   "channel-closed": "flight-control channel closed",
   "rtt-high": `round trip above ${RTT_GATE_MS} ms`,
+  "commands-late": `commands reach the air too late (above ${RTT_GATE_MS + 200} ms)`,
   "state-stale": "no current state from the air unit",
 };
 
@@ -90,6 +105,8 @@ export class FlightControlGui {
   private pageVisible = true;
   private seq = 0;
   private commandAgeMs: number | null = null;
+  /** Latched by a late command while ACTIVE; cleared by a new unlock or once the air has released. */
+  private commandsLate = false;
   private lastError: string | null = null;
   private wasStreaming = false;
   private disposed = false;
@@ -126,6 +143,12 @@ export class FlightControlGui {
       this.lastError = null;
       const sentAt = parsed.supervisor.lastAppliedSeq === null ? undefined : this.sentSeqs.get(parsed.supervisor.lastAppliedSeq);
       if (sentAt !== undefined) this.commandAgeMs = this.receivedAt - sentAt;
+      const airState = parsed.supervisor.state;
+      if (airState === "ACTIVE" && sentAt !== undefined && this.commandAgeMs! > COMMAND_AGE_GATE_MS) {
+        this.commandsLate = true;
+      } else if (airState === "RELEASED" || airState === "IDLE" || airState === "HANDED_OVER") {
+        this.commandsLate = false;
+      }
       this.settlePending();
     }
     this.emit();
@@ -306,6 +329,7 @@ export class FlightControlGui {
     if (!this.socketOpen) reasons.push("socket-closed");
     if (!this.channelOpen) reasons.push("channel-closed");
     if (this.rttMs !== null && this.rttMs > RTT_GATE_MS) reasons.push("rtt-high");
+    if (this.commandsLate) reasons.push("commands-late");
     if (stale) reasons.push("state-stale");
     return reasons;
   }
