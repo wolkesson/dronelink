@@ -804,7 +804,9 @@ const SCENARIOS = [
       const t0 = Date.now(); // the fault starts when the rule is in place
       const { samples, air } = await collect(t0, 12_000);
       const gui = await guiLog(t0);
-      const gate = gui.find((e) => /round trip above|too late/.test(e.deadman));
+      // The GUI stops streaming on its own gate (RTT or command age), or because the air's
+      // release reached it first; either way the stream must stop, within a bounded time.
+      const gate = gui.find((e) => /round trip above|too late/.test(e.deadman) || /^Released/.test(e.banner));
       const gateT = gate ? gate.t : null;
       const lastPp = rel(lastAt(samples, t0, "pp"), t0);
       // Commands sent before the gate still drain through the lossy, congested link; what must
@@ -817,7 +819,7 @@ const SCENARIOS = [
       return {
         samples,
         checks: [
-          check("ground gate (RTT or command age) stopped the stream (ms)", rel(gateT, t0), gateT !== null && gateT - t0 <= 5_000, "≤ 5000"),
+          check("GUI stopped the stream (gate, or the air's release) (ms)", gate ? `${rel(gateT, t0)} (${/^Released/.test(gate.banner) ? "air released" : "gate"})` : null, gateT !== null && gateT - t0 <= 5_000, "≤ 5000"),
           check("first air NEUTRAL from late/lost commands (ms, measured)", rel(firstNeutral?.t, t0), true, "report"),
           check("air stopped applying commands for good (ms)", rel(lastActiveEnd?.t, t0), lastActiveEnd && drainLimit !== null && rel(lastActiveEnd.t, t0) <= drainLimit, drainLimit === null ? "gate" : `≤ gate + 3 × delay + 500 = ${drainLimit}`),
           check("no PP command after that (last PP sample, ms)", lastPp, lastActiveEnd && (lastPp === null || lastPp <= rel(lastActiveEnd.t, t0) + 60), lastActiveEnd ? `≤ ${rel(lastActiveEnd.t, t0) + 60}` : "n/a"),
