@@ -128,7 +128,10 @@ async function waitFor(what, predicate, timeoutMs = 10_000, intervalMs = 50) {
   for (;;) {
     const value = await predicate();
     if (value) return value;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    if (Date.now() > deadline) {
+      const air = chain.air && !chain.air.isClosed() ? await airNow().catch(() => null) : null;
+      throw new Error(`timed out waiting for ${what}${air ? ` (air: ${air.sup} ${air.reason ?? ""}, link ${air.mode} ${air.linkReason ?? ""})` : ""}`);
+    }
     await sleep(intervalMs);
   }
 }
@@ -554,6 +557,14 @@ async function ensureAirborne() {
   await sleep(1_500);
 }
 
+/** The air has seen the SP's handover switch off (not just "IDLE", which a fresh air page starts in). */
+async function waitSwitchSeenOff() {
+  await waitFor("air sees the handover switch off", async () => {
+    const now = await airNow();
+    return now?.sup === "IDLE" && now.reason === "sp-took-control";
+  }, 6_000);
+}
+
 async function establishFlying() {
   await ensureChain();
   await ensureAirborne();
@@ -562,7 +573,7 @@ async function establishFlying() {
   await waitFor("FC verified", async () => (await airNow())?.mode === "verified", 15_000);
   // A fresh handover: switch seen off, then on.
   await chain.simClient.pilot({ override: false });
-  await waitFor("air IDLE with the switch off", async () => (await airNow())?.sup === "IDLE", 6_000);
+  await waitSwitchSeenOff();
   await chain.simClient.pilot({ override: true });
   await waitFor("air HANDED_OVER", async () => (await airNow())?.sup === "HANDED_OVER", 6_000);
   await guiUnlock();
@@ -930,7 +941,7 @@ const SCENARIOS = [
       const offered = await chain.gui.evaluate(() => !document.querySelector(".fcp-take")?.disabled).catch(() => false);
       // Fresh handover + unlock works.
       await chain.simClient.pilot({ override: false });
-      await waitFor("IDLE after switch off", async () => (await airNow())?.sup === "IDLE", 6_000);
+      await waitSwitchSeenOff();
       await chain.simClient.pilot({ override: true });
       const ho = await waitFor("HANDED_OVER", async () => (await airNow())?.sup === "HANDED_OVER", 6_000).catch(() => false);
       let unlocked = false;
@@ -958,7 +969,7 @@ const SCENARIOS = [
       if (!(await airNow())?.enabled) await airSetEnabled(true);
       await waitFor("FC verified", async () => (await airNow())?.mode === "verified", 15_000);
       await chain.simClient.pilot({ override: false });
-      await waitFor("IDLE", async () => (await airNow())?.sup === "IDLE", 6_000);
+      await waitSwitchSeenOff();
       await chain.simClient.pilot({ override: true });
       await waitFor("HANDED_OVER", async () => (await airNow())?.sup === "HANDED_OVER", 6_000);
       const t0 = Date.now();
