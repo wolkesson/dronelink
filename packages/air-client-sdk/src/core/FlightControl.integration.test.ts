@@ -136,7 +136,7 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
     ground({ type: "fc-control", action: "unlock" });
     await stream(200);
     controller.setFlightControlEnabled(false, "air");
-    expect(controller.supervisorState).toBe("IDLE");
+    expect(controller.buildState().supervisor).toMatchObject({ state: "RELEASED", reason: "setting-disabled" });
     expect(link.mode).toBe("passthrough");
     const frames = fc.rcFrames.length;
     await stream(1_000);
@@ -176,9 +176,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
     await stream(200);
     fc.replies[MspCommand.STATUS_EX] = statusPayload(0b0111);
     await stream(300);
-    expect(controller.supervisorState).toBe("IDLE"); // released, then the switch is seen off
-    // IDLE then reports what blocks a new handover: the switch is off.
-    expect(controller.buildState().supervisor.reason).toBe("sp-took-control");
+    // RELEASED keeps its reason until the next handover, so the GUI can say the SP took back control.
+    expect(controller.buildState().supervisor).toMatchObject({ state: "RELEASED", reason: "sp-took-control" });
   });
 
   it("releases and makes the link transparent when MSP_RC doesn't follow the override", async () => {

@@ -135,6 +135,8 @@ export class FlightControlSupervisor {
   private output: Axes = [...CENTER];
   private lastTickAt = 0;
   private ticker: unknown = null;
+  /** One-shot timer at the exact neutral/release deadline, so the 20 Hz tick adds no jitter. */
+  private watchdog: unknown = null;
   private maskCheckDeadline: number | null = null;
   private sentFrames: { at: number; values: Axes }[] = [];
   private dropped = 0;
@@ -207,6 +209,7 @@ export class FlightControlSupervisor {
     }
     this.lastSeq = command.seq;
     this.lastCommandAt = this.clock.now();
+    this.armWatchdog();
     if (this.current === "ABORTED") return; // a live heartbeat keeps the hover; the values are ignored
     this.target = [command.roll, command.pitch, command.yaw, command.throttle].map((v) => clamp(v, -1, 1)) as Axes;
     this.appliedSeq = command.seq;
@@ -231,6 +234,7 @@ export class FlightControlSupervisor {
   dispose(): void {
     if (this.disposed) return;
     this.stopTicker();
+    this.clock.clearTimeout(this.watchdog);
     this.disposed = true;
     this.current = "RELEASED";
     this.currentReason = "disposed";
@@ -321,11 +325,11 @@ export class FlightControlSupervisor {
           this.emit();
         }
         return;
-      case "RELEASED": {
-        // A fresh handover needs the SP's switch seen off first (or the setting/link reset).
-        if (!this.inputs.flightControlEnabled || (fc !== null && !fc.mspOverride)) this.transition("IDLE", "handover-ended");
+      case "RELEASED":
+        // Stays RELEASED, keeping the reason the GUI shows (e.g. the SP took back control), until
+        // a fresh handover: the switch seen off since, then on again with every precondition met.
+        if (failure === null && this.switchSeenOff) this.transition("HANDED_OVER", "handover");
         return;
-      }
       default:
         if (failure !== null) this.transition("RELEASED", failure);
     }
@@ -348,12 +352,42 @@ export class FlightControlSupervisor {
         this.lastTickAt = this.clock.now();
         this.ticker = this.clock.setInterval(() => this.tick(), 1_000 / this.config.commandRateHz);
       }
+      this.armWatchdog();
       this.emit();
       if (this.current === next) this.sendFrame();
       return;
     }
     this.stopTicker();
+    this.armWatchdog();
     this.emit();
+  }
+
+  /** (Re)arms the one-shot timer for the current state's heartbeat deadline; clears it otherwise. */
+  private armWatchdog(): void {
+    this.clock.clearTimeout(this.watchdog);
+    this.watchdog = null;
+    if (!SENDING_STATES.has(this.current)) return;
+    const timeout = this.current === "ACTIVE" ? this.config.neutralTimeoutMs : this.config.releaseTimeoutMs;
+    const due = Math.max(0, timeout - (this.clock.now() - this.lastCommandAt));
+    this.watchdog = this.clock.setTimeout(() => {
+      this.watchdog = null;
+      this.evaluate();
+      if (SENDING_STATES.has(this.current) && !this.checkHeartbeat()) this.armWatchdog();
+    }, due);
+  }
+
+  /** NEUTRAL after the neutral timeout, RELEASED after the release timeout; true if it transitioned. */
+  private checkHeartbeat(): boolean {
+    const silentFor = this.clock.now() - this.lastCommandAt;
+    if (this.current === "ACTIVE" && silentFor >= this.config.neutralTimeoutMs) {
+      this.transition("NEUTRAL", "heartbeat-lost");
+      return true;
+    }
+    if ((this.current === "NEUTRAL" || this.current === "ABORTED") && silentFor >= this.config.releaseTimeoutMs) {
+      this.transition("RELEASED", "heartbeat-lost");
+      return true;
+    }
+    return false;
   }
 
   private stopTicker(): void {
@@ -366,15 +400,7 @@ export class FlightControlSupervisor {
   private tick(): void {
     this.evaluate();
     if (!SENDING_STATES.has(this.current)) return;
-    const silentFor = this.clock.now() - this.lastCommandAt;
-    if (this.current === "ACTIVE" && silentFor >= this.config.neutralTimeoutMs) {
-      this.transition("NEUTRAL", "heartbeat-lost");
-      return;
-    }
-    if ((this.current === "NEUTRAL" || this.current === "ABORTED") && silentFor >= this.config.releaseTimeoutMs) {
-      this.transition("RELEASED", "heartbeat-lost");
-      return;
-    }
+    if (this.checkHeartbeat()) return;
     this.checkOverrideMask();
     if (SENDING_STATES.has(this.current)) this.sendFrame();
   }

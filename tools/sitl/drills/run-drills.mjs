@@ -431,7 +431,8 @@ const AIR_HOOK = `(() => {
   let last = "";
   const push = (s) => {
     const e = { t: Date.now(), sup: s.supervisor.state, reason: s.supervisor.reason, mode: s.link.mode,
-      linkReason: s.link.reason, detected: s.link.detectedType, enabled: s.flightControlEnabled };
+      linkReason: s.link.reason, detected: s.link.detectedType, enabled: s.flightControlEnabled,
+      override: s.telemetry ? s.telemetry.modes.includes("MSP_OVERRIDE") : null };
     const key = JSON.stringify({ ...e, t: 0 });
     if (key !== last) { last = key; window.__fcLog.push(e); }
   };
@@ -585,11 +586,11 @@ async function ensureAirborne() {
   await sleep(1_500);
 }
 
-/** The air has seen the SP's handover switch off (not just "IDLE", which a fresh air page starts in). */
+/** The air has seen the SP's handover switch off in its own telemetry, and isn't handed over. */
 async function waitSwitchSeenOff() {
   await waitFor("air sees the handover switch off", async () => {
     const now = await airNow();
-    return now?.sup === "IDLE" && now.reason === "sp-took-control";
+    return now?.override === false && (now.sup === "IDLE" || now.sup === "RELEASED");
   }, 6_000);
 }
 
