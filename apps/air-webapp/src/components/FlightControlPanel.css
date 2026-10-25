@@ -1,0 +1,22 @@
+.dl-fcp__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dl-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.dl-fcp__toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--dl-green);
+}
+
+.dl-fcp__helper {
+  margin: 0;
+  color: var(--dl-text-dim);
+  font-size: 12px;
+  line-height: 1.4;
+}

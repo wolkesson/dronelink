@@ -45,4 +45,11 @@ describe("LinkTypeClassifier", () => {
     classifier.reset();
     expect(classifier.detectedType).toBe("unknown");
   });
+
+  it("measures silence from begin(), not from clock zero", () => {
+    const classifier = new LinkTypeClassifier(20);
+    classifier.begin(1_000_000);
+    expect(classifier.tick(1_000_019)).toBe("unknown");
+    expect(classifier.tick(1_000_020)).toBe("silent");
+  });
 });
