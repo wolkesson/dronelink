@@ -78,6 +78,13 @@ export function mountApp(root: HTMLElement): void {
   });
   flightControl.onStateChange((state) => flightControlPanel.render(state));
   flightControlPanel.render(flightControl.buildState());
+  // A hidden or unloading page releases flight control (ARCHITECTURE.md 7.7): a backgrounded
+  // WebView may be throttled, so it can't be trusted to keep the command stream honest.
+  const updatePageVisibility = () => flightControl.setPageVisible(document.visibilityState === "visible");
+  document.addEventListener("visibilitychange", updatePageVisibility);
+  window.addEventListener("pagehide", () => flightControl.setPageVisible(false));
+  window.addEventListener("pageshow", updatePageVisibility);
+  updatePageVisibility();
 
   const linkPanel = createLinkPanel({
     qrSupported: QrPairingScanner.isSupported(),

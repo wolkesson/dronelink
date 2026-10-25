@@ -7,7 +7,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts"],
+      exclude: ["src/**/*.test.ts", "src/**/testing/**"],
       // Vitest auto-hides 100%-covered files from the text report when it
       // detects an AI agent environment (std-env isAgent). Force them to
       // stay visible so `vitest run --coverage` always shows every file.

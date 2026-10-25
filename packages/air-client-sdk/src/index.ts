@@ -5,6 +5,7 @@ export * from "./core/FcLink.js";
 export * from "./core/FcIdentificationGate.js";
 export * from "./core/FlightControlController.js";
 export * from "./core/FlightControlSettingsStore.js";
+export * from "./core/FlightControlSupervisor.js";
 export * from "./core/LinkTypeClassifier.js";
 export * from "./core/PairingSession.js";
 export * from "./core/QrPairingScanner.js";

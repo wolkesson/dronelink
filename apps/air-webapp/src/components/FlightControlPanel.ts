@@ -15,6 +15,14 @@ export interface FlightControlPanelHandle {
 }
 
 const LINK_MODE_TEXT = { transparent: "Transparent", pending: "Identifying…", verified: "Verified" } as const;
+const SUPERVISOR_TEXT = {
+  IDLE: "Idle",
+  HANDED_OVER: "Handed over – locked",
+  ACTIVE: "Phone pilot flying",
+  NEUTRAL: "Neutral – holding position",
+  ABORTED: "Aborted – holding position",
+  RELEASED: "Released – safety pilot flying",
+} as const;
 
 /**
  * Flight control (ARCHITECTURE.md section 7): the opt-in setting and the read-only state the
@@ -47,13 +55,13 @@ export function createFlightControlPanel(options: FlightControlPanelOptions): Fl
     el: panel.el,
     render(state) {
       checkbox.checked = state.flightControlEnabled;
-      linkTypeRow.setValue(state.link.detectedType);
+      linkTypeRow.setValue(state.link.reason === "no-fc-link" ? "—" : state.link.detectedType);
       const reason = state.link.reason ? ` (${state.link.reason})` : "";
       linkRow.setValue(`${LINK_MODE_TEXT[state.link.mode]}${reason}`, state.link.mode === "verified" ? "green" : "default");
       fcRow.setValue(state.fc ? `${state.fc.variant} ${state.fc.version} · ${state.fc.board}` : "—");
       const supervisorReason = state.supervisor.reason ? ` (${state.supervisor.reason})` : "";
       supervisorRow.setValue(
-        `${state.supervisor.state}${supervisorReason}`,
+        `${SUPERVISOR_TEXT[state.supervisor.state]}${supervisorReason}`,
         state.supervisor.state === "ACTIVE" || state.supervisor.state === "NEUTRAL" ? "green" : "default",
       );
     },
