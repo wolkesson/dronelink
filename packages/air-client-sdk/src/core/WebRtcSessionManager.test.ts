@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { isTailscaleCandidate } from "@dronelink/core-transport";
 import { WebRtcSessionManager } from "./WebRtcSessionManager.js";
 import type { PairingSocket } from "./PairingSession.js";
@@ -36,11 +36,22 @@ function makeMockPc() {
     configurable: true,
   });
 
+  // The flight-control channel gets its own fake, so it can't clobber the serial
+  // channel's handlers.
+  const fcDc = {
+    readyState: "connecting",
+    onopen: null as (() => void) | null,
+    onclose: null as (() => void) | null,
+    onmessage: null as ((event: { data: unknown }) => void) | null,
+    send: vi.fn(),
+    close: vi.fn(),
+  };
+
   const pc = {
     connectionState: "new",
     onconnectionstatechange: null as unknown,
     onicecandidateerror: null as unknown,
-    createDataChannel: vi.fn(() => dc),
+    createDataChannel: vi.fn((label: string) => (label === "flight-control" ? fcDc : dc)),
     createOffer: vi.fn(async () => ({ type: "offer" as const, sdp: "v=0\r\n" })),
     setLocalDescription: vi.fn(async () => {}),
     close: vi.fn(),
@@ -55,7 +66,7 @@ function makeMockPc() {
     configurable: true,
   });
 
-  return { pc, dc, openRef, iceCandidateRef };
+  return { pc, dc, fcDc, openRef, iceCandidateRef };
 }
 
 describe("isTailscaleCandidate", () => {
@@ -1734,5 +1745,162 @@ describe("WebRtcSessionManager — disconnect", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("WebRtcSessionManager — flight-control channel", () => {
+  const command = { type: "fc-command", seq: 1, sentAt: 1760000000000, roll: 0.5, pitch: 0, yaw: 0, throttle: 0 };
+  const state = {
+    type: "fc-state",
+    sentAt: 1760000000000,
+    flightControlEnabled: false,
+    link: { mode: "transparent", reason: "setting-disabled", detectedType: "silent" },
+    fc: null,
+    supervisor: { state: "IDLE", reason: null, lastAppliedSeq: null },
+    telemetry: null,
+    limits: {
+      commandRateHz: 20,
+      neutralTimeoutMs: 250,
+      releaseTimeoutMs: 1000,
+      hoverThrottleUs: null,
+      maxDeflectionUs: { roll: 150, pitch: 150, yaw: 150, throttle: 150 },
+    },
+    rejectedMessages: 0,
+  } as const;
+
+  async function connected() {
+    const mock = makeMockPc();
+    (mock.dc as unknown as Record<string, unknown>).close = vi.fn();
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn(function MockRTCPeerConnection(this: unknown) {
+        return mock.pc;
+      }),
+    );
+    const mgr = new WebRtcSessionManager();
+    const connectPromise = mgr.connect(makeMockSocket());
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+    }
+    mock.openRef.fn?.();
+    await connectPromise;
+    const openFlightControl = () => {
+      mock.fcDc.readyState = "open";
+      mock.fcDc.onopen?.();
+    };
+    const deliver = (data: unknown) => mock.fcDc.onmessage?.({ data });
+    return { ...mock, mgr, openFlightControl, deliver };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("creates an unordered, never-retransmitted channel next to serial-relay", async () => {
+    const { pc } = await connected();
+    expect(pc.createDataChannel).toHaveBeenCalledWith("serial-relay");
+    expect(pc.createDataChannel).toHaveBeenCalledWith("flight-control", { ordered: false, maxRetransmits: 0 });
+  });
+
+  it("reports the channel opening and closing to listeners until they unsubscribe", async () => {
+    const { mgr, fcDc, openFlightControl } = await connected();
+    const listener = vi.fn();
+    const unsubscribe = mgr.onFlightControlChannelChange(listener);
+    expect(mgr.flightControlChannelOpen).toBe(false);
+
+    openFlightControl();
+    expect(mgr.flightControlChannelOpen).toBe(true);
+    expect(listener).toHaveBeenLastCalledWith(true);
+
+    fcDc.readyState = "closed";
+    fcDc.onclose?.();
+    expect(mgr.flightControlChannelOpen).toBe(false);
+    expect(listener).toHaveBeenLastCalledWith(false);
+
+    unsubscribe();
+    fcDc.onopen?.();
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands valid ground messages to the handler", async () => {
+    const { mgr, openFlightControl, deliver } = await connected();
+    const handler = vi.fn();
+    mgr.setFlightControlHandler(handler);
+    openFlightControl();
+
+    deliver(JSON.stringify(command));
+    deliver(JSON.stringify({ type: "fc-control", action: "abort" }));
+    deliver(JSON.stringify({ type: "fc-setting", flightControlEnabled: true }));
+
+    expect(handler.mock.calls.map(([message]) => message)).toEqual([
+      command,
+      { type: "fc-control", action: "abort" },
+      { type: "fc-setting", flightControlEnabled: true },
+    ]);
+    expect(mgr.rejectedFlightControlMessages).toBe(0);
+  });
+
+  it("counts and drops invalid messages without calling the handler", async () => {
+    const { mgr, openFlightControl, deliver } = await connected();
+    const handler = vi.fn();
+    mgr.setFlightControlHandler(handler);
+    openFlightControl();
+
+    deliver("not json");
+    deliver(JSON.stringify({ ...command, roll: 1.5 }));
+    deliver(JSON.stringify({ ...command, extra: true }));
+    deliver(JSON.stringify({ type: "fc-control", action: "arm" }));
+    deliver(JSON.stringify(state));
+    deliver(new ArrayBuffer(4));
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(mgr.rejectedFlightControlMessages).toBe(6);
+  });
+
+  it("ignores valid messages while no handler is set", async () => {
+    const { mgr, openFlightControl, deliver } = await connected();
+    const handler = vi.fn();
+    mgr.setFlightControlHandler(handler);
+    mgr.setFlightControlHandler(null);
+    openFlightControl();
+
+    deliver(JSON.stringify(command));
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(mgr.rejectedFlightControlMessages).toBe(0);
+  });
+
+  it("sends fc-state only while the channel is open", async () => {
+    const { mgr, fcDc, openFlightControl } = await connected();
+    expect(mgr.sendFlightControlState(state)).toBe(false);
+    expect(fcDc.send).not.toHaveBeenCalled();
+
+    openFlightControl();
+    expect(mgr.sendFlightControlState(state)).toBe(true);
+    expect(JSON.parse(fcDc.send.mock.calls[0][0] as string)).toEqual(state);
+  });
+
+  it("closes the channel on disconnect, notifies once, and stops sending", async () => {
+    const { mgr, fcDc, openFlightControl } = await connected();
+    const listener = vi.fn();
+    mgr.onFlightControlChannelChange(listener);
+    openFlightControl();
+
+    mgr.disconnect();
+    fcDc.readyState = "closed";
+    fcDc.onclose?.();
+
+    expect(fcDc.close).toHaveBeenCalledOnce();
+    expect(listener.mock.calls).toEqual([[true], [false]]);
+    expect(mgr.flightControlChannelOpen).toBe(false);
+    expect(mgr.sendFlightControlState(state)).toBe(false);
+  });
+
+  it("does not notify on disconnect when the channel never opened", async () => {
+    const { mgr } = await connected();
+    const listener = vi.fn();
+    mgr.onFlightControlChannelChange(listener);
+    mgr.disconnect();
+    expect(listener).not.toHaveBeenCalled();
   });
 });

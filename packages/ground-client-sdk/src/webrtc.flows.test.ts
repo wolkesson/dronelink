@@ -19,6 +19,7 @@ import {
   handleSocketClose,
   handleGuiSocketClose,
   requestVideoControl,
+  sendFlightControl,
 } from "./webrtc.js";
 
 interface MockPeerConnection {
@@ -955,5 +956,121 @@ describe("handleSocketClose / handleGuiSocketClose: teardown", () => {
     expect(reply2).not.toHaveBeenCalledWith(
       expect.objectContaining({ message: "A GUI viewer is already connected." }),
     );
+  });
+});
+
+describe("flight-control relay", () => {
+  function flightControlChannel(readyState = "open") {
+    return {
+      label: "flight-control",
+      readyState,
+      onMessage: new FakeEvent<string | Buffer>(),
+      onopen: undefined as (() => void) | undefined,
+      onclose: undefined as (() => void) | undefined,
+      send: vi.fn(),
+    };
+  }
+
+  /** A GUI attached first (no video yet), then air connected and opened its channels. */
+  function connectWithGui(channel = flightControlChannel()) {
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    const onClose = vi.fn();
+    setDataChannelCallbacks(vi.fn(), onClose);
+    handleSignalingMessage({ type: "offer", sdp: "v=0" }, vi.fn());
+    const pc = lastPc();
+    pc.onDataChannel.execute(channel as unknown as RTCDataChannel);
+    return { guiReply, pc, channel, onClose };
+  }
+
+  const state = { type: "fc-state", sentAt: 1, flightControlEnabled: false };
+
+  it("announces the channel to the GUI and relays fc-state from air as-is", () => {
+    const { guiReply, channel } = connectWithGui();
+    expect(guiReply).toHaveBeenLastCalledWith({ type: "fc-channel", open: true });
+
+    channel.onMessage.execute(JSON.stringify(state));
+    expect(guiReply).toHaveBeenLastCalledWith(state);
+  });
+
+  it("drops non-JSON, binary and non-fc-state air messages", () => {
+    const { guiReply, channel } = connectWithGui();
+    const calls = guiReply.mock.calls.length;
+
+    channel.onMessage.execute("not json");
+    channel.onMessage.execute(Buffer.from(JSON.stringify(state)));
+    channel.onMessage.execute(JSON.stringify({ type: "air-status" }));
+    channel.onMessage.execute(JSON.stringify(["fc-state"]));
+
+    expect(guiReply).toHaveBeenCalledTimes(calls);
+  });
+
+  it("waits for onopen when the channel starts out connecting", () => {
+    const channel = flightControlChannel("connecting");
+    const { guiReply } = connectWithGui(channel);
+    expect(guiReply).not.toHaveBeenCalledWith({ type: "fc-channel", open: true });
+    expect(sendFlightControl({ type: "fc-control", action: "abort" })).toBe(false);
+
+    channel.readyState = "open";
+    channel.onopen?.();
+    expect(guiReply).toHaveBeenLastCalledWith({ type: "fc-channel", open: true });
+  });
+
+  it("forwards GUI fc-command, fc-control and fc-setting to air as JSON", () => {
+    const { channel } = connectWithGui();
+    const messages = [
+      { type: "fc-command", seq: 1, sentAt: 2, roll: 0, pitch: 0.5, yaw: 0, throttle: 0 },
+      { type: "fc-control", action: "unlock" },
+      { type: "fc-setting", flightControlEnabled: true },
+    ];
+    const guiReply = vi.fn();
+    for (const message of messages) handleGuiSignalingMessage(message, guiReply);
+
+    expect(channel.send.mock.calls.map(([data]) => JSON.parse(data as string))).toEqual(messages);
+    expect(guiReply).not.toHaveBeenCalled();
+  });
+
+  it("drops fc-command silently but answers one-shot messages with an error when there is no channel", () => {
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "fc-command", seq: 1, sentAt: 2, roll: 0, pitch: 0, yaw: 0, throttle: 0 }, guiReply);
+    expect(guiReply).not.toHaveBeenCalled();
+
+    handleGuiSignalingMessage({ type: "fc-control", action: "abort" }, guiReply);
+    handleGuiSignalingMessage({ type: "fc-setting", flightControlEnabled: false }, guiReply);
+    expect(guiReply.mock.calls).toEqual([
+      [{ type: "error", message: "No flight-control channel to the drone." }],
+      [{ type: "error", message: "No flight-control channel to the drone." }],
+    ]);
+  });
+
+  it("closing the channel tells the GUI but leaves the session and serial relay up", () => {
+    const { guiReply, pc, channel, onClose } = connectWithGui();
+    channel.readyState = "closed";
+    channel.onclose?.();
+
+    expect(guiReply).toHaveBeenLastCalledWith({ type: "fc-channel", open: false });
+    expect(pc.close).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(sendFlightControl({ type: "fc-control", action: "abort" })).toBe(false);
+  });
+
+  it("tells a GUI that attaches later that the channel is open", () => {
+    setDataChannelCallbacks(vi.fn(), vi.fn());
+    handleSignalingMessage({ type: "offer", sdp: "v=0" }, vi.fn());
+    lastPc().onDataChannel.execute(flightControlChannel() as unknown as RTCDataChannel);
+
+    const guiReply = vi.fn();
+    handleGuiSignalingMessage({ type: "offer", sdp: "v=0" }, guiReply);
+    expect(guiReply).toHaveBeenCalledWith({ type: "fc-channel", open: true });
+  });
+
+  it("reports the channel closed when air disconnects, once", () => {
+    const { guiReply, channel } = connectWithGui();
+    handleSocketClose();
+    expect(guiReply).toHaveBeenCalledWith({ type: "fc-channel", open: false });
+    const calls = guiReply.mock.calls.length;
+
+    channel.onclose?.();
+    expect(guiReply).toHaveBeenCalledTimes(calls);
   });
 });
