@@ -292,6 +292,19 @@ export class FcLink {
   }
 
   /**
+   * Leaves control mode for passthrough with the gate transparent for `reason` (e.g. the
+   * supervisor's override-mask check failed). It stays transparent until the link reopens or
+   * the setting is toggled.
+   */
+  forceTransparent(reason: string): void {
+    if (this.closed || this.currentMode !== "control") return;
+    this.stopControl();
+    this.gate.reset(reason);
+    this.emit("identification");
+    this.setMode("passthrough");
+  }
+
+  /**
    * Queues an MSP_SET_RAW_RC frame with the four stick channels in raw receiver order. It is
    * written ahead of any queued telemetry request; a newer frame replaces one not yet written.
    * Refused (false) unless in control mode with a verified FC.

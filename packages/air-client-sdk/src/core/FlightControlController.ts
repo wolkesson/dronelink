@@ -10,6 +10,12 @@ import { BoxId } from "@dronelink/fc-msp";
 import { systemClock, type Clock } from "./Clock.js";
 import type { FcLink, FcTelemetry } from "./FcLink.js";
 import type { FlightControlSettingsStore } from "./FlightControlSettingsStore.js";
+import {
+  DEFAULT_SUPERVISOR_CONFIG,
+  FlightControlSupervisor,
+  type SupervisorConfig,
+  type SupervisorFcState,
+} from "./FlightControlSupervisor.js";
 
 /** The slice of WebRtcSessionManager the controller needs. */
 export interface FlightControlSessionPort {
@@ -26,15 +32,15 @@ export interface FlightControlControllerOptions {
   clock?: Clock;
   /** Periodic fc-state rate while the channel is open (5–10 Hz per ARCHITECTURE.md 7.6). */
   reportIntervalMs?: number;
-  limits?: Omit<FlightControlLimits, "hoverThrottleUs">;
+  supervisorConfig?: Partial<SupervisorConfig>;
 }
 
-export const DEFAULT_FLIGHT_CONTROL_LIMITS: Omit<FlightControlLimits, "hoverThrottleUs"> = {
-  commandRateHz: 20,
-  neutralTimeoutMs: 250,
-  releaseTimeoutMs: 1_000,
-  maxDeflectionUs: { roll: 150, pitch: 150, yaw: 150, throttle: 150 },
-};
+function limitsOf(config: SupervisorConfig): Omit<FlightControlLimits, "hoverThrottleUs"> {
+  const { commandRateHz, neutralTimeoutMs, releaseTimeoutMs, maxDeflectionUs } = config;
+  return { commandRateHz, neutralTimeoutMs, releaseTimeoutMs, maxDeflectionUs: { ...maxDeflectionUs } };
+}
+
+export const DEFAULT_FLIGHT_CONTROL_LIMITS = limitsOf(DEFAULT_SUPERVISOR_CONFIG);
 
 const MODE_NAMES: readonly [number, FlightModeName][] = [
   [BoxId.ANGLE, "ANGLE"],
@@ -69,10 +75,26 @@ export function toFlightControlTelemetry(t: Readonly<FcTelemetry>): FlightContro
   };
 }
 
+/** The supervisor's view of the FC; null until a status reply has arrived. */
+export function toSupervisorFcState(t: Readonly<FcTelemetry>): SupervisorFcState | null {
+  if (!t.status) return null;
+  return {
+    receivedAt: t.status.receivedAt,
+    armed: t.status.armed,
+    posHold: t.status.activeBoxes.has(BoxId.POSHOLD),
+    mspOverride: t.status.activeBoxes.has(BoxId.MSP_OVERRIDE),
+    rxFailsafe: t.status.rxFailsafe,
+    gpsFix: t.rawGps?.fix ?? false,
+    numSat: t.rawGps?.numSat ?? 0,
+    rc: t.rc ? { channels: t.rc.channels, receivedAt: t.rc.receivedAt } : null,
+  };
+}
+
 /**
- * Air-side flight-control composition (ARCHITECTURE.md 7.3 and 7.6): owns the opt-in setting,
- * follows the current FcLink, handles fc-setting from the ground, and reports fc-state on the
- * flight-control channel periodically and on every change.
+ * Air-side flight-control composition (ARCHITECTURE.md 7.3, 7.6 and 7.7): owns the opt-in
+ * setting and the safety supervisor, follows the current FcLink, routes the ground's fc-command /
+ * fc-control / fc-setting, and reports fc-state on the flight-control channel periodically and on
+ * every change.
  */
 export class FlightControlController {
   private readonly session: FlightControlSessionPort;
@@ -80,6 +102,7 @@ export class FlightControlController {
   private readonly clock: Clock;
   private readonly reportIntervalMs: number;
   private readonly limits: Omit<FlightControlLimits, "hoverThrottleUs">;
+  private readonly supervisor: FlightControlSupervisor;
   private readonly listeners = new Set<(state: FlightControlState) => void>();
   private link: FcLink | null = null;
   private unsubscribeLink: (() => void) | null = null;
@@ -92,7 +115,22 @@ export class FlightControlController {
     this.settings = options.settings;
     this.clock = options.clock ?? systemClock;
     this.reportIntervalMs = options.reportIntervalMs ?? 200;
-    this.limits = options.limits ?? DEFAULT_FLIGHT_CONTROL_LIMITS;
+    this.supervisor = new FlightControlSupervisor({
+      clock: this.clock,
+      config: options.supervisorConfig,
+      // FcLink refuses anything outside control mode with a verified FC, a second guard.
+      sendRc: (raw) => void this.link?.sendRc(raw),
+    });
+    this.limits = limitsOf({ ...DEFAULT_SUPERVISOR_CONFIG, ...options.supervisorConfig });
+    this.supervisor.update({
+      flightControlEnabled: this.settings.isEnabled(),
+      channelOpen: this.session.flightControlChannelOpen,
+      pageVisible: true,
+    });
+    this.supervisor.onChange((snapshot) => {
+      if (snapshot.reason === "override-mask-mismatch") this.link?.forceTransparent("override-mask-mismatch");
+      this.publish();
+    });
     this.session.setFlightControlHandler((message) => this.handleGroundMessage(message));
     this.unsubscribeChannel = this.session.onFlightControlChannelChange((open) => this.handleChannel(open));
     if (this.session.flightControlChannelOpen) this.handleChannel(true);
@@ -103,24 +141,34 @@ export class FlightControlController {
   }
 
   get supervisorState(): SupervisorState {
-    return "IDLE";
+    return this.supervisor.state;
+  }
+
+  /** The air page's visibility (visibilitychange / pagehide); hidden releases control. */
+  setPageVisible(visible: boolean): void {
+    this.supervisor.update({ pageVisible: visible });
   }
 
   /** Follow a newly opened FC link, or null once it has closed. */
   attachLink(link: FcLink | null): void {
     this.unsubscribeLink?.();
     this.unsubscribeLink = null;
+    const previous = this.link;
     this.link = link;
     if (link) {
+      this.supervisor.reset("fc-link-opened");
       link.setFlightControlEnabled(this.settings.isEnabled());
       this.unsubscribeLink = link.onChange((event) => {
         if (event === "closed") {
           this.attachLink(null);
           return;
         }
+        this.feedSupervisor();
         // Telemetry arrives at the poller's rate; the periodic report carries it.
         if (event !== "telemetry") this.publish();
       });
+    } else if (previous) {
+      this.feedSupervisor(); // releases if the closed link was in use
     }
     this.publish();
   }
@@ -133,6 +181,8 @@ export class FlightControlController {
     if (source === "ground" && !["IDLE", "RELEASED"].includes(this.supervisorState)) return false;
     if (enabled !== this.settings.isEnabled()) {
       this.settings.setEnabled(enabled);
+      // The supervisor releases first, so no frame is queued when the link returns to passthrough.
+      this.supervisor.update({ flightControlEnabled: enabled });
       this.link?.setFlightControlEnabled(enabled);
     }
     this.publish();
@@ -160,7 +210,7 @@ export class FlightControlController {
       fc: identity
         ? { variant: identity.variant, version: identity.version, apiVersion: identity.apiVersion, board: identity.board }
         : null,
-      supervisor: { state: this.supervisorState, reason: null, lastAppliedSeq: null },
+      supervisor: this.supervisor.snapshot,
       telemetry: link ? toFlightControlTelemetry(link.telemetry) : null,
       limits: { ...this.limits, hoverThrottleUs: identity?.hoverThrottleUs ?? null },
       rejectedMessages: this.session.rejectedFlightControlMessages,
@@ -174,17 +224,36 @@ export class FlightControlController {
     this.unsubscribeChannel();
     this.session.setFlightControlHandler(null);
     this.clock.clearInterval(this.reportTimer);
+    this.supervisor.dispose();
   }
 
   private handleGroundMessage(message: FlightControlGroundMessage): void {
-    if (message.type === "fc-setting") {
-      this.setFlightControlEnabled(message.flightControlEnabled, "ground");
-      return;
+    switch (message.type) {
+      case "fc-setting":
+        this.setFlightControlEnabled(message.flightControlEnabled, "ground");
+        return;
+      case "fc-control":
+        this.supervisor.handleControl(message.action);
+        return;
+      case "fc-command":
+        this.supervisor.handleCommand(message);
+        return;
     }
-    // fc-command / fc-control are the supervisor's (#86). Without one, nothing reaches the FC.
+  }
+
+  private feedSupervisor(): void {
+    const link = this.link;
+    const result = link?.identification;
+    const identity = link && link.mode === "control" && result!.mode === "verified" ? result!.identity : null;
+    this.supervisor.update({
+      identity: identity ? { hoverThrottleUs: identity.hoverThrottleUs, rxMap: identity.rxMap } : null,
+      fcLinkHealthy: link?.healthy ?? false,
+      fc: link ? toSupervisorFcState(link.telemetry) : null,
+    });
   }
 
   private handleChannel(open: boolean): void {
+    this.supervisor.update({ channelOpen: open });
     this.clock.clearInterval(this.reportTimer);
     this.reportTimer = null;
     if (open) {
