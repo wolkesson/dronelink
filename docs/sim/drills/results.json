@@ -1,0 +1,869 @@
+{
+  "limits": {
+    "neutralMs": 300,
+    "releaseMs": 1200,
+    "fcFallbackMs": 450,
+    "spTakebackMs": 150,
+    "settleMs": 4000,
+    "windowMs": 4000,
+    "driftH": 2,
+    "driftZ": 1,
+    "driftHeading": 10
+  },
+  "sp": {
+    "roll": 1512,
+    "pitch": 1488,
+    "yaw": 1508,
+    "throttle": 1285
+  },
+  "runs": 10,
+  "results": [
+    {
+      "id": "1",
+      "name": "Ground GUI tab blurred (odd runs) / closed (even runs)",
+      "run": 1,
+      "variant": "blurred",
+      "pass": true,
+      "durationS": 29,
+      "checks": [
+        {
+          "name": "air NEUTRAL (ms)",
+          "value": 264,
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "FC sticks centered (ms)",
+          "value": 294,
+          "limit": "≤ 360",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED (ms)",
+          "value": 1014,
+          "limit": "≤ 1200",
+          "pass": true
+        },
+        {
+          "name": "FC on the SP's sticks",
+          "value": 1325,
+          "limit": "yes",
+          "pass": true
+        },
+        {
+          "name": "no PP command applied after the neutral timeout (last PP sample, ms)",
+          "value": 276,
+          "limit": "≤ 360",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.23,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0.04,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.2,
+          "limit": "≤ 10",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "2",
+      "name": "ground-core-node killed",
+      "run": 1,
+      "pass": true,
+      "durationS": 13,
+      "checks": [
+        {
+          "name": "air NEUTRAL (ms)",
+          "value": 236,
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "FC sticks centered (ms)",
+          "value": 307,
+          "limit": "≤ 360",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED (ms)",
+          "value": 987,
+          "limit": "≤ 1200",
+          "pass": true
+        },
+        {
+          "name": "FC on the SP's sticks",
+          "value": 1296,
+          "limit": "yes",
+          "pass": true
+        },
+        {
+          "name": "no PP command applied after the neutral timeout (last PP sample, ms)",
+          "value": 266,
+          "limit": "≤ 360",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.2,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0.23,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.2,
+          "limit": "≤ 10",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "3",
+      "name": "Network blackhole between ground and air",
+      "run": 1,
+      "pass": true,
+      "durationS": 17,
+      "checks": [
+        {
+          "name": "air NEUTRAL (ms)",
+          "value": 213,
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "FC sticks centered (ms)",
+          "value": 262,
+          "limit": "≤ 360",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED (ms)",
+          "value": 960,
+          "limit": "≤ 1200",
+          "pass": true
+        },
+        {
+          "name": "FC on the SP's sticks",
+          "value": 1273,
+          "limit": "yes",
+          "pass": true
+        },
+        {
+          "name": "no PP command applied after the neutral timeout (last PP sample, ms)",
+          "value": 225,
+          "limit": "≤ 360",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.19,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0.14,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.2,
+          "limit": "≤ 10",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "4a",
+      "name": "500 ms latency + 20 % loss",
+      "run": 1,
+      "pass": true,
+      "durationS": 17,
+      "checks": [
+        {
+          "name": "ground gate (RTT or command age) stopped the stream (ms)",
+          "value": 653,
+          "limit": "≤ 5000",
+          "pass": true
+        },
+        {
+          "name": "first air NEUTRAL from late/lost commands (ms, measured)",
+          "value": 267,
+          "limit": "report",
+          "pass": true
+        },
+        {
+          "name": "air stopped applying commands for good (ms)",
+          "value": 1810,
+          "limit": "≤ gate + 3 × delay + 500 = 2653",
+          "pass": true
+        },
+        {
+          "name": "no PP command after that (last PP sample, ms)",
+          "value": 1857,
+          "limit": "≤ 1870",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED (ms)",
+          "value": 2566,
+          "limit": "≤ that + 1100",
+          "pass": true
+        },
+        {
+          "name": "ends released, not flying",
+          "value": "RELEASED",
+          "limit": "RELEASED",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "4b",
+      "name": "2000 ms latency + 20 % loss",
+      "run": 1,
+      "pass": true,
+      "durationS": 18,
+      "checks": [
+        {
+          "name": "ground gate (RTT or command age) stopped the stream (ms)",
+          "value": 2145,
+          "limit": "≤ 5000",
+          "pass": true
+        },
+        {
+          "name": "first air NEUTRAL from late/lost commands (ms, measured)",
+          "value": 248,
+          "limit": "report",
+          "pass": true
+        },
+        {
+          "name": "air stopped applying commands for good (ms)",
+          "value": 248,
+          "limit": "≤ gate + 3 × delay + 500 = 8645",
+          "pass": true
+        },
+        {
+          "name": "no PP command after that (last PP sample, ms)",
+          "value": 260,
+          "limit": "≤ 308",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED (ms)",
+          "value": 1001,
+          "limit": "≤ that + 1100",
+          "pass": true
+        },
+        {
+          "name": "ends released, not flying",
+          "value": "RELEASED",
+          "limit": "RELEASED",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "5",
+      "name": "Air tab frozen (debugger pause), 3 s",
+      "run": 1,
+      "pass": false,
+      "durationS": 18,
+      "checks": [
+        {
+          "name": "FC back on the SP's sticks (ms)",
+          "value": 452,
+          "limit": "≤ 450",
+          "pass": false
+        },
+        {
+          "name": "no PP command after the fallback (last PP sample, ms)",
+          "value": 441,
+          "limit": "≤ 450",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.19,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0.02,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.1,
+          "limit": "≤ 10",
+          "pass": true
+        },
+        {
+          "name": "no PP command after the air resumed (samples)",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED once it resumed",
+          "value": "fc-link-lost",
+          "limit": "yes",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "6",
+      "name": "Serial bridge to SITL killed (≈ USB unplug)",
+      "run": 1,
+      "pass": true,
+      "durationS": 13,
+      "checks": [
+        {
+          "name": "FC back on the SP's sticks (ms)",
+          "value": 305,
+          "limit": "≤ 450",
+          "pass": true
+        },
+        {
+          "name": "no PP command after the fallback (last PP sample, ms)",
+          "value": 287,
+          "limit": "≤ 450",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.19,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0.04,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.2,
+          "limit": "≤ 10",
+          "pass": true
+        },
+        {
+          "name": "air reports fc-link-lost (ms)",
+          "value": "7 (fc-link-lost)",
+          "limit": "fc-link-lost",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "7",
+      "name": "ABORT pressed (keys still held for 3 s)",
+      "run": 1,
+      "pass": true,
+      "durationS": 15,
+      "checks": [
+        {
+          "name": "air ABORTED (ms)",
+          "value": 6,
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "FC sticks centered (ms)",
+          "value": 60,
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "commands ignored while held (last PP sample, ms)",
+          "value": 54,
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "still ABORTED 3 s later (heartbeat alive)",
+          "value": "ABORTED",
+          "limit": "ABORTED",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.15,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 0,
+          "limit": "≤ 10",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "8",
+      "name": "ABORT, then link loss (GUI closed 1.5 s later)",
+      "run": 1,
+      "pass": true,
+      "durationS": 14,
+      "checks": [
+        {
+          "name": "hovering (centered) until the loss",
+          "value": "center",
+          "limit": "center",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED after the loss (ms)",
+          "value": 1006,
+          "limit": "≤ 1200",
+          "pass": true
+        },
+        {
+          "name": "then the SP has control (ms after loss)",
+          "value": 1301,
+          "limit": "≤ 1650",
+          "pass": true
+        },
+        {
+          "name": "no PP command after ABORT (last PP sample, ms)",
+          "value": 34,
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.13,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.2,
+          "limit": "≤ 10",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "9",
+      "name": "SP flips the handover switch back mid-command",
+      "run": 1,
+      "pass": true,
+      "durationS": 13,
+      "checks": [
+        {
+          "name": "FC on the SP's sticks (ms)",
+          "value": 54,
+          "limit": "≤ 150",
+          "pass": true
+        },
+        {
+          "name": "no PP command after the takeback (last PP sample, ms)",
+          "value": 41,
+          "limit": "≤ 150",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED: sp-took-control",
+          "value": "54 ms (sp-took-control)",
+          "limit": "sp-took-control",
+          "pass": true
+        },
+        {
+          "name": "GUI shows \"Safety pilot took back control\" (ms)",
+          "value": 69,
+          "limit": "≤ 1000",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.14,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0.01,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.1,
+          "limit": "≤ 10",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "10",
+      "name": "SP switches out of POS HOLD while the PP holds climb",
+      "run": 1,
+      "pass": true,
+      "durationS": 6,
+      "checks": [
+        {
+          "name": "air RELEASED: pos-hold-lost (ms after the FC dropped POS HOLD)",
+          "value": "-89 (pos-hold-lost)",
+          "limit": "≤ 300",
+          "pass": true
+        },
+        {
+          "name": "raw-throttle exposure window (ms, measured)",
+          "value": 234,
+          "limit": "≤ 750",
+          "pass": true
+        },
+        {
+          "name": "altitude change during the exposure (m, measured)",
+          "value": 0.04,
+          "limit": "report",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "11",
+      "name": "RC loss (SP's TX off)",
+      "run": 1,
+      "pass": true,
+      "durationS": 24,
+      "checks": [
+        {
+          "name": "Betaflight FAILSAFE engaged (ms)",
+          "value": 1087,
+          "limit": "≤ 2500",
+          "pass": true
+        },
+        {
+          "name": "air RELEASED",
+          "value": "177 ms (rx-failsafe)",
+          "limit": "yes",
+          "pass": true
+        },
+        {
+          "name": "failsafe descends (auto-land), m in 6 s",
+          "value": -4.85,
+          "limit": "< -0.5",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "12",
+      "name": "Air reconnects after a drop (page reload)",
+      "run": 1,
+      "pass": true,
+      "durationS": 27,
+      "checks": [
+        {
+          "name": "FC back on the SP's sticks during the drop (ms)",
+          "value": 368,
+          "limit": "≤ 450",
+          "pass": true
+        },
+        {
+          "name": "locked after reconnect: no HANDED_OVER with the switch left on",
+          "value": "awaiting-fresh-handover",
+          "limit": "awaiting-fresh-handover",
+          "pass": true
+        },
+        {
+          "name": "GUI does not offer the unlock",
+          "value": "not offered",
+          "limit": "not offered",
+          "pass": true
+        },
+        {
+          "name": "fresh handover + unlock works",
+          "value": "ACTIVE",
+          "limit": "ACTIVE",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "13",
+      "name": "Commands before unlock (in HANDED_OVER)",
+      "run": 1,
+      "pass": true,
+      "durationS": 4,
+      "checks": [
+        {
+          "name": "still HANDED_OVER (locked)",
+          "value": "HANDED_OVER",
+          "limit": "HANDED_OVER",
+          "pass": true
+        },
+        {
+          "name": "MSP_SET_RAW_RC frames written to the FC",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        },
+        {
+          "name": "FC samples not on the SP's sticks",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "14a",
+      "name": "FC reboot mid-session",
+      "run": 1,
+      "pass": true,
+      "durationS": 12,
+      "checks": [
+        {
+          "name": "air re-identified (verified)",
+          "value": "yes",
+          "limit": "yes",
+          "pass": true
+        },
+        {
+          "name": "identification probes after the reboot",
+          "value": "yes",
+          "limit": "yes",
+          "pass": true
+        },
+        {
+          "name": "MSP_SET_RAW_RC after the reboot (frames)",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        },
+        {
+          "name": "air not handed over after the reboot",
+          "value": "IDLE",
+          "limit": "IDLE/RELEASED",
+          "pass": true
+        },
+        {
+          "name": "FC rebooted disarmed (time to verified, ms)",
+          "value": 3814,
+          "limit": "report",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "14b",
+      "name": "FC swapped for an unsupported Betaflight build (2025.12.5 identity, scripted MSP responder)",
+      "run": 1,
+      "pass": true,
+      "durationS": 6,
+      "checks": [
+        {
+          "name": "gate: transparent",
+          "value": "unsupported-api-version",
+          "limit": "unsupported-*",
+          "pass": true
+        },
+        {
+          "name": "MSP_SET_RAW_RC frames",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        },
+        {
+          "name": "only identification probes written",
+          "value": "1",
+          "limit": "1,2,3",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "14c",
+      "name": "FC swapped for INAV (synthetic MSP responder)",
+      "run": 1,
+      "pass": true,
+      "durationS": 5,
+      "checks": [
+        {
+          "name": "gate: transparent",
+          "value": "unsupported-api-version",
+          "limit": "unsupported-*",
+          "pass": true
+        },
+        {
+          "name": "MSP_SET_RAW_RC frames",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "15",
+      "name": "flightControlEnabled turned off mid-command (air UI)",
+      "run": 1,
+      "pass": true,
+      "durationS": 27,
+      "checks": [
+        {
+          "name": "air released (ms)",
+          "value": "3 (setting-disabled)",
+          "limit": "≤ 100",
+          "pass": true
+        },
+        {
+          "name": "link transparent (ms)",
+          "value": 3,
+          "limit": "≤ 100",
+          "pass": true
+        },
+        {
+          "name": "FC on the SP's sticks (ms)",
+          "value": 339,
+          "limit": "≤ 450",
+          "pass": true
+        },
+        {
+          "name": "no PP command after (last PP sample, ms)",
+          "value": 329,
+          "limit": "≤ 450",
+          "pass": true
+        },
+        {
+          "name": "hold: horizontal drift (m)",
+          "value": 0.24,
+          "limit": "≤ 2",
+          "pass": true
+        },
+        {
+          "name": "hold: altitude drift (m)",
+          "value": 0.04,
+          "limit": "≤ 1",
+          "pass": true
+        },
+        {
+          "name": "hold: heading drift (°)",
+          "value": 5.2,
+          "limit": "≤ 10",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "16",
+      "name": "Setting off + Configurator session over the ground TCP bridge",
+      "run": 1,
+      "pass": true,
+      "durationS": 10,
+      "checks": [
+        {
+          "name": "round trips answered",
+          "value": "300",
+          "limit": "300",
+          "pass": true
+        },
+        {
+          "name": "FC received exactly the client's bytes",
+          "value": "1800 vs 1800 B",
+          "limit": "identical",
+          "pass": true
+        },
+        {
+          "name": "client received exactly the FC's bytes",
+          "value": "13913 vs 13913 B",
+          "limit": "identical",
+          "pass": true
+        },
+        {
+          "name": "bytes written to the FC while idle",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    },
+    {
+      "id": "17",
+      "name": "Setting on + non-MSP link (MAVLink v2 stream)",
+      "run": 1,
+      "pass": true,
+      "durationS": 7,
+      "checks": [
+        {
+          "name": "classified",
+          "value": "mavlink-v2",
+          "limit": "mavlink-v2",
+          "pass": true
+        },
+        {
+          "name": "stays transparent",
+          "value": "transparent (unsupported-link-type)",
+          "limit": "transparent",
+          "pass": true
+        },
+        {
+          "name": "bytes written to the FC (no probes)",
+          "value": 0,
+          "limit": "0",
+          "pass": true
+        }
+      ],
+      "auxMismatches": 0
+    }
+  ],
+  "aux": {
+    "samples": 7971,
+    "mismatches": 0
+  }
+}
