@@ -141,6 +141,8 @@ export class FlightControlSupervisor {
   private refused = 0;
   private framesSent = 0;
   private disposed = false;
+  /** The SP's MSP OVERRIDE switch has been seen off since the last handover or reset. */
+  private switchSeenOff = false;
 
   constructor(options: FlightControlSupervisorOptions) {
     this.sink = options.sendRc;
@@ -189,6 +191,7 @@ export class FlightControlSupervisor {
   reset(reason: string): void {
     if (this.disposed) return;
     this.inputs = { ...this.inputs, identity: null, fcLinkHealthy: false, fc: null };
+    this.switchSeenOff = false;
     this.transition("IDLE", reason);
   }
 
@@ -298,10 +301,19 @@ export class FlightControlSupervisor {
   }
 
   private evaluate(): void {
+    const fc = this.inputs.fc;
+    if (fc && !fc.mspOverride && this.clock.now() - fc.receivedAt <= this.config.maxStatusAgeMs) this.switchSeenOff = true;
     const failure = this.preconditionFailure();
     switch (this.current) {
       case "IDLE":
-        if (failure === null) {
+        if (failure === null && !this.switchSeenOff) {
+          // A handover is the SP flipping the switch on while this supervisor watches. A switch
+          // already on when the air (re)connects or the link reopens doesn't count.
+          if (this.currentReason !== "awaiting-fresh-handover") {
+            this.currentReason = "awaiting-fresh-handover";
+            this.emit();
+          }
+        } else if (failure === null) {
           this.transition("HANDED_OVER", "handover");
         } else if (failure !== this.currentReason) {
           // Not a transition: the reason tells the GUI why the SP can't hand over yet.
@@ -311,7 +323,6 @@ export class FlightControlSupervisor {
         return;
       case "RELEASED": {
         // A fresh handover needs the SP's switch seen off first (or the setting/link reset).
-        const fc = this.inputs.fc;
         if (!this.inputs.flightControlEnabled || (fc !== null && !fc.mspOverride)) this.transition("IDLE", "handover-ended");
         return;
       }
@@ -325,6 +336,7 @@ export class FlightControlSupervisor {
     this.current = next;
     this.currentReason = reason;
     if (next === "HANDED_OVER") {
+      this.switchSeenOff = false;
       this.lastSeq = null;
       this.appliedSeq = null;
     }

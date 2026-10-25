@@ -139,6 +139,7 @@ describe("describeReason", () => {
     expect(describeReason("unlock-refused:sticks-not-neutral")).toMatch(/sticks are not centered/);
     expect(describeReason("unlock-refused:something-new")).toBe("unlock refused: something-new");
     expect(describeReason("hover-throttle-not-fixed")).toMatch(/ap_hover_throttle/);
+    expect(describeReason("awaiting-fresh-handover")).toMatch(/flip it off and on again/);
     expect(describeReason("brand-new-reason")).toBe("brand-new-reason");
   });
 });

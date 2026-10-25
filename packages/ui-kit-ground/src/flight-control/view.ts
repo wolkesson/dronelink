@@ -93,6 +93,7 @@ export function describeReason(reason: string | null): string {
     "heartbeat-restored": "commands resumed",
     "ground-release": "handed back from the ground",
     "handover-ended": "handover switch off",
+    "awaiting-fresh-handover": "handover switch was already on: the safety pilot must flip it off and on again",
     handover: "safety pilot handed over",
     unlocked: "unlocked",
     abort: "ABORT",

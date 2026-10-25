@@ -36,6 +36,7 @@ function memoryStorage(enabled: boolean) {
 function setup(enabled = true) {
   const fc = new FakeFc();
   fc.echoOverride = true;
+  fc.replies[MspCommand.STATUS_EX] = statusPayload(0b0111); // armed, holds on, handover switch off
   const session = new FakeSession();
   const controller = new FlightControlController({ session, settings: createFlightControlSettingsStore(memoryStorage(enabled)) });
   const link = new FcLink({ transport: fc, flightControlEnabled: controller.flightControlEnabled });
@@ -54,7 +55,14 @@ function setup(enabled = true) {
       await vi.advanceTimersByTimeAsync(50);
     }
   };
-  return { fc, session, controller, link, toGround, ground, command, stream, last: () => session.sent.at(-1)! };
+  /** The FC is identified with the switch off, then the SP flips the handover switch on. */
+  const handOver = async () => {
+    fc.replies[MspCommand.STATUS_EX] = statusPayload(0b0111);
+    await vi.advanceTimersByTimeAsync(2_200);
+    fc.replies[MspCommand.STATUS_EX] = statusPayload(0b1111);
+    await vi.advanceTimersByTimeAsync(300);
+  };
+  return { fc, session, controller, link, toGround, ground, command, stream, handOver, last: () => session.sent.at(-1)! };
 }
 
 beforeEach(() => {
@@ -67,9 +75,9 @@ afterEach(() => {
 
 describe("flight control end to end (FcLink + supervisor + controller, scripted Betaflight)", () => {
   it("hands over, unlocks, flies, and releases to the SP when the heartbeat stops", async () => {
-    const { fc, controller, ground, stream, last } = setup();
+    const { fc, controller, ground, stream, last, handOver } = setup();
     ground({ type: "fc-control", action: "unlock" }); // before verified: refused, nothing sent
-    await vi.advanceTimersByTimeAsync(2_300);
+    await handOver();
     expect(controller.supervisorState).toBe("HANDED_OVER");
     expect(fc.rcFrames).toEqual([]);
 
@@ -98,8 +106,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("aborts to a centered hover and keeps it while the heartbeat lives", async () => {
-    const { fc, controller, ground, stream } = setup();
-    await vi.advanceTimersByTimeAsync(2_300);
+    const { fc, controller, ground, stream, handOver } = setup();
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     await stream(500, { pitch: 1 });
     ground({ type: "fc-control", action: "abort" });
@@ -110,8 +118,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("stops sending in the same tick the FC link is lost", async () => {
-    const { fc, controller, ground, stream } = setup();
-    await vi.advanceTimersByTimeAsync(2_300);
+    const { fc, controller, ground, stream, handOver } = setup();
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     await stream(200);
     fc.responding = false;
@@ -123,8 +131,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("releases and returns the link to passthrough when the setting is turned off", async () => {
-    const { fc, controller, link, toGround, ground, stream } = setup();
-    await vi.advanceTimersByTimeAsync(2_300);
+    const { fc, controller, link, toGround, ground, stream, handOver } = setup();
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     await stream(200);
     controller.setFlightControlEnabled(false, "air");
@@ -139,8 +147,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("refuses the setting from the ground while flying", async () => {
-    const { controller, ground, stream } = setup();
-    await vi.advanceTimersByTimeAsync(2_300);
+    const { controller, ground, stream, handOver } = setup();
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     ground({ type: "fc-setting", flightControlEnabled: false });
     await stream(100);
@@ -149,8 +157,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("releases when the page is hidden or the channel closes", async () => {
-    const { session, controller, ground, stream } = setup();
-    await vi.advanceTimersByTimeAsync(2_300);
+    const { session, controller, ground, stream, handOver } = setup();
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     await stream(100);
     controller.setPageVisible(false);
@@ -162,8 +170,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("releases when the SP flips the handover switch back", async () => {
-    const { fc, controller, ground, stream } = setup();
-    await vi.advanceTimersByTimeAsync(2_300);
+    const { fc, controller, ground, stream, handOver } = setup();
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     await stream(200);
     fc.replies[MspCommand.STATUS_EX] = statusPayload(0b0111);
@@ -174,10 +182,10 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("releases and makes the link transparent when MSP_RC doesn't follow the override", async () => {
-    const { fc, link, controller, ground, stream } = setup();
+    const { fc, link, controller, ground, stream, handOver } = setup();
     fc.echoOverride = false;
     fc.replies[MspCommand.RC] = new Uint8Array([...u16(1500), ...u16(1500), ...u16(1510), ...u16(1300), ...u16(1900)]);
-    await vi.advanceTimersByTimeAsync(2_300);
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     expect(controller.supervisorState).toBe("ACTIVE");
     await stream(1_100);
@@ -187,9 +195,9 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("never writes MSP_SET_RAW_RC to an FC that fails identification", async () => {
-    const { fc, controller, ground, stream } = setup();
+    const { fc, controller, ground, stream, handOver } = setup();
     fc.replies = { ...fc.replies, ...identificationReplies("INAV") };
-    await vi.advanceTimersByTimeAsync(2_300);
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     await stream(1_000, { roll: 1 });
     expect(controller.supervisorState).toBe("IDLE");
@@ -197,8 +205,8 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
   });
 
   it("re-locks when the FC link is reopened", async () => {
-    const { fc, controller, link, ground, stream } = setup();
-    await vi.advanceTimersByTimeAsync(2_300);
+    const { fc, controller, link, ground, stream, handOver } = setup();
+    await handOver();
     ground({ type: "fc-control", action: "unlock" });
     await stream(100);
     fc.emit(new Uint8Array(0)); // transport closed
@@ -209,7 +217,10 @@ describe("flight control end to end (FcLink + supervisor + controller, scripted 
     controller.attachLink(next);
     next.start();
     expect(controller.supervisorState).toBe("IDLE");
-    await vi.advanceTimersByTimeAsync(2_300);
+    await vi.advanceTimersByTimeAsync(2_500);
+    // The switch was still on across the reconnect: that is not a fresh handover.
+    expect(controller.buildState().supervisor).toMatchObject({ state: "IDLE", reason: "awaiting-fresh-handover" });
+    await handOver();
     expect(controller.supervisorState).toBe("HANDED_OVER");
   });
 });

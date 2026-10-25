@@ -61,7 +61,9 @@ function setup(config: Partial<SupervisorConfig> = {}) {
 
 type Setup = ReturnType<typeof setup>;
 
+/** The SP flips the handover switch on while the supervisor watches. */
 function handOver(s: Setup): void {
+  s.supervisor.update({ ...goodInputs(), fc: fcState({ mspOverride: false }) });
   s.supervisor.update(goodInputs());
   expect(s.supervisor.state).toBe("HANDED_OVER");
 }
@@ -119,6 +121,37 @@ describe("FlightControlSupervisor: handover", () => {
     expect(s.supervisor.snapshot).toEqual({ state: "HANDED_OVER", reason: "handover", lastAppliedSeq: null });
     vi.advanceTimersByTime(5_000);
     expect(s.frames).toEqual([]);
+  });
+
+  it("needs the switch flipped on while it watches: one already on doesn't hand over", () => {
+    const s = setup({ maxStatusAgeMs: 500 });
+    s.supervisor.update(goodInputs());
+    expect(s.supervisor.snapshot).toMatchObject({ state: "IDLE", reason: "awaiting-fresh-handover" });
+    const notified = s.snapshots.length;
+    s.supervisor.update({ fc: fcState() });
+    expect(s.snapshots).toHaveLength(notified);
+    // A stale "switch off" reading doesn't count as seeing it off.
+    s.supervisor.update({ fc: fcState({ mspOverride: false, receivedAt: Date.now() - 600 }) });
+    s.supervisor.update({ fc: fcState() });
+    expect(s.supervisor.state).toBe("IDLE");
+    s.supervisor.update({ fc: fcState({ mspOverride: false }) });
+    s.supervisor.update({ fc: fcState() });
+    expect(s.supervisor.snapshot).toMatchObject({ state: "HANDED_OVER", reason: "handover" });
+  });
+
+  it("needs a fresh switch cycle after a reset (FC link reopened) and after a setting toggle", () => {
+    const s = setup();
+    activate(s);
+    s.supervisor.reset("fc-link-opened");
+    s.supervisor.update(goodInputs());
+    expect(s.supervisor.snapshot).toMatchObject({ state: "IDLE", reason: "awaiting-fresh-handover" });
+
+    const t = setup();
+    reach(t, "ACTIVE");
+    t.supervisor.update({ flightControlEnabled: false });
+    t.supervisor.update({}); // the next telemetry update while off: RELEASED -> IDLE
+    t.supervisor.update({ flightControlEnabled: true });
+    expect(t.supervisor.snapshot).toMatchObject({ state: "IDLE", reason: "awaiting-fresh-handover" });
   });
 
   it.each(PRECONDITION_LOSSES)("stays IDLE without %s, and says so", (reason, loss) => {
@@ -490,8 +523,8 @@ describe("FlightControlSupervisor: lifecycle", () => {
     handOver(s);
     unsubscribe();
     s.supervisor.handleControl("release");
-    expect(listener).toHaveBeenCalledOnce();
-    expect(s.snapshots.map((snapshot) => snapshot.state)).toEqual(["HANDED_OVER", "RELEASED"]);
+    expect(listener).toHaveBeenCalledTimes(2); // the IDLE reason (switch off), then the handover
+    expect(s.snapshots.map((snapshot) => snapshot.state)).toEqual(["IDLE", "HANDED_OVER", "RELEASED"]);
   });
 
   it("doesn't send the entry frame when a listener releases during the transition", () => {
