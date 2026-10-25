@@ -379,9 +379,16 @@ function attachFlightControlChannel(channel: RTCDataChannel): void {
 }
 
 /** Forwards a GUI flight-control message to air; false when the channel isn't open. */
+let sctpDebugAt = 0;
 export function sendFlightControl(message: Record<string, unknown>): boolean {
   if (!activeFlightControlChannel || activeFlightControlChannel.readyState !== "open") return false;
   activeFlightControlChannel.send(JSON.stringify(message));
+  if (process.env.DRONELINK_DEBUG_SCTP === "1" && Date.now() - sctpDebugAt > 1000) {
+    sctpDebugAt = Date.now();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = (activeFlightControlChannel as any).sctp?.sctp;
+    if (a) console.log(`SCTPDBG ${Date.now()} type=${String(message.type)} buffered=${activeFlightControlChannel.bufferedAmount} out=${a.outboundQueue?.length} sent=${a.sentQueue?.length} abandoned=${a.sentQueue?.filter((c: { abandoned?: boolean }) => c.abandoned).length} flight=${a.flightSize} cwnd=${a.cwnd} rwnd=${a.peerRwnd} rto=${a.rto} t3=${!!a.timer3Handle} fwd=${!!a.forwardTsnChunk} state=${a.associationState}`);
+  }
   return true;
 }
 

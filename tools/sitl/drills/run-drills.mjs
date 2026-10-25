@@ -379,7 +379,7 @@ async function startBridge() {
 
 async function startGround() {
   chain.ground = start("ground", "npm", ["start", "--workspace", "@dronelink/ground-core-node"], {
-    env: { BRIDGE_TCP_PORT: String(PORTS.groundBridge), PAIRING_SESSION_ID: SESSION.sessionId, PAIRING_TOKEN: SESSION.token },
+    env: { BRIDGE_TCP_PORT: String(PORTS.groundBridge), PAIRING_SESSION_ID: SESSION.sessionId, PAIRING_TOKEN: SESSION.token, DRONELINK_DEBUG_SCTP: process.env.DRONELINK_DEBUG_SCTP ?? "" },
     ready: /Signaling server listening/,
   });
   await chain.ground.ready;
