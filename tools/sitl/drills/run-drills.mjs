@@ -76,6 +76,7 @@ const LIMITS = {
   releaseMs: 1200, // air RELEASED after a lost heartbeat
   fcFallbackMs: 400, // FC back on the SP's sticks after the last frame (300 ms stale + RX feed + sampling)
   spTakebackMs: 150, // FC on the SP's sticks after the switch flips back (next RX frame)
+  frameToSampleMs: 80, // an air frame written -> Betaflight's serial task -> the 50 Hz MSP_RC sample
   settleMs: 4000, // drift is measured from fault + settle ...
   windowMs: 4000, // ... over this window
   driftH: 2.0, // m
@@ -715,10 +716,10 @@ async function heartbeatLoss(t0, { neutralFromFc = true } = {}) {
     check("air NEUTRAL (ms)", rel(neutral?.t, t0), neutral && neutral.t - t0 <= LIMITS.neutralMs, `≤ ${LIMITS.neutralMs}`),
     check("air RELEASED (ms)", rel(released?.t, t0), released && released.t - t0 <= LIMITS.releaseMs, `≤ ${LIMITS.releaseMs}`),
     check("FC on the SP's sticks", rel(firstAt(samples, t0, "sp"), t0), firstAt(samples, t0, "sp") !== undefined, "yes"),
-    check("no PP command applied after the neutral timeout (last PP sample, ms)", lastPp, lastPp === null || lastPp <= LIMITS.neutralMs + 60, `≤ ${LIMITS.neutralMs + 60}`),
+    check("no PP command applied after the neutral timeout (last PP sample, ms)", lastPp, lastPp === null || lastPp <= LIMITS.neutralMs + LIMITS.frameToSampleMs, `≤ ${LIMITS.neutralMs + LIMITS.frameToSampleMs}`),
     ...driftChecks(drift(samples, t0)),
   ];
-  if (neutralFromFc) checks.splice(1, 0, check("FC sticks centered (ms)", tCenter, tCenter !== null && tCenter <= LIMITS.neutralMs + 60, `≤ ${LIMITS.neutralMs + 60}`));
+  if (neutralFromFc) checks.splice(1, 0, check("FC sticks centered (ms)", tCenter, tCenter !== null && tCenter <= LIMITS.neutralMs + LIMITS.frameToSampleMs, `≤ ${LIMITS.neutralMs + LIMITS.frameToSampleMs}`));
   return { checks, samples };
 }
 
@@ -822,7 +823,18 @@ const SCENARIOS = [
           check("GUI stopped the stream (gate, or the air's release) (ms)", gate ? `${rel(gateT, t0)} (${/^Released/.test(gate.banner) ? "air released" : "gate"})` : null, gateT !== null && gateT - t0 <= 5_000, "≤ 5000"),
           check("first air NEUTRAL from late/lost commands (ms, measured)", rel(firstNeutral?.t, t0), true, "report"),
           check("air stopped applying commands for good (ms)", rel(lastActiveEnd?.t, t0), lastActiveEnd && drainLimit !== null && rel(lastActiveEnd.t, t0) <= drainLimit, drainLimit === null ? "gate" : `≤ gate + 3 × delay + 500 = ${drainLimit}`),
-          check("no PP command after that (last PP sample, ms)", lastPp, lastActiveEnd && (lastPp === null || lastPp <= rel(lastActiveEnd.t, t0) + 60), lastActiveEnd ? `≤ ${rel(lastActiveEnd.t, t0) + 60}` : "n/a"),
+          check(
+            "no PP command after that (last PP sample, ms)",
+            lastActiveEnd && lastPp !== null && lastPp > rel(lastActiveEnd.t, t0) + LIMITS.frameToSampleMs
+              ? `${lastPp}: ${JSON.stringify({
+                  samples: samples.filter((x) => x[0] >= lastActiveEnd.t - 100 && classify(x) === "pp").slice(0, 4).map((x) => [Math.round(x[0] - t0), x[1].slice(0, 4), x[7].slice(0, 4)]),
+                  air: air.filter((e) => e.t >= lastActiveEnd.t - 600).slice(0, 8).map((e) => [Math.round(e.t - t0), e.sup, e.reason]),
+                  frames: chain.proxy.chunks.filter((c) => c.dir === "toFc" && c.t >= lastActiveEnd.t - 100 && c.t <= lastActiveEnd.t + 400 && mspFrames(c.bytes).includes(200)).map((c) => Math.round(c.t - t0)).slice(0, 12),
+                })}`
+              : lastPp,
+            lastActiveEnd && (lastPp === null || lastPp <= rel(lastActiveEnd.t, t0) + LIMITS.frameToSampleMs),
+            lastActiveEnd ? `≤ ${rel(lastActiveEnd.t, t0) + LIMITS.frameToSampleMs}` : "n/a",
+          ),
           check("air RELEASED (ms)", rel(released?.t, t0), released && lastActiveEnd && released.t - lastActiveEnd.t <= LIMITS.releaseMs + 100, "≤ that + 1100"),
           check("ends released, not flying", final?.sup, final?.sup === "RELEASED" || final?.sup === "IDLE", "RELEASED"),
         ],

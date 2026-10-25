@@ -38,7 +38,7 @@ Drift is measured on ground truth from 4 s after the fault (time to brake out of
 | Criterion | Limit |
 | --- | --- |
 | Air NEUTRAL after the heartbeat stops / air ABORTED after ABORT | ≤ 300 ms |
-| FC sticks centered (adds one frame on the serial link) | ≤ 360 ms |
+| FC sticks centered (adds one frame on the serial link and the 50 Hz sample) | ≤ 380 ms |
 | Air RELEASED after the heartbeat stops | ≤ 1200 ms |
 | FC back on the SP's sticks after the last frame it received (Betaflight's 300 ms stale override + RX feed + sampling) | ≤ 400 ms |
 | FC back on the SP's sticks after the SP flips the handover switch | ≤ 150 ms |
@@ -82,9 +82,12 @@ RESULTS_PLACEHOLDER
 
 Each of these was fixed on the drills branch and is covered by unit tests as well:
 
-1. **The ground's RTT gate went blind under heavy latency** (scenario 4). It relies on the WebRTC candidate-pair RTT, which stays stale when packets are delayed by seconds: at 2 s + 20 % loss it never tripped, and at 500 ms it took 2.7 s. The GUI now also stops the stream when the air reports applying a command more than 600 ms after it was sent (`commands-late`: RTT gate + one 200 ms report interval), latched until the air releases. The craft was never at risk (the air's own 250 ms / 1 s watchdog handled it), but the GUI kept streaming into a dead link.
-2. **Any GUI socket closing cut off the active viewer** (scenario 13). A second tab refused as "already connected", or any probe, tore down the operator's video and `fc-state` stream when it closed; the GUI went STALE, its dead-man stopped the stream and the air released. Fail-safe, but a stray tab must not be able to do that: now only the active viewer's own socket ends its session.
-3. **A reconnect could hand over without a fresh handover** (scenario 12). An air page reload, FC link reopen or setting toggle with the SP's switch left on went straight to HANDED_OVER. The supervisor now needs to see the switch go off and on (`awaiting-fresh-handover` until then).
+1. **werift retransmitted every lost flight-control message** (scenario 4, and every scenario after it in one run). The `flight-control` channel is `{ ordered: false, maxRetransmits: 0 }` so a stale command is dropped, not queued (ARCHITECTURE.md §7.6). werift, which terminates the ground side, tested `!!chunk.maxRetransmits`, so a value of 0 meant "reliable": under loss every lost `fc-command` was retransmitted with exponential backoff, commands arrived after the air had gone NEUTRAL, and once the backoff grew the ground->air direction stalled for good (unlocks never arrived, while air->ground state still flowed). `patches/werift+0.24.4.patch` now fixes this as aiortc (werift's origin) does, plus two neighbours: abandoning the right message's fragments, and the seconds/milliseconds mix-up in `maxPacketLifeTime` expiry. `werift-patch.test.ts` fails if the patch stops applying. The air side (Chromium) was never affected.
+2. **The ground's RTT gate went blind under heavy latency** (scenario 4). It relies on the WebRTC candidate-pair RTT, which stays stale when packets are delayed by seconds: at 2 s + 20 % loss it never tripped, and at 500 ms it took 2.7 s. The GUI now also stops the stream when the air reports applying a command more than 600 ms after it was sent (`commands-late`: RTT gate + one 200 ms report interval), latched until the air releases. The craft was never at risk (the air's own 250 ms / 1 s watchdog handled it), but the GUI kept streaming into a dead link.
+3. **Any GUI socket closing cut off the active viewer** (scenario 13). A second tab refused as "already connected", or any probe, tore down the operator's video and `fc-state` stream when it closed; the GUI went STALE, its dead-man stopped the stream and the air released. Fail-safe, but a stray tab must not be able to do that: now only the active viewer's own socket ends its session.
+4. **A reconnect could hand over without a fresh handover** (scenario 12). An air page reload, FC link reopen or setting toggle with the SP's switch left on went straight to HANDED_OVER. The supervisor now needs to see the switch go off and on (`awaiting-fresh-handover` until then).
+5. **The GUI could miss *Safety pilot took back control*** (scenario 9). The supervisor went RELEASED -> IDLE on the next telemetry update once the switch was seen off, tens of ms later. RELEASED now keeps its reason until the next fresh handover and then goes straight to HANDED_OVER.
+6. **Neutral detection rode the 20 Hz tick** (margins in scenarios 1-3). NEUTRAL came 250-300 ms after the last command, up to 286 ms after the fault against the 300 ms limit. A one-shot watchdog now fires at exactly the last command + 250 ms (and + 1 s for RELEASED).
 
 Measured, not a defect:
 
