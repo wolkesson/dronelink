@@ -40,7 +40,7 @@ Drift is measured on ground truth from 4 s after the fault (time to brake out of
 | Air NEUTRAL after the heartbeat stops / air ABORTED after ABORT | ≤ 300 ms |
 | FC sticks centered (adds one frame on the serial link and the 50 Hz sample) | ≤ 380 ms |
 | Air RELEASED after the heartbeat stops | ≤ 1200 ms |
-| FC back on the SP's sticks after the last frame it received (Betaflight's 300 ms stale override + RX feed + sampling)¹ | ≤ 400 ms |
+| FC back on the SP's sticks after the last frame it received: Betaflight's 300 ms freshness window, then the same next-RX-frame, RC smoothing and sampling chain as the switch flip below¹ | ≤ 450 ms |
 | FC back on the SP's sticks after the SP flips the handover switch | ≤ 150 ms |
 | No PP command applied after its timeout | per scenario |
 | Hold: horizontal / altitude / heading drift | ≤ 2.0 m / 1.0 m / 10° |

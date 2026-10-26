@@ -74,9 +74,9 @@ const BOX = { ARM: 0, ALTHOLD: 3, POSHOLD: 11, FAILSAFE: 27, OVERRIDE: 50 };
 const LIMITS = {
   neutralMs: 300, // air centers the sticks after a lost heartbeat / ABORT
   releaseMs: 1200, // air RELEASED after a lost heartbeat
-  fcFallbackMs: 400, // FC back on the SP's sticks after the last frame (300 ms stale + RX feed + sampling)
+  spTakebackMs: 150, // FC on the SP's sticks after the switch flips back (next RX frame + RC smoothing + sampling)
+  fcFallbackMs: 450, // after the last frame: Betaflight's 300 ms freshness window, then the same chain as spTakebackMs
   samplerGapMs: 60, // a 50 Hz sample interval above this means the sampler, not the FC, stalled
-  spTakebackMs: 150, // FC on the SP's sticks after the switch flips back (next RX frame)
   frameToSampleMs: 80, // an air frame written -> Betaflight's serial task -> the 50 Hz MSP_RC sample
   settleMs: 4000, // drift is measured from fault + settle ...
   windowMs: 4000, // ... over this window
@@ -203,6 +203,8 @@ class Sim {
 class CaptureProxy {
   constructor() {
     this.chunks = []; // { t, dir: "toFc" | "fromFc", bytes: Buffer }
+    /** When each complete MSP_SET_RAW_RC frame finished passing to the FC (frames may span chunks). */
+    this.rcFrames = [];
     this.upstream = { kind: "sitl" };
     this.sockets = new Set();
   }
@@ -211,7 +213,17 @@ class CaptureProxy {
     this.server = createServer((client) => {
       this.sockets.add(client);
       client.setNoDelay(true);
-      const record = (dir, bytes) => this.chunks.push({ t: Date.now(), dir, bytes: Buffer.from(bytes) });
+      let toFcTail = Buffer.alloc(0);
+      const record = (dir, bytes) => {
+        const t = Date.now();
+        this.chunks.push({ t, dir, bytes: Buffer.from(bytes) });
+        if (dir !== "toFc") return;
+        // Scan the byte stream, not single chunks, so a frame split across two reads still counts.
+        const buf = Buffer.concat([toFcTail, bytes]);
+        const { commands, consumed } = scanMspRequests(buf);
+        for (const command of commands) if (command === 200) this.rcFrames.push(t);
+        toFcTail = buf.subarray(consumed).subarray(0, 300);
+      };
       if (this.upstream.kind === "fake") {
         const fake = this.upstream.make();
         client.on("data", (d) => {
@@ -282,6 +294,25 @@ function mspResponse(cmd, payload) {
 }
 
 /** MSP v1 frames (cmd numbers) in a byte stream: requests ('<'), or replies ('>' and errors '!'). Handles jumbo frames. */
+/** MSP v1 requests in a byte stream: their commands, and where an unfinished frame starts. */
+function scanMspRequests(buf) {
+  const commands = [];
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] !== 0x24) continue;
+    if (i + 5 > buf.length) return { commands, consumed: i }; // the header is still arriving
+    if (buf[i + 1] !== 0x4d || buf[i + 2] !== 0x3c) continue;
+    const size = buf[i + 3];
+    if (i + 5 + size + 1 > buf.length) return { commands, consumed: i }; // the body is still arriving
+    let x = 0;
+    for (let k = i + 3; k < i + 5 + size; k++) x ^= buf[k];
+    if (x === buf[i + 5 + size]) {
+      commands.push(buf[i + 4]);
+      i += 5 + size;
+    }
+  }
+  return { commands, consumed: buf.length };
+}
+
 function mspFrames(buf, direction = 0x3c) {
   const directions = direction === 0x3c ? [0x3c] : [0x3e, 0x21];
   const out = [];
@@ -652,19 +683,36 @@ async function waitSwitchSeenOff() {
   }, 6_000);
 }
 
+/** Setup retries in the current scenario (before any fault), recorded in results.json. */
+let setupRetries = [];
+
+async function handOverAndUnlock() {
+  // A fresh handover: switch seen off, then on.
+  await chain.simClient.pilot({ override: false });
+  await waitSwitchSeenOff();
+  await chain.simClient.pilot({ override: true });
+  await waitFor("air HANDED_OVER", async () => (await airNow())?.sup === "HANDED_OVER", 6_000);
+  await guiUnlock();
+}
+
 async function establishFlying() {
   await ensureChain();
   await ensureAirborne();
   await chain.simClient.pilot({ ...SP, hold: true, angle: true });
   if (!(await airNow())?.enabled) await airSetEnabled(true);
   await waitFor("FC verified", async () => (await airNow())?.mode === "verified", 15_000);
-  // A fresh handover: switch seen off, then on.
-  await chain.simClient.pilot({ override: false });
-  await waitSwitchSeenOff();
-  await chain.simClient.pilot({ override: true });
-  await waitFor("air HANDED_OVER", async () => (await airNow())?.sup === "HANDED_OVER", 6_000);
   const unlockAt = Date.now();
-  await guiUnlock();
+  try {
+    await handOverAndUnlock();
+  } catch (error) {
+    // The harness's RC feed (a Python thread) occasionally hiccups right after SITL starts and
+    // Betaflight flags RX loss for a moment; the air correctly releases (rx-failsafe). That is
+    // setup, before any fault: retry once and record it, never on any other reason.
+    if ((await airNow())?.reason !== "rx-failsafe" || setupRetries.length > 0) throw error;
+    setupRetries.push("rx-failsafe before the fault");
+    await sleep(2_000);
+    await handOverAndUnlock();
+  }
   await guiHoldKeys(FLY_KEYS);
   await sleep(2_000);
   const recent = await chain.simClient.samples(Date.now() - 300);
@@ -797,9 +845,7 @@ async function heartbeatLoss(t0, { neutralFromFc = true } = {}) {
  */
 function fallbackAfterLastFrame(samples, from) {
   const tSpAbs = firstAt(samples, from, "sp");
-  const lastFrame = chain.proxy.chunks
-    .filter((c) => c.dir === "toFc" && c.t <= (tSpAbs ?? Infinity) && mspFrames(c.bytes).includes(200))
-    .at(-1)?.t;
+  const lastFrame = chain.proxy.rcFrames.filter((t) => t <= (tSpAbs ?? Infinity)).at(-1);
   if (tSpAbs === undefined || lastFrame === undefined) return { ms: null, ok: false, text: null };
   const ms = Math.round(tSpAbs - lastFrame);
   const before = samples.filter((x) => x[0] < tSpAbs).at(-1)?.[0];
@@ -903,7 +949,7 @@ const SCENARIOS = [
               ? `${lastPp}: ${JSON.stringify({
                   samples: samples.filter((x) => x[0] >= lastActiveEnd.t - 100 && classify(x) === "pp").slice(0, 4).map((x) => [Math.round(x[0] - t0), x[1].slice(0, 4), x[7].slice(0, 4)]),
                   air: air.filter((e) => e.t >= lastActiveEnd.t - 600).slice(0, 8).map((e) => [Math.round(e.t - t0), e.sup, e.reason]),
-                  frames: chain.proxy.chunks.filter((c) => c.dir === "toFc" && c.t >= lastActiveEnd.t - 100 && c.t <= lastActiveEnd.t + 400 && mspFrames(c.bytes).includes(200)).map((c) => Math.round(c.t - t0)).slice(0, 12),
+                  frames: chain.proxy.rcFrames.filter((t) => t >= lastActiveEnd.t - 100 && t <= lastActiveEnd.t + 400).map((t) => Math.round(t - t0)).slice(0, 12),
                 })}`
               : lastPp,
             lastActiveEnd && (lastPp === null || lastPp <= rel(lastActiveEnd.t, t0) + LIMITS.frameToSampleMs),
@@ -1390,6 +1436,7 @@ async function main() {
           continue;
         }
         const started = Date.now();
+        setupRetries = [];
         let outcome;
         try {
           outcome = await scenario.run(run);
@@ -1401,8 +1448,8 @@ async function main() {
         auxTotals.samples += outcome.samples?.length ?? 0;
         auxTotals.mismatches += aux;
         const pass = outcome.checks.every((c) => c.pass);
-        results.push({ id: scenario.id, name: scenario.name, run, variant: outcome.variant, pass, durationS: Math.round((Date.now() - started) / 1000), checks: outcome.checks, auxMismatches: aux });
-        console.log(`[run ${run}] ${scenario.id} ${pass ? "PASS" : "FAIL"} ${scenario.name}`);
+        results.push({ id: scenario.id, name: scenario.name, run, variant: outcome.variant, pass, durationS: Math.round((Date.now() - started) / 1000), checks: outcome.checks, auxMismatches: aux, ...(setupRetries.length ? { setupRetries } : {}) });
+        console.log(`[run ${run}] ${scenario.id} ${pass ? "PASS" : "FAIL"} ${scenario.name}${setupRetries.length ? ` (setup retried: ${setupRetries.join(", ")})` : ""}`);
         for (const c of outcome.checks) if (!c.pass || process.env.DRILLS_VERBOSE) console.log(`      ${c.pass ? "ok  " : "FAIL"} ${c.name}: ${JSON.stringify(c.value)} (${c.limit})`);
         writeFileSync(join(OUT, "results.json"), JSON.stringify({ limits: LIMITS, sp: SP, runs: RUNS, results, aux: auxTotals }, null, 2));
       }

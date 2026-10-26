@@ -67,4 +67,10 @@ for (const id of order) {
   if (first) lines.push(`| ${id} | ${cell(name)} | ${passText} | | | | |`);
 }
 
+const retried = data.results.filter((r) => r.setupRetries?.length);
+if (retried.length) {
+  lines.push("", "Setup retried before the fault (the harness's RC feed blipped and the air correctly released with `rx-failsafe`):", "");
+  for (const r of retried) lines.push(`- run ${r.run}, scenario ${r.id}: ${r.setupRetries.join(", ")}`);
+}
+
 process.stdout.write(lines.join("\n") + "\n");
