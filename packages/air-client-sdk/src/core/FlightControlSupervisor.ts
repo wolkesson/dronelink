@@ -52,6 +52,12 @@ export interface SupervisorConfig {
   /** After unlock, MSP_RC must show the sent stick values within this long. */
   maskCheckTimeoutMs: number;
   maskCheckToleranceUs: number;
+  /**
+   * A gap this long since the last frame means Betaflight has already given the sticks back to
+   * the SP (RX_MSP_RC_FRAME_FRESH_MS): the air was stalled (frozen tab, throttled WebView) and
+   * must release rather than resume with commands that queued up meanwhile.
+   */
+  frameGapReleaseMs: number;
 }
 
 export const DEFAULT_SUPERVISOR_CONFIG: SupervisorConfig = {
@@ -66,6 +72,7 @@ export const DEFAULT_SUPERVISOR_CONFIG: SupervisorConfig = {
   throttleNeutralToleranceUs: 50,
   maskCheckTimeoutMs: 1_000,
   maskCheckToleranceUs: 2,
+  frameGapReleaseMs: 300,
 };
 
 export interface SupervisorSnapshot {
@@ -135,12 +142,17 @@ export class FlightControlSupervisor {
   private output: Axes = [...CENTER];
   private lastTickAt = 0;
   private ticker: unknown = null;
+  /** One-shot timer at the exact neutral/release deadline, so the 20 Hz tick adds no jitter. */
+  private watchdog: unknown = null;
   private maskCheckDeadline: number | null = null;
   private sentFrames: { at: number; values: Axes }[] = [];
   private dropped = 0;
   private refused = 0;
   private framesSent = 0;
+  private lastFrameAt = 0;
   private disposed = false;
+  /** The SP's MSP OVERRIDE switch has been seen off since the last handover or reset. */
+  private switchSeenOff = false;
 
   constructor(options: FlightControlSupervisorOptions) {
     this.sink = options.sendRc;
@@ -189,6 +201,7 @@ export class FlightControlSupervisor {
   reset(reason: string): void {
     if (this.disposed) return;
     this.inputs = { ...this.inputs, identity: null, fcLinkHealthy: false, fc: null };
+    this.switchSeenOff = false;
     this.transition("IDLE", reason);
   }
 
@@ -202,8 +215,13 @@ export class FlightControlSupervisor {
       this.dropped++;
       return;
     }
+    if (this.releaseIfStalled()) {
+      this.dropped++;
+      return;
+    }
     this.lastSeq = command.seq;
     this.lastCommandAt = this.clock.now();
+    this.armWatchdog();
     if (this.current === "ABORTED") return; // a live heartbeat keeps the hover; the values are ignored
     this.target = [command.roll, command.pitch, command.yaw, command.throttle].map((v) => clamp(v, -1, 1)) as Axes;
     this.appliedSeq = command.seq;
@@ -228,6 +246,7 @@ export class FlightControlSupervisor {
   dispose(): void {
     if (this.disposed) return;
     this.stopTicker();
+    this.clock.clearTimeout(this.watchdog);
     this.disposed = true;
     this.current = "RELEASED";
     this.currentReason = "disposed";
@@ -298,10 +317,19 @@ export class FlightControlSupervisor {
   }
 
   private evaluate(): void {
+    const fc = this.inputs.fc;
+    if (fc && !fc.mspOverride && this.clock.now() - fc.receivedAt <= this.config.maxStatusAgeMs) this.switchSeenOff = true;
     const failure = this.preconditionFailure();
     switch (this.current) {
       case "IDLE":
-        if (failure === null) {
+        if (failure === null && !this.switchSeenOff) {
+          // A handover is the SP flipping the switch on while this supervisor watches. A switch
+          // already on when the air (re)connects or the link reopens doesn't count.
+          if (this.currentReason !== "awaiting-fresh-handover") {
+            this.currentReason = "awaiting-fresh-handover";
+            this.emit();
+          }
+        } else if (failure === null) {
           this.transition("HANDED_OVER", "handover");
         } else if (failure !== this.currentReason) {
           // Not a transition: the reason tells the GUI why the SP can't hand over yet.
@@ -309,12 +337,11 @@ export class FlightControlSupervisor {
           this.emit();
         }
         return;
-      case "RELEASED": {
-        // A fresh handover needs the SP's switch seen off first (or the setting/link reset).
-        const fc = this.inputs.fc;
-        if (!this.inputs.flightControlEnabled || (fc !== null && !fc.mspOverride)) this.transition("IDLE", "handover-ended");
+      case "RELEASED":
+        // Stays RELEASED, keeping the reason the GUI shows (e.g. the SP took back control), until
+        // a fresh handover: the switch seen off since, then on again with every precondition met.
+        if (failure === null && this.switchSeenOff) this.transition("HANDED_OVER", "handover");
         return;
-      }
       default:
         if (failure !== null) this.transition("RELEASED", failure);
     }
@@ -325,6 +352,7 @@ export class FlightControlSupervisor {
     this.current = next;
     this.currentReason = reason;
     if (next === "HANDED_OVER") {
+      this.switchSeenOff = false;
       this.lastSeq = null;
       this.appliedSeq = null;
     }
@@ -334,14 +362,58 @@ export class FlightControlSupervisor {
     if (SENDING_STATES.has(next)) {
       if (!SENDING_STATES.has(previous)) {
         this.lastTickAt = this.clock.now();
+        this.lastFrameAt = this.clock.now();
         this.ticker = this.clock.setInterval(() => this.tick(), 1_000 / this.config.commandRateHz);
       }
+      this.armWatchdog();
       this.emit();
       if (this.current === next) this.sendFrame();
       return;
     }
     this.stopTicker();
+    this.armWatchdog();
     this.emit();
+  }
+
+  /** (Re)arms the one-shot timer for the current state's heartbeat deadline; clears it otherwise. */
+  private armWatchdog(): void {
+    this.clock.clearTimeout(this.watchdog);
+    this.watchdog = null;
+    if (!SENDING_STATES.has(this.current)) return;
+    const timeout = this.current === "ACTIVE" ? this.config.neutralTimeoutMs : this.config.releaseTimeoutMs;
+    const due = Math.max(0, timeout - (this.clock.now() - this.lastCommandAt));
+    this.watchdog = this.clock.setTimeout(() => {
+      this.watchdog = null;
+      if (this.releaseIfStalled()) return;
+      this.evaluate();
+      if (SENDING_STATES.has(this.current) && !this.checkHeartbeat()) this.armWatchdog();
+    }, due);
+  }
+
+  /**
+   * While sending: if the air itself stalled for longer than Betaflight's stale-override window,
+   * the FC already flies the SP's sticks again. Resuming would take them back from the SP, so
+   * release instead (SITL drill #89, scenario 5). True if it released.
+   */
+  private releaseIfStalled(): boolean {
+    // Callers only run while sending (command in a sending state, the ticker, the watchdog).
+    if (this.clock.now() - this.lastFrameAt <= this.config.frameGapReleaseMs) return false;
+    this.transition("RELEASED", "air-stalled");
+    return true;
+  }
+
+  /** NEUTRAL after the neutral timeout, RELEASED after the release timeout; true if it transitioned. */
+  private checkHeartbeat(): boolean {
+    const silentFor = this.clock.now() - this.lastCommandAt;
+    if (this.current === "ACTIVE" && silentFor >= this.config.neutralTimeoutMs) {
+      this.transition("NEUTRAL", "heartbeat-lost");
+      return true;
+    }
+    if ((this.current === "NEUTRAL" || this.current === "ABORTED") && silentFor >= this.config.releaseTimeoutMs) {
+      this.transition("RELEASED", "heartbeat-lost");
+      return true;
+    }
+    return false;
   }
 
   private stopTicker(): void {
@@ -352,17 +424,10 @@ export class FlightControlSupervisor {
   // --- the 20 Hz command stream ---------------------------------------------
 
   private tick(): void {
+    if (this.releaseIfStalled()) return;
     this.evaluate();
     if (!SENDING_STATES.has(this.current)) return;
-    const silentFor = this.clock.now() - this.lastCommandAt;
-    if (this.current === "ACTIVE" && silentFor >= this.config.neutralTimeoutMs) {
-      this.transition("NEUTRAL", "heartbeat-lost");
-      return;
-    }
-    if ((this.current === "NEUTRAL" || this.current === "ABORTED") && silentFor >= this.config.releaseTimeoutMs) {
-      this.transition("RELEASED", "heartbeat-lost");
-      return;
-    }
+    if (this.checkHeartbeat()) return;
     this.checkOverrideMask();
     if (SENDING_STATES.has(this.current)) this.sendFrame();
   }
@@ -391,6 +456,7 @@ export class FlightControlSupervisor {
     values.forEach((value, axis) => {
       raw[identity.rxMap[axis]] = value;
     });
+    this.lastFrameAt = now;
     this.sentFrames.push({ at: now, values });
     if (this.sentFrames.length > MASK_HISTORY) this.sentFrames.shift();
     this.framesSent++;

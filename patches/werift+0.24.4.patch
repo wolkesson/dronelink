@@ -1,3 +1,131 @@
+diff --git a/node_modules/werift/lib/ice/src/ice.js b/node_modules/werift/lib/ice/src/ice.js
+index 51b7191..04eaffd 100644
+--- a/node_modules/werift/lib/ice/src/ice.js
++++ b/node_modules/werift/lib/ice/src/ice.js
+@@ -331,7 +331,9 @@ class Connection {
+                     });
+                     // Initial ICE check success is the first valid consent response.
+                     refreshConsentExpiry();
+-                    const randomizedConsentInterval = () => iceBase_1.CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000;
++                    // DroneLink patch: overlapping requests, 1 s apart once no response for a full interval (like libwebrtc's faster pings on a weak link), so a lossy, slow link keeps consent.
++                    let consentOkAt = Date.now();
++                    const randomizedConsentInterval = () => Date.now() - consentOkAt > iceBase_1.CONSENT_INTERVAL * 1000 ? 1000 : iceBase_1.CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1000;
+                     // Cadence is measured between request *starts*, not response completions.
+                     let nextConsentAt = Date.now() + randomizedConsentInterval();
+                     const isTerminalState = () => this.state === "closed" || this.state === "failed";
+@@ -362,7 +364,6 @@ class Connection {
+                                 iceControlling,
+                                 localCandidate: nominated.localCandidate,
+                             });
+-                            this.consentRequestAbort?.abort();
+                             const requestAbort = new AbortController();
+                             this.consentRequestAbort = requestAbort;
+                             nominated.consentRequestsSent++;
+@@ -406,6 +407,7 @@ class Connection {
+                                 nominated.totalRoundTripTime += rtt;
+                                 nominated.roundTripTimeMeasurements++;
+                                 nominated.responsesReceived++;
++                                consentOkAt = Date.now();
+                                 this.consentFresh = true;
+                                 refreshConsentExpiry();
+                                 if (state === "disconnected") {
+diff --git a/node_modules/werift/lib/ice/src/iceBase.js b/node_modules/werift/lib/ice/src/iceBase.js
+index 27670c8..d367e1e 100644
+--- a/node_modules/werift/lib/ice/src/iceBase.js
++++ b/node_modules/werift/lib/ice/src/iceBase.js
+@@ -226,12 +226,10 @@ exports.CONSENT_RESPONSE_TIMEOUT_MIN = 500;
+  * Falls back to {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+  */
+ function consentResponseTimeoutMs(rttSeconds) {
+-    if (rttSeconds === undefined ||
+-        !Number.isFinite(rttSeconds) ||
+-        rttSeconds <= 0) {
+-        return exports.CONSENT_RESPONSE_TIMEOUT;
+-    }
+-    return Math.max(exports.CONSENT_RESPONSE_TIMEOUT_MIN, Math.round(rttSeconds * 1000 * 2 + 200));
++    // DroneLink patch: a late response is still valid consent (RFC 7675). Wait until the next
++    // request is due (the shortest randomized interval) instead of 2 x RTT, which discarded every
++    // response once the RTT grew past its last measurement and expired consent on a slow link.
++    return exports.CONSENT_INTERVAL * 0.8 * 1000;
+ }
+ var CandidatePairState;
+ (function (CandidatePairState) {
+diff --git a/node_modules/werift/lib/index.mjs b/node_modules/werift/lib/index.mjs
+index bd453cf..ba1c715 100644
+--- a/node_modules/werift/lib/index.mjs
++++ b/node_modules/werift/lib/index.mjs
+@@ -8710,13 +8710,10 @@ var CONSENT_TIMEOUT = 30;
+ var CONSENT_RESPONSE_TIMEOUT = 1e3;
+ var CONSENT_RESPONSE_TIMEOUT_MIN = 500;
+ function consentResponseTimeoutMs(rttSeconds) {
+-  if (rttSeconds === void 0 || !Number.isFinite(rttSeconds) || rttSeconds <= 0) {
+-    return CONSENT_RESPONSE_TIMEOUT;
+-  }
+-  return Math.max(
+-    CONSENT_RESPONSE_TIMEOUT_MIN,
+-    Math.round(rttSeconds * 1e3 * 2 + 200)
+-  );
++  // DroneLink patch: a late response is still valid consent (RFC 7675). Wait until the next
++  // request is due (the shortest randomized interval) instead of 2 x RTT, which discarded every
++  // response once the RTT grew past its last measurement and expired consent on a slow link.
++  return CONSENT_INTERVAL * 0.8 * 1e3;
+ }
+ var CandidatePairState = /* @__PURE__ */ ((CandidatePairState2) => {
+   CandidatePairState2[CandidatePairState2["FROZEN"] = 0] = "FROZEN";
+@@ -9505,7 +9502,9 @@ var Connection = class {
+         }
+       });
+       refreshConsentExpiry();
+-      const randomizedConsentInterval = () => CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1e3;
++      // DroneLink patch: overlapping requests, 1 s apart once no response for a full interval (like libwebrtc's faster pings on a weak link), so a lossy, slow link keeps consent.
++      let consentOkAt = Date.now();
++      const randomizedConsentInterval = () => Date.now() - consentOkAt > CONSENT_INTERVAL * 1e3 ? 1e3 : CONSENT_INTERVAL * (0.8 + 0.4 * Math.random()) * 1e3;
+       let nextConsentAt = Date.now() + randomizedConsentInterval();
+       const isTerminalState = () => this.state === "closed" || this.state === "failed";
+       try {
+@@ -9533,7 +9532,6 @@ var Connection = class {
+             iceControlling,
+             localCandidate: nominated.localCandidate
+           });
+-          this.consentRequestAbort?.abort();
+           const requestAbort = new AbortController();
+           this.consentRequestAbort = requestAbort;
+           nominated.consentRequestsSent++;
+@@ -9576,6 +9574,7 @@ var Connection = class {
+             nominated.totalRoundTripTime += rtt;
+             nominated.roundTripTimeMeasurements++;
+             nominated.responsesReceived++;
++            consentOkAt = Date.now();
+             this.consentFresh = true;
+             refreshConsentExpiry();
+             if (state === "disconnected") {
+@@ -13770,14 +13769,14 @@ var SCTP = class _SCTP {
+   }
+   maybeAbandon(chunk) {
+     if (chunk.abandoned) return true;
+-    const abandon = !!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount || !!chunk.expiry && chunk.expiry < Date.now() / 1e3;
++    const abandon = chunk.maxRetransmits !== undefined && chunk.maxRetransmits !== null && chunk.maxRetransmits < chunk.sentCount || !!chunk.expiry && chunk.expiry < Date.now() / 1e3;
+     if (!abandon) return false;
+-    const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
++    const chunkPos = this.sentQueue.indexOf(chunk);
+     for (let pos = chunkPos; pos >= 0; pos--) {
+       const oChunk = this.sentQueue[pos];
+       oChunk.abandoned = true;
+       oChunk.retransmit = false;
+-      if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
++      if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
+         break;
+       }
+     }
+@@ -14238,7 +14237,7 @@ var RTCSctpTransport = class _RTCSctpTransport {
+           ordered: true
+         });
+       } else {
+-        const expiry = channel.maxPacketLifeTime !== null ? Date.now() + channel.maxPacketLifeTime / 1e3 : void 0;
++        const expiry = channel.maxPacketLifeTime !== null ? Date.now() / 1e3 + channel.maxPacketLifeTime / 1e3 : void 0;
+         await this.sctp.send(streamId, protocol, userData, {
+           expiry,
+           maxRetransmits: channel.maxRetransmits ?? void 0,
 diff --git a/node_modules/werift/lib/nonstandard/index.mjs b/node_modules/werift/lib/nonstandard/index.mjs
 index 61fb87e..c0f2b7e 100644
 --- a/node_modules/werift/lib/nonstandard/index.mjs
@@ -55,3 +183,40 @@ index 61fb87e..c0f2b7e 100644
          return true;
        }
        return false;
+diff --git a/node_modules/werift/lib/sctp/src/sctp.js b/node_modules/werift/lib/sctp/src/sctp.js
+index 45d5e3c..1b00bd2 100644
+--- a/node_modules/werift/lib/sctp/src/sctp.js
++++ b/node_modules/werift/lib/sctp/src/sctp.js
+@@ -1463,16 +1463,16 @@ class SCTP {
+     maybeAbandon(chunk) {
+         if (chunk.abandoned)
+             return true;
+-        const abandon = (!!chunk.maxRetransmits && chunk.maxRetransmits < chunk.sentCount) ||
++        const abandon = (chunk.maxRetransmits !== undefined && chunk.maxRetransmits !== null && chunk.maxRetransmits < chunk.sentCount) ||
+             (!!chunk.expiry && chunk.expiry < Date.now() / 1000);
+         if (!abandon)
+             return false;
+-        const chunkPos = this.sentQueue.findIndex((v) => v.type === chunk.type);
++        const chunkPos = this.sentQueue.indexOf(chunk);
+         for (let pos = chunkPos; pos >= 0; pos--) {
+             const oChunk = this.sentQueue[pos];
+             oChunk.abandoned = true;
+             oChunk.retransmit = false;
+-            if (oChunk.flags & SCTP_DATA_LAST_FRAG) {
++            if (oChunk.flags & SCTP_DATA_FIRST_FRAG) {
+                 break;
+             }
+         }
+diff --git a/node_modules/werift/lib/webrtc/src/transport/sctp.js b/node_modules/werift/lib/webrtc/src/transport/sctp.js
+index a8604ee..546c050 100644
+--- a/node_modules/werift/lib/webrtc/src/transport/sctp.js
++++ b/node_modules/werift/lib/webrtc/src/transport/sctp.js
+@@ -347,7 +347,7 @@ class RTCSctpTransport {
+             }
+             else {
+                 const expiry = channel.maxPacketLifeTime !== null
+-                    ? Date.now() + channel.maxPacketLifeTime / 1000
++                    ? Date.now() / 1000 + channel.maxPacketLifeTime / 1000
+                     : undefined;
+                 await this.sctp.send(streamId, protocol, userData, {
+                     expiry,

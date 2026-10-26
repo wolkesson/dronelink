@@ -197,6 +197,9 @@ export function handleSignalingMessage(
 
     const buffered = pendingCandidates.splice(0);
 
+    pc.iceConnectionStateChange.subscribe((state) => console.log(`Air ICE connection: ${state}`));
+    pc.connectionStateChange.subscribe((state) => console.log(`Air peer connection: ${state}`));
+
     pc.onIceCandidate.subscribe((candidate) => {
       if (candidate) {
         if (isTailscale && !isTailscaleCandidate(candidate.candidate)) {
@@ -540,7 +543,14 @@ function closeGuiPeer(): void {
   pendingGuiCandidates.length = 0;
 }
 
-export function handleGuiSocketClose(): void {
+/**
+ * A GUI signaling socket closed. Pass that socket's reply function: only the active viewer's own
+ * socket (or the one whose offer is pending) ends the viewer session. Any other socket closing --
+ * a second tab refused as "already connected", a probe -- must not cut the active viewer off
+ * from video and fc-state (found by the SITL drills, #89). Without an argument it always closes.
+ */
+export function handleGuiSocketClose(reply?: (msg: unknown) => void): void {
+  if (reply !== undefined && reply !== activeGuiReply && reply !== pendingGuiOffer?.reply) return;
   closeGuiPeer();
 }
 

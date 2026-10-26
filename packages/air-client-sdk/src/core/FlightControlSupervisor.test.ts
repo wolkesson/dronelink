@@ -61,7 +61,9 @@ function setup(config: Partial<SupervisorConfig> = {}) {
 
 type Setup = ReturnType<typeof setup>;
 
+/** The SP flips the handover switch on while the supervisor watches. */
 function handOver(s: Setup): void {
+  s.supervisor.update({ ...goodInputs(), fc: fcState({ mspOverride: false }) });
   s.supervisor.update(goodInputs());
   expect(s.supervisor.state).toBe("HANDED_OVER");
 }
@@ -119,6 +121,36 @@ describe("FlightControlSupervisor: handover", () => {
     expect(s.supervisor.snapshot).toEqual({ state: "HANDED_OVER", reason: "handover", lastAppliedSeq: null });
     vi.advanceTimersByTime(5_000);
     expect(s.frames).toEqual([]);
+  });
+
+  it("needs the switch flipped on while it watches: one already on doesn't hand over", () => {
+    const s = setup({ maxStatusAgeMs: 500 });
+    s.supervisor.update(goodInputs());
+    expect(s.supervisor.snapshot).toMatchObject({ state: "IDLE", reason: "awaiting-fresh-handover" });
+    const notified = s.snapshots.length;
+    s.supervisor.update({ fc: fcState() });
+    expect(s.snapshots).toHaveLength(notified);
+    // A stale "switch off" reading doesn't count as seeing it off.
+    s.supervisor.update({ fc: fcState({ mspOverride: false, receivedAt: Date.now() - 600 }) });
+    s.supervisor.update({ fc: fcState() });
+    expect(s.supervisor.state).toBe("IDLE");
+    s.supervisor.update({ fc: fcState({ mspOverride: false }) });
+    s.supervisor.update({ fc: fcState() });
+    expect(s.supervisor.snapshot).toMatchObject({ state: "HANDED_OVER", reason: "handover" });
+  });
+
+  it("needs a fresh switch cycle after a reset (FC link reopened) and after a setting toggle", () => {
+    const s = setup();
+    activate(s);
+    s.supervisor.reset("fc-link-opened");
+    s.supervisor.update(goodInputs());
+    expect(s.supervisor.snapshot).toMatchObject({ state: "IDLE", reason: "awaiting-fresh-handover" });
+
+    const t = setup();
+    reach(t, "ACTIVE");
+    t.supervisor.update({ flightControlEnabled: false });
+    t.supervisor.update({ flightControlEnabled: true });
+    expect(t.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "setting-disabled" });
   });
 
   it.each(PRECONDITION_LOSSES)("stays IDLE without %s, and says so", (reason, loss) => {
@@ -274,6 +306,95 @@ describe("FlightControlSupervisor: ACTIVE", () => {
     expect(s.functions().at(-1)![0]).toBe(1500); // slews from center again, never jumps back
   });
 
+  it("goes NEUTRAL and RELEASED at the exact deadlines, not on the next 20 Hz tick", () => {
+    const s = setup();
+    activate(s);
+    vi.advanceTimersByTime(10); // off the tick grid
+    s.command({ roll: 1 });
+    vi.advanceTimersByTime(249);
+    expect(s.supervisor.state).toBe("ACTIVE");
+    vi.advanceTimersByTime(1);
+    expect(s.supervisor.snapshot).toMatchObject({ state: "NEUTRAL", reason: "heartbeat-lost" });
+    expect(s.functions().at(-1)).toEqual(CENTER_FRAME);
+    vi.advanceTimersByTime(749);
+    expect(s.supervisor.state).toBe("NEUTRAL");
+    vi.advanceTimersByTime(1);
+    expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "heartbeat-lost" });
+  });
+
+  it("re-arms the watchdog when the deadline finds the heartbeat already restored", () => {
+    const s = setup();
+    activate(s);
+    vi.advanceTimersByTime(10);
+    s.command();
+    // A command lands just before the deadline but after the timer was armed for it.
+    (s.supervisor as unknown as { lastCommandAt: number }).lastCommandAt += 100;
+    vi.advanceTimersByTime(250);
+    expect(s.supervisor.state).toBe("ACTIVE");
+    vi.advanceTimersByTime(100);
+    expect(s.supervisor.state).toBe("NEUTRAL");
+  });
+
+  it("lets a precondition loss win at the deadline", () => {
+    const s = setup({ maxStatusAgeMs: 255 });
+    activate(s);
+    vi.advanceTimersByTime(10);
+    s.command();
+    vi.advanceTimersByTime(250); // telemetry is now 260 ms old: stale
+    expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "telemetry-stale" });
+  });
+
+  describe("after the air itself stalls (frozen tab) longer than Betaflight's stale window", () => {
+    /** Time passes without any timer running, as in a paused page. */
+    const freeze = (ms: number) => vi.setSystemTime(Date.now() + ms);
+
+    it("releases on the first queued command instead of applying it", () => {
+      const s = setup();
+      activate(s);
+      s.command({ roll: 1 });
+      vi.advanceTimersByTime(50);
+      const sent = s.frames.length;
+      freeze(3_000);
+      s.command({ pitch: 1 });
+      expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "air-stalled" });
+      vi.advanceTimersByTime(1_000);
+      expect(s.frames).toHaveLength(sent);
+      expect(s.supervisor.droppedCommands).toBe(1);
+    });
+
+    it("releases on the first tick", () => {
+      const s = setup();
+      reach(s, "ABORTED");
+      const sent = s.frames.length;
+      freeze(400);
+      vi.advanceTimersByTime(50);
+      expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "air-stalled" });
+      expect(s.frames).toHaveLength(sent);
+    });
+
+    it("releases when the watchdog fires first", () => {
+      const s = setup();
+      activate(s);
+      vi.advanceTimersByTime(10);
+      s.command(); // watchdog due at 260, between the ticks at 250 and 300
+      vi.advanceTimersByTime(240); // the tick at 250 sends a frame
+      const sent = s.frames.length;
+      freeze(301);
+      vi.advanceTimersByTime(10); // the watchdog fires first
+      expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "air-stalled" });
+      expect(s.frames).toHaveLength(sent);
+    });
+
+    it("tolerates ordinary jitter below the window", () => {
+      const s = setup();
+      activate(s);
+      s.command({ roll: 1 });
+      freeze(250);
+      s.command({ roll: 1 });
+      expect(s.supervisor.state).toBe("ACTIVE");
+    });
+  });
+
   it("releases after 1 s without a command and stops sending", () => {
     const s = setup();
     activate(s);
@@ -387,18 +508,24 @@ describe("FlightControlSupervisor: preconditions (fail-safe matrix)", () => {
     s.supervisor.update({ fc: null });
     expect(s.supervisor.state).toBe("RELEASED");
     s.supervisor.update({ fc: fcState({ mspOverride: false }) });
-    expect(s.supervisor.snapshot).toMatchObject({ state: "IDLE", reason: "handover-ended" });
+    // Still RELEASED with the reason it released for, so the GUI can keep saying why.
+    expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "ground-release" });
     s.supervisor.update({ fc: fcState() });
     expect(s.supervisor.snapshot).toMatchObject({ state: "HANDED_OVER", reason: "handover" });
     s.supervisor.handleControl("unlock");
     expect(s.supervisor.state).toBe("ACTIVE");
   });
 
-  it("returns to IDLE from RELEASED when the setting is turned off", () => {
+  it("stays RELEASED with the setting turned off, and needs a fresh handover once it is back on", () => {
     const s = setup();
     reach(s, "RELEASED");
     s.supervisor.update({ flightControlEnabled: false });
-    expect(s.supervisor.state).toBe("IDLE");
+    expect(s.supervisor.snapshot).toMatchObject({ state: "RELEASED", reason: "ground-release" });
+    s.supervisor.update({ flightControlEnabled: true });
+    expect(s.supervisor.state).toBe("RELEASED");
+    s.supervisor.update({ fc: fcState({ mspOverride: false }) });
+    s.supervisor.update({ fc: fcState() });
+    expect(s.supervisor.state).toBe("HANDED_OVER");
   });
 });
 
@@ -490,8 +617,8 @@ describe("FlightControlSupervisor: lifecycle", () => {
     handOver(s);
     unsubscribe();
     s.supervisor.handleControl("release");
-    expect(listener).toHaveBeenCalledOnce();
-    expect(s.snapshots.map((snapshot) => snapshot.state)).toEqual(["HANDED_OVER", "RELEASED"]);
+    expect(listener).toHaveBeenCalledTimes(2); // the IDLE reason (switch off), then the handover
+    expect(s.snapshots.map((snapshot) => snapshot.state)).toEqual(["IDLE", "HANDED_OVER", "RELEASED"]);
   });
 
   it("doesn't send the entry frame when a listener releases during the transition", () => {

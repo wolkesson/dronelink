@@ -429,6 +429,7 @@ describe("createSignalingServer: post-auth message dispatch (GUI channel)", () =
     socket.close();
 
     await vi.waitFor(() => expect(webrtcMock.handleGuiSocketClose).toHaveBeenCalledTimes(1));
+    expect(webrtcMock.handleGuiSocketClose).toHaveBeenCalledWith(expect.any(Function)); // that socket's reply
   });
 });
 
