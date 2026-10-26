@@ -24,6 +24,7 @@ export function fcState(
       rollDeg: -1.5,
       pitchDeg: 2.25,
       voltageV: 16.8,
+      sticksUs: [1500, 1500, 1500, 1300],
     },
     limits: {
       commandRateHz: 20,

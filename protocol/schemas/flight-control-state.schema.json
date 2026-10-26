@@ -54,7 +54,7 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["armed", "modes", "rxFailsafe", "gps", "altitudeM", "varioMS", "headingDeg", "rollDeg", "pitchDeg", "voltageV"],
+              "required": ["armed", "modes", "rxFailsafe", "gps", "altitudeM", "varioMS", "headingDeg", "rollDeg", "pitchDeg", "voltageV", "sticksUs"],
               "properties": {
                 "armed": { "type": "boolean" },
                 "modes": {
@@ -79,7 +79,14 @@
                 "headingDeg": { "type": ["number", "null"] },
                 "rollDeg": { "type": ["number", "null"] },
                 "pitchDeg": { "type": ["number", "null"] },
-                "voltageV": { "type": ["number", "null"] }
+                "voltageV": { "type": ["number", "null"] },
+                "sticksUs": {
+                  "description": "The sticks the FC flies now (MSP_RC roll, pitch, yaw, throttle, µs)",
+                  "oneOf": [
+                    { "type": "null" },
+                    { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                  ]
+                }
               }
             }
           ]

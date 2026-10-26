@@ -187,7 +187,7 @@ describe("toFlightControlTelemetry", () => {
       modes: ["ALTHOLD", "POSHOLD", "MSP_OVERRIDE", "FAILSAFE"],
       rxFailsafe: false,
       gps: { fix: false, numSat: 0, latitude: null, longitude: null },
-      altitudeM: null, varioMS: null, headingDeg: null, rollDeg: null, pitchDeg: null, voltageV: null,
+      altitudeM: null, varioMS: null, headingDeg: null, rollDeg: null, pitchDeg: null, voltageV: null, sticksUs: null,
     });
 
     t.rawGps = { fix: false, numSat: 3, latitude: 59, longitude: 18, altitudeM: 0, groundSpeedCmS: 0, groundCourseDeg: 0, receivedAt: 1 };
@@ -196,9 +196,13 @@ describe("toFlightControlTelemetry", () => {
     t.altitude = { altitudeM: 10, varioMS: 0.5, receivedAt: 1 };
     t.attitude = { rollDeg: 1, pitchDeg: 2, headingDeg: 90, receivedAt: 1 };
     t.analog = { voltageV: 16.2, mAhDrawn: 0, rssi: 0, currentA: 0, receivedAt: 1 };
+    t.rc = { channels: [1500, 1650, 1490, 1275, 2000, 1000], receivedAt: 1 };
     expect(toFlightControlTelemetry(t)).toMatchObject({
       gps: { fix: true, numSat: 3, latitude: 59, longitude: 18 },
       altitudeM: 10, varioMS: 0.5, headingDeg: 90, rollDeg: 1, pitchDeg: 2, voltageV: 16.2,
+      sticksUs: [1500, 1650, 1490, 1275], // roll, pitch, yaw, throttle; AUX left out
     });
+    t.rc = { channels: [1500, 1500], receivedAt: 1 };
+    expect(toFlightControlTelemetry(t)?.sticksUs).toBeNull();
   });
 });

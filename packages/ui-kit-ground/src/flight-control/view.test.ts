@@ -108,6 +108,7 @@ describe("describeFlightControl", () => {
     expect(rows.Heading.value).toBe("272°");
     expect(rows.Attitude.value).toBe("roll -1.5°, pitch 2.3°");
     expect(rows.Battery.value).toBe("16.80 V");
+    expect(rows["FC sticks R P Y T"].value).toBe("1500 1500 1500 1300");
 
     const empty = fcState().telemetry!;
     const sparse = Object.fromEntries(
@@ -115,7 +116,7 @@ describe("describeFlightControl", () => {
         fcState("IDLE", {
           telemetry: {
             ...empty, armed: false, modes: [], rxFailsafe: true, gps: { fix: false, numSat: 0, latitude: null, longitude: null },
-            altitudeM: null, varioMS: null, headingDeg: null, rollDeg: null, pitchDeg: null, voltageV: null,
+            altitudeM: null, varioMS: null, headingDeg: null, rollDeg: null, pitchDeg: null, voltageV: null, sticksUs: null,
           },
         }),
         ctx(),
@@ -125,7 +126,7 @@ describe("describeFlightControl", () => {
     expect(sparse.Modes.value).toBe("—");
     expect(sparse["RX failsafe"]).toMatchObject({ value: "FAILSAFE", tone: "danger" });
     expect(sparse.GPS).toMatchObject({ value: "no fix, 0 sats", tone: "warn" });
-    expect([sparse.Altitude, sparse.Heading, sparse.Attitude, sparse.Battery].map((row) => row.value)).toEqual(["—", "—", "—", "—"]);
+    expect([sparse.Altitude, sparse.Heading, sparse.Attitude, sparse.Battery, sparse["FC sticks R P Y T"]].map((row) => row.value)).toEqual(["—", "—", "—", "—", "—"]);
     expect(
       describeFlightControl(fcState("IDLE", { telemetry: { ...empty, rollDeg: 1, pitchDeg: null } }), ctx()).telemetry.find((row) => row.label === "Attitude")?.value,
     ).toBe("—");
