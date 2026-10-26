@@ -76,6 +76,8 @@ Drift is measured on ground truth from 4 s after the fault (time to brake out of
 
 14b and 14c use scripted MSP responders behind the capture proxy, so every real flight runs on Betaflight 2026.6.2; the gate decides on the identification replies alone.
 
+Getting airborne under PP control before a fault is setup, not part of the drill. If it fails (on this loaded 2-core machine the harness occasionally blips: its Python RC feed stalls and Betaflight flags RX loss, or the air page stalls for a few hundred ms, and the air correctly releases), the run retries it once and records the retry in `results.json` and the summary. A second failure fails the scenario.
+
 ## Results
 
 RESULTS_PLACEHOLDER

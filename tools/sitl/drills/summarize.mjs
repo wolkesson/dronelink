@@ -69,7 +69,7 @@ for (const id of order) {
 
 const retried = data.results.filter((r) => r.setupRetries?.length);
 if (retried.length) {
-  lines.push("", "Setup retried before the fault (the harness's RC feed blipped and the air correctly released with `rx-failsafe`):", "");
+  lines.push("", "Setup retried once before the fault (getting airborne under PP control failed: the air released, e.g. on an RX blip of the harness's RC feed; see the method in the drills doc):", "");
   for (const r of retried) lines.push(`- run ${r.run}, scenario ${r.id}: ${r.setupRetries.join(", ")}`);
 }
 

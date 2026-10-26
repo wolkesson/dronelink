@@ -706,24 +706,10 @@ async function handOverAndUnlock() {
   await guiUnlock();
 }
 
-async function establishFlying() {
-  await ensureChain();
-  await ensureAirborne();
-  await chain.simClient.pilot({ ...SP, hold: true, angle: true });
-  if (!(await airNow())?.enabled) await airSetEnabled(true);
-  await waitFor("FC verified", async () => (await airNow())?.mode === "verified", 15_000);
+/** Hands over, unlocks and flies the PP's command; throws, with diagnostics, if it never reaches the FC. */
+async function flyPpCommand() {
   const unlockAt = Date.now();
-  try {
-    await handOverAndUnlock();
-  } catch (error) {
-    // The harness's RC feed (a Python thread) occasionally hiccups right after SITL starts and
-    // Betaflight flags RX loss for a moment; the air correctly releases (rx-failsafe). That is
-    // setup, before any fault: retry once and record it, never on any other reason.
-    if ((await airNow())?.reason !== "rx-failsafe" || setupRetries.length > 0) throw error;
-    setupRetries.push("rx-failsafe before the fault");
-    await sleep(2_000);
-    await handOverAndUnlock();
-  }
+  await handOverAndUnlock();
   await guiHoldKeys(FLY_KEYS);
   await sleep(2_000);
   const recent = await chain.simClient.samples(Date.now() - 300);
@@ -733,6 +719,28 @@ async function establishFlying() {
       `the PP's command never reached the FC; GUI log: ${JSON.stringify(rel0(await guiLog(unlockAt)))}; GUI: ${JSON.stringify(await guiDiag())}; ` +
         `air log: ${JSON.stringify(rel0(await airLog(unlockAt)))}; air: ${JSON.stringify(await airDiag())}`,
     );
+  }
+}
+
+async function establishFlying() {
+  await ensureChain();
+  await ensureAirborne();
+  await chain.simClient.pilot({ ...SP, hold: true, angle: true });
+  if (!(await airNow())?.enabled) await airSetEnabled(true);
+  await waitFor("FC verified", async () => (await airNow())?.mode === "verified", 15_000);
+  try {
+    await flyPpCommand();
+  } catch (error) {
+    // Getting airborne under PP control is setup, before any fault is injected. On this loaded
+    // 2-core box the harness occasionally blips (its Python RC feed, so Betaflight flags RX loss;
+    // or the air page stalls for a few hundred ms) and the air correctly releases. Retry once, and
+    // record it in results.json and the summary; a second failure fails the scenario.
+    if (setupRetries.length > 0) throw error;
+    const air = await airNow();
+    setupRetries.push(`${air?.sup ?? "?"} ${air?.reason ?? ""} before the fault (${String(error?.message ?? error).slice(0, 80)})`.trim());
+    await guiReleaseKeys(FLY_KEYS);
+    await sleep(2_000);
+    await flyPpCommand();
   }
   return Date.now();
 }
