@@ -48,6 +48,16 @@ const OUT = resolve(opt("--out", join(ROOT, "docs/sim/drills")));
 const WORK = resolve(opt("--workdir", join(ROOT, "sitl-drills")));
 const HEADED = argv.includes("--headed");
 
+if (process.env.DRILLS_CHROME_VMODULE) {
+  // Chromium's own log (e.g. DRILLS_CHROME_VMODULE=dcsctp_socket=2,dtls_transport=1) arrives through
+  // Playwright's pw:browser debug channel on stderr: divert it to <workdir>/chromium.log.
+  mkdirSync(WORK, { recursive: true });
+  process.env.DEBUG = [process.env.DEBUG, "pw:browser"].filter(Boolean).join(",");
+  const chromiumLog = createWriteStream(join(WORK, "chromium.log"));
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...rest) => (String(chunk).includes("pw:browser") ? chromiumLog.write(chunk) : write(chunk, ...rest));
+}
+
 let chromium;
 try {
   ({ chromium } = require("playwright"));
@@ -437,6 +447,7 @@ async function setup() {
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows",
+      ...(process.env.DRILLS_CHROME_VMODULE ? ["--enable-logging=stderr", `--vmodule=${process.env.DRILLS_CHROME_VMODULE}`] : []),
     ],
   });
 }

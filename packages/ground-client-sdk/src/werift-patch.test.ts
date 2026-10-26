@@ -45,6 +45,18 @@ describe("werift PR-SCTP patch", () => {
     expect(source.slice(start, start + 600)).toContain(expected);
   });
 
+  it.each(["lib/index.mjs", "lib/ice/src/ice.js"])("checks consent every second, with overlapping requests, while responses are missing (%s)", (path) => {
+    // Unpatched, one request every 4-6 s, each aborting the previous one: blackhole + 500 ms at
+    // 20 % loss back to back left too few checks to keep consent for 30 s (drill #89, 3 + 4a).
+    const source = readFileSync(new URL(`../../../node_modules/werift/${path}`, import.meta.url), "utf8");
+    const start = source.indexOf("const randomizedConsentInterval");
+    const loop = source.slice(start - 400, start + 4_000);
+    expect(loop).toContain("let consentOkAt = Date.now();");
+    expect(loop).toMatch(/Date\.now\(\) - consentOkAt > (iceBase_1\.)?CONSENT_INTERVAL \* 1(e3|000) \? 1(e3|000) :/);
+    expect(loop).toContain("consentOkAt = Date.now();\n");
+    expect(loop).not.toMatch(/this\.consentRequestAbort\?\.abort\(\);\s*const requestAbort = new AbortController\(\);/);
+  });
+
   it("computes a maxPacketLifeTime expiry in seconds, like the abandon check", () => {
     const esm = builds[0][1];
     expect(esm).toContain("Date.now() / 1e3 + channel.maxPacketLifeTime / 1e3");
