@@ -25,13 +25,20 @@ export type DeadManReason =
  */
 export const COMMAND_AGE_GATE_MS = RTT_GATE_MS + 200;
 
+/**
+ * While the air is NEUTRAL, the command it last applied is old by definition (it went neutral 250 ms
+ * after it), so a brief gap can still resume. Once that command is older than the air's 1 s release
+ * timeout, the air has released or is about to: streaming on can't get it back (scenario 4b).
+ */
+export const NEUTRAL_COMMAND_AGE_GATE_MS = 1_000;
+
 export const DEAD_MAN_TEXT: Record<DeadManReason, string> = {
   "window-blurred": "window lost focus",
   "page-hidden": "tab hidden",
   "socket-closed": "connection to the ground station lost",
   "channel-closed": "flight-control channel closed",
   "rtt-high": `round trip above ${RTT_GATE_MS} ms`,
-  "commands-late": `commands reach the air too late (above ${RTT_GATE_MS + 200} ms)`,
+  "commands-late": "commands reach the air too late",
   "state-stale": "no current state from the air unit",
 };
 
@@ -144,7 +151,8 @@ export class FlightControlGui {
       const sentAt = parsed.supervisor.lastAppliedSeq === null ? undefined : this.sentSeqs.get(parsed.supervisor.lastAppliedSeq);
       if (sentAt !== undefined) this.commandAgeMs = this.receivedAt - sentAt;
       const airState = parsed.supervisor.state;
-      if (airState === "ACTIVE" && sentAt !== undefined && this.commandAgeMs! > COMMAND_AGE_GATE_MS) {
+      const gate = airState === "ACTIVE" ? COMMAND_AGE_GATE_MS : airState === "NEUTRAL" ? NEUTRAL_COMMAND_AGE_GATE_MS : null;
+      if (gate !== null && sentAt !== undefined && this.commandAgeMs! > gate) {
         this.commandsLate = true;
       } else if (airState === "RELEASED" || airState === "IDLE" || airState === "HANDED_OVER") {
         this.commandsLate = false;

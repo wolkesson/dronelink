@@ -231,7 +231,7 @@ Defaults below are configurable and are to be justified in the SITL drills (#89)
 | FC link health timeout | 500 ms |
 | Air stall release (gap since the last frame written while sending) | 300 ms |
 | Max age of a queued `MSP_SET_RAW_RC` frame before it is dropped | 100 ms |
-| Ground command-age gate (RTT gate + one report interval) | 600 ms |
+| Ground command-age gate while `ACTIVE` (RTT gate + one report interval) / while `NEUTRAL` | 600 ms / 1 000 ms |
 | Ground RTT gate | 400 ms |
 | Max deflection: roll/pitch, yaw | ±150 µs around 1500 |
 | Max deflection: throttle | ±150 µs around `ap_hover_throttle` |
@@ -262,7 +262,7 @@ Defaults below are configurable and are to be justified in the SITL drills (#89)
     - **Command stream:** `fc-command` at 20 Hz from the moment an unlock is sent, with zeros when idle and zeros while `ABORTED`.
     - **Re-sent until confirmed:** `abort` on every tick until the air reports `ABORTED`; `release`, `unlock` and `fc-setting` until `fc-state` reflects them. Each is dropped after 3 s.
     - **Dead-man:** window blur, hidden tab, WebSocket loss, flight-control channel closed, RTT above 400 ms (from the air's `air-status` RTT) or stale state each stop the stream and release every held key or pad.
-    - **Command age:** the GUI remembers when it sent each `seq`; the age is from sending the `lastAppliedSeq` an `fc-state` reports to receiving that report, so it includes up to one report interval. Above 600 ms while `ACTIVE` the dead-man stops the stream (`commands-late`), latched until the air releases: the WebRTC RTT the 400 ms gate relies on goes stale when packets are delayed by seconds (#89, scenario 4).
+    - **Command age:** the GUI remembers when it sent each `seq`; the age is from sending the `lastAppliedSeq` an `fc-state` reports to receiving that report, so it includes up to one report interval. Above 600 ms while `ACTIVE`, or above the air's 1 s release timeout while `NEUTRAL` (a brief gap can still resume), the dead-man stops the stream (`commands-late`), latched until the air releases: the WebRTC RTT the 400 ms gate relies on goes stale when packets are delayed by seconds (#89, scenario 4).
   - **Delivery:** `ground-web-client/src/flight-control.ts` is the DOM layer (panel, pads, sliders, keyboard, the take-control ring, and an ABORT bar pinned to the viewport while the PP holds control). `ground-core-node` bundles it with esbuild at startup and serves it as `/flight-control.js`, which the existing `gui-client.js` imports dynamically. Gamepad support (optional in #88) is not implemented yet.
 
 ## 8. Validation checklist

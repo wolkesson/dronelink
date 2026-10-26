@@ -287,6 +287,22 @@ describe("FlightControlGui: dead-man", () => {
     expect(s.gui.view.deadMan).toEqual([]);
   });
 
+  it("lets a brief gap resume from NEUTRAL, but stops once the air's last command is older than its release timeout", async () => {
+    const s = setup();
+    await run(s, 200, () => fcState("ACTIVE"));
+    const last = s.commands().at(-1)!;
+    await vi.advanceTimersByTimeAsync(400);
+    s.air(fcState("NEUTRAL", { lastAppliedSeq: last.seq, reason: "heartbeat-lost" })); // ~400 ms old
+    expect(s.gui.view.deadMan).toEqual([]);
+    expect(s.gui.view.streaming).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(700);
+    s.air(fcState("NEUTRAL", { lastAppliedSeq: last.seq, reason: "heartbeat-lost" })); // > 1 s old
+    expect(s.gui.view.commandAgeMs).toBeGreaterThan(1_000);
+    expect(s.gui.view.deadMan).toEqual(["commands-late"]);
+    expect(s.gui.view.streaming).toBe(false);
+  });
+
   it("doesn't latch on a late report while ABORTED (the hover heartbeat must go on)", async () => {
     const s = setup();
     await run(s, 200, () => fcState("ABORTED"));
