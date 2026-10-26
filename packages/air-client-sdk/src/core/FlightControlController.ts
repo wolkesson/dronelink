@@ -72,6 +72,7 @@ export function toFlightControlTelemetry(t: Readonly<FcTelemetry>): FlightContro
     rollDeg: t.attitude?.rollDeg ?? null,
     pitchDeg: t.attitude?.pitchDeg ?? null,
     voltageV: t.analog?.voltageV ?? null,
+    sticksUs: t.rc && t.rc.channels.length >= 4 ? [t.rc.channels[0], t.rc.channels[1], t.rc.channels[2], t.rc.channels[3]] : null,
   };
 }
 

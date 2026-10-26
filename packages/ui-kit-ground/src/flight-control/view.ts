@@ -166,6 +166,8 @@ function telemetryRows(state: FlightControlState): FlightControlView["telemetry"
       tone: "neutral",
     },
     { label: "Battery", value: fixed(t.voltageV, 2, "V"), tone: "neutral" },
+    // Whose sticks the FC flies: the SP's, or the phone's while the override is applied.
+    { label: "FC sticks R P Y T", value: t.sticksUs ? t.sticksUs.join(" ") : "—", tone: "neutral" },
   ];
 }
 

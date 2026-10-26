@@ -59,6 +59,12 @@ export interface FlightControlTelemetry {
   rollDeg: number | null;
   pitchDeg: number | null;
   voltageV: number | null;
+  /**
+   * The sticks the FC is flying right now (MSP_RC: roll, pitch, yaw, throttle in µs): the SP's
+   * while the override isn't applied, the phone's while it is. Shows on the bench whose sticks
+   * the FC follows (docs/flight/sp-pp-procedure.md).
+   */
+  sticksUs: [number, number, number, number] | null;
 }
 
 export interface FlightControlLimits {
@@ -146,7 +152,7 @@ export function parseFlightControlGroundMessage(value: unknown): FlightControlGr
 
 function isTelemetry(v: unknown): boolean {
   if (
-    !hasExactly(v, ["armed", "modes", "rxFailsafe", "gps", "altitudeM", "varioMS", "headingDeg", "rollDeg", "pitchDeg", "voltageV"])
+    !hasExactly(v, ["armed", "modes", "rxFailsafe", "gps", "altitudeM", "varioMS", "headingDeg", "rollDeg", "pitchDeg", "voltageV", "sticksUs"])
   ) {
     return false;
   }
@@ -162,7 +168,8 @@ function isTelemetry(v: unknown): boolean {
     isCount(gps.numSat) &&
     isNullableNumber(gps.latitude) &&
     isNullableNumber(gps.longitude) &&
-    [v.altitudeM, v.varioMS, v.headingDeg, v.rollDeg, v.pitchDeg, v.voltageV].every(isNullableNumber)
+    [v.altitudeM, v.varioMS, v.headingDeg, v.rollDeg, v.pitchDeg, v.voltageV].every(isNullableNumber) &&
+    (v.sticksUs === null || (Array.isArray(v.sticksUs) && v.sticksUs.length === 4 && v.sticksUs.every(isNumber)))
   );
 }
 

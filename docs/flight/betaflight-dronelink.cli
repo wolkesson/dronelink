@@ -1,0 +1,64 @@
+# DroneLink flight control: Betaflight configuration template (#90)
+#
+# Firmware: Betaflight 2026.6.2 (MSP API 1.48). DroneLink's identification gate accepts
+# 2026.6.1 and 2026.6.2 only; older releases keep a stale override forever (fly-away).
+# Checked against Betaflight 2026.6.2 SITL by tools/sitl/check_betaflight_template.py.
+#
+# Apply on top of a craft that is already set up, tuned and flying in ANGLE and POS HOLD:
+# paste into the CLI tab of Betaflight App, check that no line printed an error, then the
+# final `save` stores it and reboots. Everything after a `#` is a comment. This is not a
+# full `diff all`: it never runs `defaults` and leaves your tuning alone.
+#
+#   REQUIRED     DroneLink relies on it; most of it can't be read over MSP, so nothing else checks it
+#   RECOMMENDED  safety margins DroneLink doesn't depend on but that we fly with
+#   ADAPT        depends on your craft, receiver or switches: change it, keep the intent
+#
+# See docs/flight/betaflight-setup.md for why each line is here.
+
+# --- Modes on the safety pilot's transmitter ---------------------------------------------
+# aux <slot> <mode id> <AUX index: 0 = AUX1 = channel 5> <range low> <range high> 0 0
+# ADAPT: slots 0-4 overwrite whatever is in them (run `aux` first and pick free slots),
+#        AUX channels and ranges to match your switches. Mode ids are fixed.
+aux 0 0 0 1700 2100 0 0     # ARM            on AUX1
+aux 1 1 2 1700 2100 0 0     # ANGLE          on AUX3
+aux 2 3 1 1700 2100 0 0     # ALTHOLD        on AUX2: the hold switch ...
+aux 3 11 1 1700 2100 0 0    # POS HOLD       ... the same hold switch, so both always engage together
+aux 4 50 3 1700 2100 0 0    # MSP OVERRIDE   on AUX4 = the handover switch, alone on its own switch (REQUIRED)
+
+# --- MSP override: the four sticks, never an AUX channel (REQUIRED) ----------------------
+# Bits are raw receiver channels: 15 = channels 1-4. Your sticks must be on channels 1-4
+# (any order: AETR, TAER, ...); DroneLink refuses an RX map that puts a stick elsewhere.
+set msp_override_channels_mask = 15
+# OFF is the default. ON would make the phone's MSP stream count as RX signal and hide the
+# loss of the safety pilot's RC link from Betaflight's failsafe.
+set msp_override_failsafe = OFF
+
+# --- Altitude and position hold ----------------------------------------------------------
+# REQUIRED, ADAPT: the throttle at which your craft hovers, never 0. DroneLink's neutral
+# throttle is this value, and the safety pilot parks the throttle stick here.
+set ap_hover_throttle = 1275
+# RECOMMENDED: at most 2 m/s climb or descent. Also bounds how far a climb or descent the
+# phone was commanding carries on after a link loss (alt hold leads its target by 1 s).
+set alt_hold_climb_rate = 20
+# REQUIRED (these are the defaults): DroneLink's stick limits assume them.
+set alt_hold_deadband = 20
+set pos_hold_deadband = 5
+
+# --- GPS and RX failsafe -----------------------------------------------------------------
+feature GPS
+# ADAPT: also give the GPS its UART (Ports tab, "GPS" on the UART it is wired to).
+set gps_provider = UBLOX
+# RECOMMENDED: the same minimum DroneLink requires before it hands over (8 satellites).
+set gps_rescue_min_sats = 8
+set gps_rescue_allow_arming_without_fix = OFF
+# RECOMMENDED: on RC loss, stage 2 is GPS Rescue. If its sanity checks fail (no fix, no
+# heading, not climbing or not getting closer), it descends in place instead.
+set failsafe_procedure = GPS-RESCUE
+set gps_rescue_sanity_checks = RESCUE_SANITY_ON
+
+# --- The phone's link to the FC -------------------------------------------------------------
+# USB (VCP): MSP is on by default and the baud rate doesn't apply. Nothing to set.
+# A USB-UART adapter on a UART instead: enable MSP at 115200 on that UART, e.g. UART2:
+# serial 1 1 115200 57600 0 115200
+
+save

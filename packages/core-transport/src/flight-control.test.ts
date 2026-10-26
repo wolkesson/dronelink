@@ -45,6 +45,7 @@ const fullState: FlightControlState = {
     rollDeg: 0.1,
     pitchDeg: -2.5,
     voltageV: 16.8,
+    sticksUs: [1500, 1650, 1500, 1275],
   },
   limits: {
     commandRateHz: 20,
@@ -69,7 +70,7 @@ const validAirMessages: unknown[] = [
   },
   {
     ...fullState,
-    telemetry: { ...fullState.telemetry!, modes: [], gps: { fix: false, numSat: 0, latitude: null, longitude: null }, altitudeM: null },
+    telemetry: { ...fullState.telemetry!, modes: [], gps: { fix: false, numSat: 0, latitude: null, longitude: null }, altitudeM: null, sticksUs: null },
   },
   { type: "fc-channel", open: true },
   { type: "fc-channel", open: false },
