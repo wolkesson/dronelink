@@ -80,7 +80,23 @@ Getting airborne under PP control before a fault is setup, not part of the drill
 
 ## Results
 
-RESULTS_PLACEHOLDER
+**All 20 scenarios passed 10 of 10 runs, and AUX1-4 never differed from the SP's transmitter** (201 scenario runs, Betaflight 2026.6.2 SITL, 2026-10-26). No run needed its setup retry. Per-scenario numbers are in [`drills/summary.md`](drills/summary.md). The headline figures, worst run of 10:
+
+| What | Worst run | Limit |
+| --- | --- | --- |
+| Air NEUTRAL after the heartbeat stops (GUI blur/close, ground killed, blackhole) | 256 ms | 300 ms |
+| FC sticks centered after the heartbeat stops | 308 ms | 380 ms |
+| Air RELEASED after the heartbeat stops | 1 008 ms | 1 200 ms |
+| FC back on the SP's sticks after the last frame (air frozen, USB unplugged, page reload, setting off) | 380 ms | 450 ms |
+| FC back on the SP's sticks after the SP flips the switch | 77 ms | 150 ms |
+| Air ABORTED / sticks centered after ABORT | 5 ms / 64 ms | 300 ms |
+| GUI stops streaming at 500 ms / 2 s latency + 20 % loss | 1 024 ms / 2 191 ms | 5 000 ms |
+| Air released after the FC dropped POS HOLD; raw-throttle exposure | 101 ms; 410 ms, ≤ 0.07 m climb | 300 ms; 750 ms |
+| Hold drift after any fault: horizontal / altitude / heading | 0.72 m / 0.21 m / 5.3° | 2 m / 1 m / 10° |
+| `MSP_SET_RAW_RC` reaching the FC before unlock, after a reboot, or to a rejected FC | 0 frames | 0 |
+| Bytes injected while transparent (Configurator session, MAVLink) | 0 | 0 |
+
+Before the fixes below, a full pass failed somewhere in roughly one run in three to five, always in a way that left the craft safe: the air released and the SP had the sticks, but later scenarios in the run could not get control again.
 
 ## What the drills found
 
@@ -107,4 +123,6 @@ Measured, not a defect:
 - Network faults hit loopback; latency and loss are per packet in userspace, not a shaped link.
 - INAV and Betaflight 2025.12 are identified through scripted responders, not real builds.
 - The GUI blur is the browser `blur` event, the air freeze a debugger pause; a real WebView being killed or throttled by Android is the bench test's job (#91).
+- Everything ran on one 2-core cloud VM (SITL, its Python harness, two Chromium pages, Vite and `ground-core-node`), which is where the tail of the FC fallback times (up to 380 ms against Betaflight's 300 ms window) and the occasional harness blip that the setup retry absorbs come from.
+- Open item: once WebRTC has failed mid-session, neither side reconnects on its own (reconnection is deferred, ARCHITECTURE.md section 6); the air needs a reload. Finding 9 removed the way a slow link could get there, but a genuinely dead link of more than 30 s still ends that way, safely released.
 - Open item: the ground relays `fc-*` messages from any GUI socket, not only the active viewer's. The air still enforces everything (scenario 13), but restricting the relay to the active viewer would be tidier.

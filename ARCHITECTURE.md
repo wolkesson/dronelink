@@ -112,7 +112,7 @@ Mid-session video source switching (`WebRtcSessionManager.replaceVideoTrack`, ai
 
 ## 7. Flight control over the mobile link (design)
 
-Status: design accepted for milestone "Mobile flight control in position hold" (epic #79, this section is #80). Implemented so far: the MSP library (#83), the flight-control channel (#84), link detection and the identification gate (#93), the `FcLink` arbiter with the telemetry poller (#85), the safety supervisor (#86), and the ground GUI's telemetry and control panel (#87, #88). Betaflight behaviour stated here was verified against Betaflight 2026.6.2 SITL in the #81 spike; see [`docs/sim/betaflight-sitl.md`](docs/sim/betaflight-sitl.md) for method, measurements and source references. Items still marked *(SITL)* are tuning values for the SITL drills (#89).
+Status: design accepted for milestone "Mobile flight control in position hold" (epic #79, this section is #80). Implemented so far: the MSP library (#83), the flight-control channel (#84), link detection and the identification gate (#93), the `FcLink` arbiter with the telemetry poller (#85), the safety supervisor (#86), the ground GUI's telemetry and control panel (#87, #88), and the SITL failure drills (#89): every failure of section 7.8 injected into the full chain on Betaflight 2026.6.2 SITL, 10 of 10 runs passing (method, results and what they found: [`docs/sim/flight-control-drills.md`](docs/sim/flight-control-drills.md)). Betaflight behaviour stated here was verified against Betaflight 2026.6.2 SITL in the #81 spike; see [`docs/sim/betaflight-sitl.md`](docs/sim/betaflight-sitl.md) for method, measurements and source references. Items still marked *(SITL)* are tuning values for the SITL drills (#89).
 
 ### 7.1 Scope
 
@@ -221,7 +221,7 @@ All timing logic takes an injected clock, so every transition is unit-testable w
 
 ### 7.9 Limits and timings
 
-Defaults below are configurable and are to be justified in the SITL drills (#89) before any hardware flight. The FC-side 300 ms fallback is shorter than the air's 1 s release timeout, so when the phone itself dies Betaflight hands back to the SP before the air watchdog would.
+Defaults below are configurable; the SITL drills (#89) exercised them against every failure of section 7.8, and the bench test (#91) is next before any hardware flight. The FC-side 300 ms fallback is shorter than the air's 1 s release timeout, so when the phone itself dies Betaflight hands back to the SP before the air watchdog would.
 
 | Parameter | Default |
 | --- | --- |

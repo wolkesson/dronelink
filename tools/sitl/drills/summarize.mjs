@@ -48,9 +48,10 @@ for (const id of order) {
   const checks = new Map();
   for (const r of ran) {
     for (const c of r.checks ?? []) {
-      if (!checks.has(c.name)) checks.set(c.name, { values: [], limit: c.limit, failed: 0 });
+      if (!checks.has(c.name)) checks.set(c.name, { values: [], limits: new Set(), failed: 0 });
       const entry = checks.get(c.name);
       entry.values.push(c.value);
+      entry.limits.add(c.limit ?? "");
       if (!c.pass) entry.failed++;
     }
   }
@@ -61,7 +62,9 @@ for (const id of order) {
     const min = allNumeric ? Math.min(...nums) : [...new Set(entry.values.map((v) => (typeof v === "string" ? v : JSON.stringify(v))))].slice(0, 2).join(", ");
     const max = allNumeric ? Math.max(...nums) : "";
     const label = entry.failed ? `${checkName} (failed ${entry.failed}x)` : checkName;
-    lines.push(`| ${first ? id : ""} | ${first ? cell(name) : ""} | ${first ? passText : ""} | ${cell(label)} | ${cell(min)} | ${cell(max)} | ${cell(entry.limit ?? "")} |`);
+    // Some limits depend on the run (e.g. on when the GUI's gate fired): each run met its own.
+    const limit = entry.limits.size === 1 ? [...entry.limits][0] : "each run within its own limit";
+    lines.push(`| ${first ? id : ""} | ${first ? cell(name) : ""} | ${first ? passText : ""} | ${cell(label)} | ${cell(min)} | ${cell(max)} | ${cell(limit)} |`);
     first = false;
   }
   if (first) lines.push(`| ${id} | ${cell(name)} | ${passText} | | | | |`);
@@ -73,4 +76,5 @@ if (retried.length) {
   for (const r of retried) lines.push(`- run ${r.run}, scenario ${r.id}: ${r.setupRetries.join(", ")}`);
 }
 
-process.stdout.write(lines.join("\n") + "\n");
+// Empty cells as "| |": markdownlint's compact table style.
+process.stdout.write(lines.map((line) => (line.startsWith("|") ? line.replace(/\|  (?=\|)/g, "| ") : line)).join("\n") + "\n");
