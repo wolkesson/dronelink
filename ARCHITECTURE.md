@@ -207,8 +207,8 @@ All timing logic takes an injected clock, so every transition is unit-testable w
 | --- | --- | --- |
 | Ground GUI tab closed, blurred or hidden | Center within 250 ms, then SP control after 1 s | GUI dead-man; air neutral/release timeouts |
 | Ground↔air network loss or WebRTC restart | Same | Air timeouts; channel close → `RELEASED` |
-| High latency / loss | Commands withheld while RTT > 400 ms; air goes neutral | Ground RTT gate; air timeouts |
-| Air tab frozen, WebView throttled, app killed | SP's RC values take over | FC stale-override fallback |
+| High latency / loss | Commands withheld while RTT > 400 ms or commands arrive > 600 ms late; air goes neutral | Ground RTT and command-age gates; air timeouts |
+| Air tab frozen, WebView throttled, app killed | SP's RC values take over; after resuming, the air releases instead of taking control back | FC stale-override fallback; supervisor `air-stalled`; `FcLink` drops RC frames queued before the stall |
 | USB unplugged, FC link lost | SP's RC values take over | FC stale-override fallback; air `fc-link-lost` → `RELEASED` |
 | FC reboot or identity change | FC disarms on reboot; air releases and re-identifies | Identification gate |
 | `flightControlEnabled` turned off | SP control, then transparent | Supervisor |
@@ -229,6 +229,9 @@ Defaults below are configurable and are to be justified in the SITL drills (#89)
 | Air neutral timeout | 250 ms |
 | Air release timeout (neutral/aborted with link lost) | 1 000 ms |
 | FC link health timeout | 500 ms |
+| Air stall release (gap since the last frame written while sending) | 300 ms |
+| Max age of a queued `MSP_SET_RAW_RC` frame before it is dropped | 100 ms |
+| Ground command-age gate (RTT gate + one report interval) | 600 ms |
 | Ground RTT gate | 400 ms |
 | Max deflection: roll/pitch, yaw | ±150 µs around 1500 |
 | Max deflection: throttle | ±150 µs around `ap_hover_throttle` |
@@ -244,13 +247,14 @@ Defaults below are configurable and are to be justified in the SITL drills (#89)
   - **Implemented (#93, #85):** `LinkTypeClassifier`, `FcIdentificationGate` and `FlightControlSettingsStore` (default off), composed by `FcLink`. `air-webapp` routes every serial byte through `FcLink`, which has three modes: `passthrough` (the default and every fallback: FC chunks reach the ground exactly as read, ground chunks are written exactly as received, nothing else is written), `identifying` (setting on and 2 s without ground bytes since the link opened or the last ground byte; probe replies are consumed, and ground bytes that arrive meanwhile cancel the run and are held, at most 4 KiB, until the outstanding probe settles or 150 ms pass, then written in order), and `control` (entered only on `verified`: passthrough suspended both ways with dropped ground bytes counted, round-robin telemetry at most one request per 20 ms, and `sendRc()` writing four-channel `MSP_SET_RAW_RC` frames ahead of queued telemetry). Control mode reports `fc-link-lost` (`healthy` false) once a request has gone 500 ms without any MSP reply. This is measured from the oldest unanswered request, not the last reply, so a browser throttling a background air tab to one timer per second doesn't look like a dead FC; when replies come back, the FC may have rebooted or been swapped, so it re-identifies before control can resume. Betaflight's `MSP_STATUS_EX` carries no uptime, so this lost-and-recovered check stands in for the uptime-reset detection #85 asked for. `FlightControlController` turns all of this into `fc-state` reports (5 Hz and on change), applies `fc-setting` from the ground, and drives the air UI's *Flight control* panel.
   - **Implemented (#86):** `FlightControlSupervisor`, pure logic on an injected `Clock` with 100% branch coverage, implements §7.7 and §7.8. `FlightControlController` feeds it the gate result, link health, poller telemetry, channel state and page visibility (`visibilitychange`/`pagehide` in `air-webapp`), routes `fc-command`/`fc-control` to it, and sends its frames through `FcLink.sendRc()`. That is the second guard: `sendRc()` refuses anything unless the link is in control mode with a verified FC. Points where the issue text left a choice:
     - **Fresh handover:** every handover is the SP's MSP OVERRIDE switch seen off and then on while this supervisor watches. `RELEASED` keeps the reason it released for (so the GUI can show *Safety pilot took back control*) until such a cycle, then goes straight to `HANDED_OVER`. A switch already on when the air (re)connects, the FC link reopens or the setting is turned back on doesn't count: `IDLE` reports `awaiting-fresh-handover` (SITL drill #89, scenario 12).
+    - **Air stall:** while sending, a gap of more than 300 ms since the last frame (the air page itself was frozen or throttled) means Betaflight's stale override has already handed the sticks back to the SP. The next command, tick or watchdog then releases with `air-stalled` instead of resuming, and `FcLink` drops any `MSP_SET_RAW_RC` frame that waited more than 100 ms behind a stuck write rather than writing it late (SITL drill #89, scenario 5).
     - **Heartbeat deadlines:** a one-shot timer fires at exactly the last command + 250 ms (NEUTRAL) or + 1 s (RELEASED), instead of waiting for the next 20 Hz tick, which had added up to 50 ms (drill margins, #89).
     - **Unlock after ABORT:** `unlock` is accepted in `ABORTED` as well as `HANDED_OVER`, resuming from center. The SP-sticks-neutral check only applies in `HANDED_OVER`, since `MSP_RC` reports overridden values once frames flow.
     - **Override-mask check (§7.5 step 8):** after unlock, `MSP_RC` must match a recently sent frame on all four sticks (±2 µs) within 1 s. Otherwise the supervisor releases with `override-mask-mismatch`, and `FcLink.forceTransparent()` keeps the link transparent until it is reopened or the setting is toggled.
     - **Staleness:** a status reply older than 500 ms counts as lost telemetry (`telemetry-stale`).
     - **IDLE reason:** while `IDLE`, the reason is the first precondition blocking a handover (e.g. `page-hidden`, `sp-took-control`), so the GUI can say why.
     - **Defaults:** unlock tolerances are ±25 µs on roll/pitch/yaw and ±50 µs on throttle around the hover throttle, and the minimum is 8 GPS satellites. All are `SupervisorConfig` defaults, to be tuned in the SITL drills (#89).
-- `ground-client-sdk`: relays the `flight-control` channel without parsing.
+- `ground-client-sdk`: relays the `flight-control` channel without parsing. Only the active viewer's own socket closing ends its session, so a stray tab can't cut off the operator (#89, scenario 13). `patches/werift+0.24.4.patch` (applied by patch-package on install, guarded by `werift-patch.test.ts`) fixes werift's partial reliability: unpatched, `maxRetransmits: 0` meant reliable, so lost `fc-command`s were retransmitted with backoff and the ground->air direction stalled under loss (#89, scenario 4).
 - Ground GUI: the unlock/abort/dead-man/command-generation logic lives in a package (`ui-kit-ground` or SDK-level), not in the app (#87, #88).
   - **Implemented (#87, #88):** `ui-kit-ground`'s `FlightControlGui` (DOM-free, fake-timer unit tests) holds all of it:
     - **View model:** link type and mode with readable reasons, FC identity, the handover banner, a go/no-go checklist mirroring the supervisor's preconditions plus the 400 ms RTT gate, telemetry, and STALE after 1 s without `fc-state`.
@@ -258,7 +262,7 @@ Defaults below are configurable and are to be justified in the SITL drills (#89)
     - **Command stream:** `fc-command` at 20 Hz from the moment an unlock is sent, with zeros when idle and zeros while `ABORTED`.
     - **Re-sent until confirmed:** `abort` on every tick until the air reports `ABORTED`; `release`, `unlock` and `fc-setting` until `fc-state` reflects them. Each is dropped after 3 s.
     - **Dead-man:** window blur, hidden tab, WebSocket loss, flight-control channel closed, RTT above 400 ms (from the air's `air-status` RTT) or stale state each stop the stream and release every held key or pad.
-    - **Command age:** the GUI remembers when it sent each `seq`; the age is from sending the `lastAppliedSeq` an `fc-state` reports to receiving that report, so it includes up to one report interval.
+    - **Command age:** the GUI remembers when it sent each `seq`; the age is from sending the `lastAppliedSeq` an `fc-state` reports to receiving that report, so it includes up to one report interval. Above 600 ms while `ACTIVE` the dead-man stops the stream (`commands-late`), latched until the air releases: the WebRTC RTT the 400 ms gate relies on goes stale when packets are delayed by seconds (#89, scenario 4).
   - **Delivery:** `ground-web-client/src/flight-control.ts` is the DOM layer (panel, pads, sliders, keyboard, the take-control ring, and an ABORT bar pinned to the viewport while the PP holds control). `ground-core-node` bundles it with esbuild at startup and serves it as `/flight-control.js`, which the existing `gui-client.js` imports dynamically. Gamepad support (optional in #88) is not implemented yet.
 
 ## 8. Validation checklist

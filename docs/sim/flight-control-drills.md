@@ -40,12 +40,14 @@ Drift is measured on ground truth from 4 s after the fault (time to brake out of
 | Air NEUTRAL after the heartbeat stops / air ABORTED after ABORT | ≤ 300 ms |
 | FC sticks centered (adds one frame on the serial link and the 50 Hz sample) | ≤ 380 ms |
 | Air RELEASED after the heartbeat stops | ≤ 1200 ms |
-| FC back on the SP's sticks after the last frame it received (Betaflight's 300 ms stale override + RX feed + sampling) | ≤ 400 ms |
+| FC back on the SP's sticks after the last frame it received (Betaflight's 300 ms stale override + RX feed + sampling)¹ | ≤ 400 ms |
 | FC back on the SP's sticks after the SP flips the handover switch | ≤ 150 ms |
 | No PP command applied after its timeout | per scenario |
 | Hold: horizontal / altitude / heading drift | ≤ 2.0 m / 1.0 m / 10° |
 | Transparent scenarios: injected bytes | 0, byte-identical relay |
 | AUX1–4 as the FC sees them vs. the SP's transmitter | never different |
+
+¹ The switch happens between the first sample showing the SP's sticks and the one before it. If the 50 Hz sampler itself stalled (more than 60 ms between those two samples), the earlier sample has to be within the limit instead; the check reports both.
 
 ## Scenarios
 
@@ -88,6 +90,8 @@ Each of these was fixed on the drills branch and is covered by unit tests as wel
 4. **A reconnect could hand over without a fresh handover** (scenario 12). An air page reload, FC link reopen or setting toggle with the SP's switch left on went straight to HANDED_OVER. The supervisor now needs to see the switch go off and on (`awaiting-fresh-handover` until then).
 5. **The GUI could miss *Safety pilot took back control*** (scenario 9). The supervisor went RELEASED -> IDLE on the next telemetry update once the switch was seen off, tens of ms later. RELEASED now keeps its reason until the next fresh handover and then goes straight to HANDED_OVER.
 6. **Neutral detection rode the 20 Hz tick** (margins in scenarios 1-3). NEUTRAL came 250-300 ms after the last command, up to 286 ms after the fault against the 300 ms limit. A one-shot watchdog now fires at exactly the last command + 250 ms (and + 1 s for RELEASED).
+7. **After a freeze, the air took the sticks back from the SP** (scenario 5). Betaflight hands control back to the SP 300 ms after the last frame, but when the frozen page resumed, the supervisor was still ACTIVE and its queued commands and ticks started sending again. While sending, a gap of more than 300 ms since the last frame now releases (`air-stalled`) instead.
+8. **A frame queued before the freeze was still written after it** (scenario 5, about 1 run in 10). `FcLink` writes one frame at a time; a frame queued behind a write that was stuck across the freeze went out on resume, before the supervisor could release, and gave the PP another 300 ms. A queued `MSP_SET_RAW_RC` frame older than 100 ms is now dropped.
 
 Measured, not a defect:
 

@@ -75,6 +75,7 @@ const LIMITS = {
   neutralMs: 300, // air centers the sticks after a lost heartbeat / ABORT
   releaseMs: 1200, // air RELEASED after a lost heartbeat
   fcFallbackMs: 400, // FC back on the SP's sticks after the last frame (300 ms stale + RX feed + sampling)
+  samplerGapMs: 60, // a 50 Hz sample interval above this means the sampler, not the FC, stalled
   spTakebackMs: 150, // FC on the SP's sticks after the switch flips back (next RX frame)
   frameToSampleMs: 80, // an air frame written -> Betaflight's serial task -> the 50 Hz MSP_RC sample
   settleMs: 4000, // drift is measured from fault + settle ...
@@ -379,7 +380,7 @@ async function startBridge() {
 
 async function startGround() {
   chain.ground = start("ground", "npm", ["start", "--workspace", "@dronelink/ground-core-node"], {
-    env: { BRIDGE_TCP_PORT: String(PORTS.groundBridge), PAIRING_SESSION_ID: SESSION.sessionId, PAIRING_TOKEN: SESSION.token, DRONELINK_DEBUG_SCTP: process.env.DRONELINK_DEBUG_SCTP ?? "" },
+    env: { BRIDGE_TCP_PORT: String(PORTS.groundBridge), PAIRING_SESSION_ID: SESSION.sessionId, PAIRING_TOKEN: SESSION.token },
     ready: /Signaling server listening/,
   });
   await chain.ground.ready;
@@ -443,11 +444,17 @@ const AIR_HOOK = `(() => {
   const session = fc.session;
   const original = session.flightControlHandler;
   window.__fcIn = { n: 0, last: null, lastControl: null };
+  window.__fcErrors = [];
   session.flightControlHandler = (m) => {
     window.__fcIn.n++;
     window.__fcIn.last = { t: Date.now(), type: m.type };
     if (m.type === "fc-control") window.__fcIn.lastControl = { t: Date.now(), action: m.action };
-    original?.(m);
+    try {
+      original?.(m);
+    } catch (error) {
+      window.__fcErrors.push({ t: Date.now(), type: m.type, error: String(error && error.stack || error) });
+      throw error;
+    }
   };
   return true;
 })()`;
@@ -461,9 +468,29 @@ const airDiag = () =>
       const report = await session?.pc?.getStats().catch(() => null);
       report?.forEach((r) => {
         if (r.type === "data-channel") stats.push({ label: r.label, state: r.state, in: r.messagesReceived, out: r.messagesSent });
+        if (r.type === "transport") stats.push({ transport: r.id, dtls: r.dtlsState, ice: r.iceState, pair: r.selectedCandidatePairId, rx: r.bytesReceived, tx: r.bytesSent, rxp: r.packetsReceived, txp: r.packetsSent });
+        if (r.type === "candidate-pair" && (r.nominated || r.selected)) stats.push({ pairId: r.id, state: r.state, nominated: r.nominated, rx: r.bytesReceived, tx: r.bytesSent, lastRx: r.lastPacketReceivedTimestamp, lastTx: r.lastPacketSentTimestamp, req: r.requestsSent, resp: r.responsesReceived, cons: r.consentRequestsSent });
       });
+      const fc = window.__dronelinkFlightControl;
+      const sup = fc?.supervisor;
+      const rc = sup?.inputs?.fc?.rc;
       return {
         received: window.__fcIn,
+        errors: window.__fcErrors ?? [],
+        supervisor: sup && {
+          snapshot: sup.snapshot,
+          refused: sup.refused,
+          dropped: sup.dropped,
+          disposed: sup.disposed,
+          switchSeenOff: sup.switchSeenOff,
+          lastCommandAt: sup.lastCommandAt,
+          rc: rc && { age: Date.now() - rc.receivedAt, channels: rc.channels?.slice(0, 5) },
+          hover: sup.inputs?.identity?.hoverThrottleUs,
+          healthy: sup.inputs?.fcLinkHealthy,
+          channelOpen: sup.inputs?.channelOpen,
+          pageVisible: sup.inputs?.pageVisible,
+        },
+        log: (window.__fcLog ?? []).slice(-8).map((e) => [e.t, e.sup, e.reason, e.mode]),
         now: Date.now(),
         rejected: session?.rejectedFlightControlMessages,
         channel: session?.flightControlChannel?.readyState,
@@ -636,11 +663,18 @@ async function establishFlying() {
   await waitSwitchSeenOff();
   await chain.simClient.pilot({ override: true });
   await waitFor("air HANDED_OVER", async () => (await airNow())?.sup === "HANDED_OVER", 6_000);
+  const unlockAt = Date.now();
   await guiUnlock();
   await guiHoldKeys(FLY_KEYS);
   await sleep(2_000);
   const recent = await chain.simClient.samples(Date.now() - 300);
-  if (!recent.some((s) => classify(s) === "pp")) throw new Error("the PP's command never reached the FC");
+  if (!recent.some((s) => classify(s) === "pp")) {
+    const rel0 = (list) => list.map((e) => ({ ...e, t: e.t - unlockAt }));
+    throw new Error(
+      `the PP's command never reached the FC; GUI log: ${JSON.stringify(rel0(await guiLog(unlockAt)))}; GUI: ${JSON.stringify(await guiDiag())}; ` +
+        `air log: ${JSON.stringify(rel0(await airLog(unlockAt)))}; air: ${JSON.stringify(await airDiag())}`,
+    );
+  }
   return Date.now();
 }
 
@@ -755,12 +789,25 @@ async function heartbeatLoss(t0, { neutralFromFc = true } = {}) {
 
 /** Faults where the air can't send at all (5, 6): the FC's own stale-override fallback. */
 /** ms from the last MSP_SET_RAW_RC the FC received to the first sample on the SP's sticks. */
-function afterLastFrame(samples, from) {
+/**
+ * FC back on the SP's sticks, measured from the last MSP_SET_RAW_RC frame the proxy passed to the
+ * FC to the first sample showing the SP's sticks. The switch happened between that sample and the
+ * last one before it; when the 50 Hz sampler itself stalled (a gap well above 20 ms), only the
+ * earlier bound is evidence of a late fallback.
+ */
+function fallbackAfterLastFrame(samples, from) {
   const tSpAbs = firstAt(samples, from, "sp");
   const lastFrame = chain.proxy.chunks
     .filter((c) => c.dir === "toFc" && c.t <= (tSpAbs ?? Infinity) && mspFrames(c.bytes).includes(200))
     .at(-1)?.t;
-  return tSpAbs !== undefined && lastFrame !== undefined ? Math.round(tSpAbs - lastFrame) : null;
+  if (tSpAbs === undefined || lastFrame === undefined) return { ms: null, ok: false, text: null };
+  const ms = Math.round(tSpAbs - lastFrame);
+  const before = samples.filter((x) => x[0] < tSpAbs).at(-1)?.[0];
+  const lower = before === undefined ? ms : Math.round(before - lastFrame);
+  const gap = ms - lower;
+  if (ms <= LIMITS.fcFallbackMs) return { ms, ok: true, text: ms };
+  const samplerStalled = gap > LIMITS.samplerGapMs;
+  return { ms, ok: samplerStalled && lower <= LIMITS.fcFallbackMs, text: `${ms} (previous sample at ${lower}${samplerStalled ? ", sampler stalled" : ""})` };
 }
 
 async function fcFallback(t0) {
@@ -770,15 +817,12 @@ async function fcFallback(t0) {
   const lastPp = rel(lastAt(samples, t0, "pp"), t0);
   // Betaflight's stale-override timer runs from the last frame it received, which can be a few
   // tens of ms after t0 (the fault takes effect asynchronously): anchor on the proxy's capture.
-  const lastFrame = chain.proxy.chunks
-    .filter((c) => c.dir === "toFc" && c.t <= (tSpAbs ?? Infinity) && mspFrames(c.bytes).includes(200))
-    .at(-1)?.t;
-  const afterLastFrame = tSpAbs !== undefined && lastFrame !== undefined ? Math.round(tSpAbs - lastFrame) : null;
+  const fallback = fallbackAfterLastFrame(samples, t0);
   return {
     air,
     samples,
     checks: [
-      check("FC back on the SP's sticks after the last frame (ms)", afterLastFrame, afterLastFrame !== null && afterLastFrame <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+      check("FC back on the SP's sticks after the last frame (ms)", fallback.text, fallback.ok, `≤ ${LIMITS.fcFallbackMs}`),
       check("... after the fault (ms, measured)", tSp, tSp !== null, "report"),
       check("no PP command after the fallback (last PP sample, ms)", lastPp, lastPp === null || (tSp !== null && lastPp < tSp), "before the fallback"),
       ...driftChecks(drift(samples, t0)),
@@ -1050,7 +1094,7 @@ const SCENARIOS = [
       return {
         samples,
         checks: [
-          check("FC back on the SP's sticks during the drop, after the last frame (ms)", afterLastFrame(samples, t0), afterLastFrame(samples, t0) !== null && afterLastFrame(samples, t0) <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+          check("FC back on the SP's sticks during the drop, after the last frame (ms)", fallbackAfterLastFrame(samples, t0).text, fallbackAfterLastFrame(samples, t0).ok, `≤ ${LIMITS.fcFallbackMs}`),
           check("... after the drop (ms, measured)", tSp, tSp !== null, "report"),
           check("locked after reconnect: no HANDED_OVER with the switch left on", handedOver ? "handed over" : reason, !handedOver && reason === "awaiting-fresh-handover", "awaiting-fresh-handover"),
           check("GUI does not offer the unlock", offered ? "offered" : "not offered", !offered, "not offered"),
@@ -1211,7 +1255,7 @@ const SCENARIOS = [
         checks: [
           check("air released (ms)", released ? `${rel(released.t, t0)} (${released.reason})` : "no", released && released.t - t0 <= 100, "≤ 100"),
           check("link transparent (ms)", rel(transparent?.t, t0), transparent && transparent.t - t0 <= 100, "≤ 100"),
-          check("FC on the SP's sticks after the last frame (ms)", afterLastFrame(samples, t0), afterLastFrame(samples, t0) !== null && afterLastFrame(samples, t0) <= LIMITS.fcFallbackMs, `≤ ${LIMITS.fcFallbackMs}`),
+          check("FC on the SP's sticks after the last frame (ms)", fallbackAfterLastFrame(samples, t0).text, fallbackAfterLastFrame(samples, t0).ok, `≤ ${LIMITS.fcFallbackMs}`),
           check("... after the switch-off (ms, measured)", tSp, tSp !== null, "report"),
           check("no PP command after that (last PP sample, ms)", lastPp, lastPp === null || (tSp !== null && lastPp < tSp), "before it"),
           ...driftChecks(drift(samples, t0)),

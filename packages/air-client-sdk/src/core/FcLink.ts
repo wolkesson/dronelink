@@ -101,6 +101,13 @@ export const TELEMETRY_COMMANDS = [
 
 /** Betaflight armingDisableFlags bit ARMING_DISABLED_RX_FAILSAFE. */
 const ARMING_DISABLED_RX_FAILSAFE = 1 << 2;
+/**
+ * An MSP_SET_RAW_RC frame not written within this long of being queued is dropped, not written
+ * late: the write ahead of it was stuck (e.g. the page was frozen), and by now the supervisor has
+ * either queued a newer frame or stopped sending (SITL drill #89, scenario 5).
+ */
+export const RC_FRAME_MAX_AGE_MS = 100;
+
 /** The four stick channels; MSP_SET_RAW_RC frames never carry AUX channels. */
 export const STICK_CHANNEL_COUNT = 4;
 
@@ -166,10 +173,11 @@ export class FcLink {
   private droppedGround = 0;
   private telemetryIndex = 0;
   private telemetryInFlight = false;
-  private rcFrame: Uint8Array | null = null;
+  private rcFrame: { bytes: Uint8Array; queuedAt: number } | null = null;
   private writeQueue: Uint8Array[] = [];
   private writing = false;
   private rcFramesWritten = 0;
+  private rcFramesExpired = 0;
   private readonly currentTelemetry: FcTelemetry = emptyTelemetry();
 
   constructor(options: FcLinkOptions) {
@@ -213,6 +221,11 @@ export class FcLink {
 
   get rcFramesSent(): number {
     return this.rcFramesWritten;
+  }
+
+  /** RC frames dropped because they waited longer than RC_FRAME_MAX_AGE_MS behind another write. */
+  get rcFramesStale(): number {
+    return this.rcFramesExpired;
   }
 
   /** Call once, after the transport has opened. */
@@ -319,7 +332,7 @@ export class FcLink {
     if (rawChannels.length !== STICK_CHANNEL_COUNT) {
       throw new RangeError(`MSP_SET_RAW_RC must carry exactly ${STICK_CHANNEL_COUNT} stick channels, got ${rawChannels.length}`);
     }
-    this.rcFrame = encodeMspRequest(MspCommand.SET_RAW_RC, encodeSetRawRc(rawChannels));
+    this.rcFrame = { bytes: encodeMspRequest(MspCommand.SET_RAW_RC, encodeSetRawRc(rawChannels)), queuedAt: this.clock.now() };
     void this.drain();
     return true;
   }
@@ -397,10 +410,15 @@ export class FcLink {
     this.writing = true;
     try {
       while (!this.closed && (this.rcFrame || this.writeQueue.length > 0)) {
-        const isRc = this.rcFrame !== null;
-        const frame = this.rcFrame ?? this.writeQueue.shift()!;
+        const rc = this.rcFrame;
+        const isRc = rc !== null;
+        const frame = rc ? rc.bytes : this.writeQueue.shift()!;
         this.rcFrame = null;
         if (isRc && this.currentMode !== "control") continue;
+        if (rc && this.clock.now() - rc.queuedAt > RC_FRAME_MAX_AGE_MS) {
+          this.rcFramesExpired++;
+          continue;
+        }
         try {
           // Marked before the write: a reply can arrive before write() resolves.
           if (this.currentMode === "control") this.unansweredSince ??= this.clock.now();

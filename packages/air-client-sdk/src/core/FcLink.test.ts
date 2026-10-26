@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MspCommand, encodeMspV1, encodeMspV2 } from "@dronelink/fc-msp";
-import { FcLink, TELEMETRY_COMMANDS, type FcLinkEvent } from "./FcLink.js";
+import { FcLink, RC_FRAME_MAX_AGE_MS, TELEMETRY_COMMANDS, type FcLinkEvent } from "./FcLink.js";
 import { FakeFc, identificationReplies, statusPayload, u16 } from "./testing/FakeFc.js";
 
 function setup(flightControlEnabled: boolean, config = {}) {
@@ -326,6 +326,32 @@ describe("FcLink control mode", () => {
     expect(rcFrames).toEqual([encodeMspV1("request", MspCommand.SET_RAW_RC, new Uint8Array([...u16(1450), ...u16(1500), ...u16(1500), ...u16(1300)]))]);
     expect(link.rcFramesSent).toBe(1);
     expect(() => link.sendRc([1500, 1500, 1500, 1500, 1000])).toThrow(RangeError);
+  });
+
+  it("drops an RC frame that waited too long behind a stuck write (page frozen)", async () => {
+    const { fc, link } = setup(true);
+    link.start();
+    await untilControl(link);
+    let release: (() => void) | null = null;
+    const write = fc.write.bind(fc);
+    fc.write = (data) => {
+      fc.write = write;
+      return new Promise<void>((resolve) => {
+        release = () => void write(data).then(resolve);
+      });
+    };
+    await vi.advanceTimersByTimeAsync(20); // a telemetry write is now stuck in flight
+    link.sendRc([1400, 1500, 1500, 1300]);
+    vi.setSystemTime(Date.now() + RC_FRAME_MAX_AGE_MS + 1); // frozen: no timers ran meanwhile
+    release!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fc.count(MspCommand.SET_RAW_RC)).toBe(0);
+    expect(link.rcFramesStale).toBe(1);
+
+    link.sendRc([1450, 1500, 1500, 1300]); // a fresh frame still goes out
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fc.count(MspCommand.SET_RAW_RC)).toBe(1);
+    expect(link.rcFramesSent).toBe(1);
   });
 
   it("does not count a failed RC write as sent", async () => {

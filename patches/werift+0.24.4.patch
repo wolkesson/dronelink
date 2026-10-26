@@ -1,8 +1,47 @@
+diff --git a/node_modules/werift/lib/ice/src/iceBase.js b/node_modules/werift/lib/ice/src/iceBase.js
+index 27670c8..d367e1e 100644
+--- a/node_modules/werift/lib/ice/src/iceBase.js
++++ b/node_modules/werift/lib/ice/src/iceBase.js
+@@ -226,12 +226,10 @@ exports.CONSENT_RESPONSE_TIMEOUT_MIN = 500;
+  * Falls back to {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+  */
+ function consentResponseTimeoutMs(rttSeconds) {
+-    if (rttSeconds === undefined ||
+-        !Number.isFinite(rttSeconds) ||
+-        rttSeconds <= 0) {
+-        return exports.CONSENT_RESPONSE_TIMEOUT;
+-    }
+-    return Math.max(exports.CONSENT_RESPONSE_TIMEOUT_MIN, Math.round(rttSeconds * 1000 * 2 + 200));
++    // DroneLink patch: a late response is still valid consent (RFC 7675). Wait until the next
++    // request is due (the shortest randomized interval) instead of 2 x RTT, which discarded every
++    // response once the RTT grew past its last measurement and expired consent on a slow link.
++    return exports.CONSENT_INTERVAL * 0.8 * 1000;
+ }
+ var CandidatePairState;
+ (function (CandidatePairState) {
 diff --git a/node_modules/werift/lib/index.mjs b/node_modules/werift/lib/index.mjs
-index bd453cf..d27d197 100644
+index bd453cf..1490e02 100644
 --- a/node_modules/werift/lib/index.mjs
 +++ b/node_modules/werift/lib/index.mjs
-@@ -13770,14 +13770,14 @@ var SCTP = class _SCTP {
+@@ -8710,13 +8710,10 @@ var CONSENT_TIMEOUT = 30;
+ var CONSENT_RESPONSE_TIMEOUT = 1e3;
+ var CONSENT_RESPONSE_TIMEOUT_MIN = 500;
+ function consentResponseTimeoutMs(rttSeconds) {
+-  if (rttSeconds === void 0 || !Number.isFinite(rttSeconds) || rttSeconds <= 0) {
+-    return CONSENT_RESPONSE_TIMEOUT;
+-  }
+-  return Math.max(
+-    CONSENT_RESPONSE_TIMEOUT_MIN,
+-    Math.round(rttSeconds * 1e3 * 2 + 200)
+-  );
++  // DroneLink patch: a late response is still valid consent (RFC 7675). Wait until the next
++  // request is due (the shortest randomized interval) instead of 2 x RTT, which discarded every
++  // response once the RTT grew past its last measurement and expired consent on a slow link.
++  return CONSENT_INTERVAL * 0.8 * 1e3;
+ }
+ var CandidatePairState = /* @__PURE__ */ ((CandidatePairState2) => {
+   CandidatePairState2[CandidatePairState2["FROZEN"] = 0] = "FROZEN";
+@@ -13770,14 +13767,14 @@ var SCTP = class _SCTP {
    }
    maybeAbandon(chunk) {
      if (chunk.abandoned) return true;
@@ -20,7 +59,7 @@ index bd453cf..d27d197 100644
          break;
        }
      }
-@@ -14238,7 +14238,7 @@ var RTCSctpTransport = class _RTCSctpTransport {
+@@ -14238,7 +14235,7 @@ var RTCSctpTransport = class _RTCSctpTransport {
            ordered: true
          });
        } else {

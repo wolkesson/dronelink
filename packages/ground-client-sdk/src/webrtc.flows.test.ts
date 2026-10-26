@@ -26,6 +26,8 @@ interface MockPeerConnection {
   onIceCandidate: FakeEvent<{ candidate: string; toJSON(): unknown } | null>;
   onTrack: FakeEvent<MediaStreamTrack>;
   onDataChannel: FakeEvent<RTCDataChannel>;
+  iceConnectionStateChange: FakeEvent<string>;
+  connectionStateChange: FakeEvent<string>;
   setRemoteDescription: ReturnType<typeof vi.fn>;
   createAnswer: ReturnType<typeof vi.fn>;
   setLocalDescription: ReturnType<typeof vi.fn>;
@@ -69,6 +71,8 @@ const {
     })();
     onTrack = new (this.onIceCandidate.constructor as new () => (typeof this)["onIceCandidate"])();
     onDataChannel = new (this.onIceCandidate.constructor as new () => (typeof this)["onIceCandidate"])();
+    iceConnectionStateChange = new (this.onIceCandidate.constructor as new () => (typeof this)["onIceCandidate"])();
+    connectionStateChange = new (this.onIceCandidate.constructor as new () => (typeof this)["onIceCandidate"])();
     setRemoteDescription = vi.fn(async () => {
       if (mockConfig.failNextSetRemoteDescription) {
         mockConfig.failNextSetRemoteDescription = false;
@@ -236,6 +240,17 @@ describe("handleSignalingMessage: fresh offer success", () => {
     pc.onIceCandidate.execute(candidate);
 
     expect(reply).toHaveBeenCalledWith({ type: "ice-candidate", candidate: { mock: true } });
+  });
+
+  it("logs the air connection's ICE and peer connection states", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    handleSignalingMessage({ type: "offer", sdp: "v=0" }, vi.fn());
+    const pc = lastPc();
+    pc.iceConnectionStateChange.execute("failed");
+    pc.connectionStateChange.execute("failed");
+    expect(logSpy).toHaveBeenCalledWith("Air ICE connection: failed");
+    expect(logSpy).toHaveBeenCalledWith("Air peer connection: failed");
+    logSpy.mockRestore();
   });
 
   it("does not relay a null ICE candidate (end-of-candidates signal)", () => {
